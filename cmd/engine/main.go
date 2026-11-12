@@ -60,7 +60,7 @@ func run(log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              ":" + env("PORT", "8080"),
-		Handler:           api.NewHandler(svc, st, st, log),
+		Handler:           api.NewHandler(svc, st, policies, st, log),
 		ReadHeaderTimeout: 2 * time.Second,
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      5 * time.Second,

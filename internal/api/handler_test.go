@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
 type fakeAuthorizer struct {
@@ -37,6 +38,17 @@ func (f fakeAudit) GetAuthorization(context.Context, string) (domain.AuditRecord
 	return f.rec, f.err
 }
 
+type fakePublisher struct {
+	err error
+	got policy.Document
+}
+
+func (f *fakePublisher) Publish(_ context.Context, doc policy.Document) (policy.Document, error) {
+	f.got = doc
+	doc.Version = 4
+	return doc, f.err
+}
+
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
@@ -45,7 +57,7 @@ const validBody = `{"authorization_id":"auth_1","card_id":"card_123","amount_min
 "merchant":{"id":"m_1","name":"ACME","mcc":"5734","country":"US"},"entry_mode":"ecommerce"}`
 
 func newTestHandler(auth Authorizer, audit AuditReader, db Pinger) http.Handler {
-	return NewHandler(auth, audit, db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewHandler(auth, audit, &fakePublisher{}, db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -199,4 +211,98 @@ func TestWrongMethodReturns405(t *testing.T) {
 	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{}), http.MethodDelete, "/v1/authorizations", "")
 
 	c.Equal(http.StatusMethodNotAllowed, w.Code)
+}
+
+const validPolicy = `{"timezone":"America/Mexico_City","controls":{"blocked_mccs":["7995"],"allowed_entry_modes":["chip"]}}`
+
+func newPolicyHandler(p PolicyPublisher) http.Handler {
+	return NewHandler(&fakeAuthorizer{}, fakeAudit{}, p, fakePinger{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func TestPublishPolicyReturnsTheNewVersion(t *testing.T) {
+	c := require.New(t)
+	pub := &fakePublisher{}
+
+	w := do(newPolicyHandler(pub), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
+
+	c.Equal(http.StatusCreated, w.Code, w.Body.String())
+	body := decode(c, w)
+	c.Equal("acme-mx", body["company_id"])
+	c.EqualValues(4, body["version"])
+	c.Equal("acme-mx", pub.got.CompanyID, "company comes from the URL")
+	c.Equal([]string{"7995"}, pub.got.Controls.BlockedMCCs)
+}
+
+func TestPublishPolicyRejectsInvalidJSON(t *testing.T) {
+	c := require.New(t)
+
+	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":`)
+
+	c.Equal(http.StatusBadRequest, w.Code)
+	c.Equal("invalid_json", decode(c, w)["error"])
+}
+
+func TestPublishPolicyRejectsABodyThatIsTooLarge(t *testing.T) {
+	c := require.New(t)
+	body := `{"pad":"` + strings.Repeat("x", maxBodyBytes) + `"}`
+
+	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", body)
+
+	c.Equal(http.StatusBadRequest, w.Code)
+	c.Equal("invalid_json", decode(c, w)["error"])
+}
+
+func TestPublishPolicyRejectsUnknownFields(t *testing.T) {
+	c := require.New(t)
+
+	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":{"blocked_mcc":["7995"]}}`)
+
+	c.Equal(http.StatusBadRequest, w.Code)
+	body := decode(c, w)
+	c.Equal("invalid_json", body["error"])
+	c.Contains(body["detail"], "blocked_mcc")
+}
+
+func TestPublishPolicyListsInvalidFields(t *testing.T) {
+	c := require.New(t)
+	pub := &fakePublisher{}
+
+	w := do(newPolicyHandler(pub), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":{"allowed_entry_modes":["chip","telepathy"]}}`)
+
+	c.Equal(http.StatusBadRequest, w.Code)
+	body := decode(c, w)
+	c.Equal("invalid_policy", body["error"])
+	fields, ok := body["fields"].(map[string]any)
+	c.True(ok, "fields must be an object: %v", body)
+	c.Equal("unknown entry mode", fields["controls.allowed_entry_modes[1]"])
+	c.Empty(pub.got.CompanyID, "an invalid policy must not be published")
+}
+
+func TestPublishPolicyRejectsAnotherCompanysID(t *testing.T) {
+	c := require.New(t)
+
+	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"company_id":"other"}`)
+
+	c.Equal(http.StatusBadRequest, w.Code)
+	fields, ok := decode(c, w)["fields"].(map[string]any)
+	c.True(ok)
+	c.Equal("must match the URL", fields["company_id"])
+}
+
+func TestPublishPolicyReturns409OnAConcurrentPublish(t *testing.T) {
+	c := require.New(t)
+
+	w := do(newPolicyHandler(&fakePublisher{err: domain.ErrConflict}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
+
+	c.Equal(http.StatusConflict, w.Code)
+	c.Equal("conflict", decode(c, w)["error"])
+}
+
+func TestPublishPolicyHidesStoreErrors(t *testing.T) {
+	c := require.New(t)
+
+	w := do(newPolicyHandler(&fakePublisher{err: errors.New("pq: disk full")}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
+
+	c.Equal(http.StatusInternalServerError, w.Code)
+	c.NotContains(w.Body.String(), "disk full")
 }

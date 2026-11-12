@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
 const maxBodyBytes = 64 << 10
@@ -22,23 +24,29 @@ type AuditReader interface {
 	GetAuthorization(ctx context.Context, id string) (domain.AuditRecord, error)
 }
 
+type PolicyPublisher interface {
+	Publish(ctx context.Context, doc policy.Document) (policy.Document, error)
+}
+
 type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
 type handler struct {
-	auth  Authorizer
-	audit AuditReader
-	db    Pinger
-	log   *slog.Logger
+	auth     Authorizer
+	audit    AuditReader
+	policies PolicyPublisher
+	db       Pinger
+	log      *slog.Logger
 }
 
-func NewHandler(auth Authorizer, audit AuditReader, db Pinger, log *slog.Logger) http.Handler {
-	h := &handler{auth: auth, audit: audit, db: db, log: log}
+func NewHandler(auth Authorizer, audit AuditReader, policies PolicyPublisher, db Pinger, log *slog.Logger) http.Handler {
+	h := &handler{auth: auth, audit: audit, policies: policies, db: db, log: log}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/authorizations", h.authorize)
 	mux.HandleFunc("GET /v1/authorizations/{id}", h.getAuthorization)
+	mux.HandleFunc("PUT /v1/companies/{id}/policy", h.publishPolicy)
 	mux.HandleFunc("GET /healthz", h.health)
 
 	return h.logRequests(mux)
@@ -94,6 +102,47 @@ func (h *handler) getAuthorization(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 	default:
 		writeJSON(w, http.StatusOK, rec)
+	}
+}
+
+// publishPolicy validates a policy document and publishes it as the company's
+// next version. The server assigns the version; a version in the body is ignored.
+func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		return
+	}
+	doc, err := policy.Parse(body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		return
+	}
+
+	companyID := r.PathValue("id")
+	if doc.CompanyID != "" && doc.CompanyID != companyID {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "invalid_policy", "fields": map[string]string{"company_id": "must match the URL"},
+		})
+		return
+	}
+	doc.CompanyID = companyID
+
+	if errs := doc.Validate(); len(errs) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_policy", "fields": errs})
+		return
+	}
+
+	published, err := h.policies.Publish(r.Context(), doc)
+	switch {
+	case errors.Is(err, domain.ErrConflict):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "conflict", "detail": "another version was published at the same time; retry"})
+	case err != nil:
+		h.log.Error("publish policy failed", "company_id", companyID, "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+	default:
+		h.log.Info("policy published", "company_id", companyID, "version", published.Version)
+		writeJSON(w, http.StatusCreated, map[string]any{"company_id": companyID, "version": published.Version})
 	}
 }
 
