@@ -19,6 +19,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/controls"
 	"github.com/bescobarm/card-auth-engine/internal/domain"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 	"github.com/bescobarm/card-auth-engine/internal/store"
 	"github.com/bescobarm/card-auth-engine/migrations"
 )
@@ -75,7 +76,7 @@ func request(id, card string) domain.AuthRequest {
 }
 
 func newService(st *store.Store) *authz.Service {
-	return authz.NewService(st, st, st, pipeline.New(controls.CardStatus{}))
+	return authz.NewService(st, st, policy.NewCache(st), pipeline.New(controls.Hard()...))
 }
 
 func TestMigrateIsIdempotent(t *testing.T) {
@@ -108,24 +109,154 @@ func TestGetCardReturnsNotFoundForAnUnknownCard(t *testing.T) {
 	c.ErrorIs(err, domain.ErrNotFound)
 }
 
-func TestLatestPolicyVersionReturnsTheSeededVersion(t *testing.T) {
+func TestGetCardReturnsTheOverrides(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
 
-	v, err := st.LatestPolicyVersion(context.Background(), "acme-mx")
+	card, err := st.GetCard(context.Background(), "card_exec")
+
+	c.NoError(err)
+	c.JSONEq(`{"max_per_transaction": {"amount_minor": 100000, "currency": "USD"}}`, string(card.Overrides))
+}
+
+func TestLatestPolicyReturnsTheSeededPolicy(t *testing.T) {
+	c := require.New(t)
+	st, _ := newTestStore(t, 0)
+
+	doc, err := st.LatestPolicy(context.Background(), "acme-mx")
+
+	c.NoError(err)
+	c.Equal(1, doc.Version)
+	c.Equal("America/Mexico_City", doc.Location().String())
+	c.Equal([]string{"7995", "5933"}, doc.Controls.BlockedMCCs)
+}
+
+func TestLatestPolicyIsNotFoundForAnUnknownCompany(t *testing.T) {
+	c := require.New(t)
+	st, _ := newTestStore(t, 0)
+
+	_, err := st.LatestPolicy(context.Background(), "nobody")
+
+	c.ErrorIs(err, domain.ErrNotFound)
+}
+
+func TestPublishPolicyStoresTheNextVersion(t *testing.T) {
+	c := require.New(t)
+	st, _ := newTestStore(t, 0)
+	ctx := context.Background()
+
+	v, err := st.PublishPolicy(ctx, policy.Document{CompanyID: "acme-mx", Version: 99})
+	c.NoError(err)
+	latest, err := st.LatestPolicy(ctx, "acme-mx")
+
+	c.NoError(err)
+	c.Equal(2, v, "the server assigns the version; 99 is ignored")
+	c.Equal(2, latest.Version, "the stored document carries its version")
+}
+
+func TestPublishPolicyStartsAtVersionOne(t *testing.T) {
+	c := require.New(t)
+	st, _ := newTestStore(t, 0)
+
+	v, err := st.PublishPolicy(context.Background(), policy.Document{CompanyID: "new-co"})
 
 	c.NoError(err)
 	c.Equal(1, v)
 }
 
-func TestLatestPolicyVersionIsZeroForAnUnknownCompany(t *testing.T) {
+// Another transaction inserts version 2 and holds it uncommitted. PublishPolicy
+// also computes version 2, waits on the primary key, and fails once the other
+// transaction commits.
+func TestConcurrentPublishReturnsConflict(t *testing.T) {
+	c := require.New(t)
+	st, pool := newTestStore(t, 0)
+	ctx := context.Background()
+	other, err := pool.Begin(ctx)
+	c.NoError(err)
+	defer other.Rollback(ctx) //nolint:errcheck
+	_, err = other.Exec(ctx, `INSERT INTO policies (company_id, version, document) VALUES ('acme-mx', 2, '{"company_id":"acme-mx","version":2}')`)
+	c.NoError(err)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := st.PublishPolicy(ctx, policy.Document{CompanyID: "acme-mx"})
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond) // let PublishPolicy reach the lock
+	c.NoError(other.Commit(ctx))
+
+	c.ErrorIs(<-done, domain.ErrConflict)
+}
+
+func TestPublishedPolicyAppliesToNewDecisionsOnly(t *testing.T) {
+	c := require.New(t)
+	st, pool := newTestStore(t, 0)
+	ctx := context.Background()
+	cache := policy.NewCache(st)
+	svc := authz.NewService(st, st, cache, pipeline.New(controls.Hard()...))
+
+	before, _, err := svc.Authorize(ctx, request("auth_v1", "card_123"))
+	c.NoError(err)
+	stricter := policy.Document{CompanyID: "acme-mx", Controls: policy.Controls{BlockedMCCs: []string{"5734"}}}
+	c.Empty(stricter.Validate())
+	_, err = cache.Publish(ctx, stricter)
+	c.NoError(err)
+	after, _, err := svc.Authorize(ctx, request("auth_v2", "card_123"))
+	c.NoError(err)
+
+	c.Equal(domain.Approve, before.Decision)
+	c.Equal(1, before.PolicyVersion)
+	c.Equal(domain.Decline, after.Decision)
+	c.Equal(domain.ReasonMCCBlocked, after.Reasons[0].Code)
+	c.Equal(2, after.PolicyVersion)
+	var oldVersion int
+	c.NoError(pool.QueryRow(ctx, `SELECT policy_version FROM authorizations WHERE authorization_id = 'auth_v1'`).Scan(&oldVersion))
+	c.Equal(1, oldVersion, "old audit rows keep the version they used")
+}
+
+func TestGamblingMCCIsDeclined(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
+	req := request("auth_gambling", "card_123")
+	req.Merchant.MCC = "7995"
 
-	v, err := st.LatestPolicyVersion(context.Background(), "nobody")
+	resp, _, err := newService(st).Authorize(context.Background(), req)
 
 	c.NoError(err)
-	c.Zero(v)
+	c.Equal(domain.Decline, resp.Decision)
+	c.Equal([]domain.Reason{{Code: domain.ReasonMCCBlocked, Message: "Merchant category 7995 is blocked"}}, resp.Reasons)
+}
+
+func TestCardOverrideRaisesTheTransactionLimit(t *testing.T) {
+	c := require.New(t)
+	st, _ := newTestStore(t, 0)
+	svc := newService(st)
+	exec := request("auth_exec", "card_exec")
+	exec.AmountMinor = 80000
+	regular := request("auth_regular", "card_123")
+	regular.AmountMinor = 80000
+
+	execResp, _, err := svc.Authorize(context.Background(), exec)
+	c.NoError(err)
+	regularResp, _, err := svc.Authorize(context.Background(), regular)
+	c.NoError(err)
+
+	c.Equal(domain.Approve, execResp.Decision)
+	c.Equal(domain.Decline, regularResp.Decision)
+	c.Equal(domain.ReasonOverTransactionLimit, regularResp.Reasons[0].Code)
+}
+
+func TestPurchaseAtNightIsDeclined(t *testing.T) {
+	c := require.New(t)
+	st, _ := newTestStore(t, 0)
+	req := request("auth_night", "card_123")
+	req.CreatedAt = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC) // 03:00 in Mexico City
+
+	resp, _, err := newService(st).Authorize(context.Background(), req)
+
+	c.NoError(err)
+	c.Equal(domain.Decline, resp.Decision)
+	c.Equal(domain.ReasonOutsideAllowedHours, resp.Reasons[0].Code)
 }
 
 func TestAuthorizeRecordsAuditAndOutbox(t *testing.T) {
@@ -212,7 +343,7 @@ func TestConcurrentDuplicatesAreDecidedOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var evaluations atomic.Int32
-	svc := authz.NewService(st, st, st, pipeline.New(countingStage{&evaluations}, controls.CardStatus{}))
+	svc := authz.NewService(st, st, policy.NewCache(st), pipeline.New(countingStage{&evaluations}, controls.CardStatus{}))
 
 	const n = 20
 	var wg sync.WaitGroup

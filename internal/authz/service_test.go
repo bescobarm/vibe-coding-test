@@ -10,6 +10,7 @@ import (
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
 type fakeRecorder struct {
@@ -34,12 +35,22 @@ type fakeCards struct {
 func (f fakeCards) GetCard(context.Context, string) (domain.Card, error) { return f.card, f.err }
 
 type fakePolicies struct {
-	version int
-	err     error
+	doc policy.Document
+	err error
 }
 
-func (f fakePolicies) LatestPolicyVersion(context.Context, string) (int, error) {
-	return f.version, f.err
+func (f fakePolicies) Policy(context.Context, string) (policy.Document, error) {
+	return f.doc, f.err
+}
+
+// captureStage records the evaluation it sees, so tests can check what was loaded.
+type captureStage struct{ got *pipeline.Evaluation }
+
+func (captureStage) Name() string { return "capture" }
+
+func (s captureStage) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
+	*s.got = *e
+	return nil
 }
 
 type failingStage struct{ err error }
@@ -82,7 +93,7 @@ func steppingClock() func() time.Time {
 func TestAuthorizeApproves(t *testing.T) {
 	c := require.New(t)
 	var seen bool
-	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{version: 3}, pipeline.New(cardFoundStage{&seen}))
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{doc: policy.Document{Version: 3}}, pipeline.New(cardFoundStage{&seen}))
 	svc.now = steppingClock()
 
 	resp, replayed, err := svc.Authorize(context.Background(), req())
@@ -149,10 +160,81 @@ func TestAuthorizeFailsWhenPolicyLookupFails(t *testing.T) {
 func TestAuthorizeFailsWhenAStageFails(t *testing.T) {
 	c := require.New(t)
 	rec := &fakeRecorder{}
-	svc := NewService(rec, fakeCards{card: activeCard}, fakePolicies{version: 1}, pipeline.New(failingStage{errBoom}))
+	svc := NewService(rec, fakeCards{card: activeCard}, fakePolicies{doc: policy.Document{Version: 1}}, pipeline.New(failingStage{errBoom}))
 
 	_, _, err := svc.Authorize(context.Background(), req())
 
 	c.ErrorIs(err, errBoom)
 	c.Equal(1, rec.decided)
+}
+
+func TestAuthorizeWithoutCompanyPolicyRecordsVersionZero(t *testing.T) {
+	c := require.New(t)
+	var got pipeline.Evaluation
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{err: domain.ErrNotFound}, pipeline.New(captureStage{&got}))
+
+	resp, _, err := svc.Authorize(context.Background(), req())
+
+	c.NoError(err)
+	c.Equal(domain.Approve, resp.Decision)
+	c.Zero(resp.PolicyVersion)
+	c.Equal(policy.Controls{}, got.Controls)
+}
+
+func TestAuthorizeAppliesCardOverrides(t *testing.T) {
+	c := require.New(t)
+	var got pipeline.Evaluation
+	card := activeCard
+	card.Overrides = []byte(`{"max_per_transaction": {"amount_minor": 100000, "currency": "USD"}}`)
+	company := policy.Document{Version: 2, Controls: policy.Controls{
+		BlockedMCCs:       []string{"7995"},
+		MaxPerTransaction: &policy.Money{AmountMinor: 50000, Currency: "USD"},
+	}}
+	svc := NewService(&fakeRecorder{}, fakeCards{card: card}, fakePolicies{doc: company}, pipeline.New(captureStage{&got}))
+
+	_, _, err := svc.Authorize(context.Background(), req())
+
+	c.NoError(err)
+	c.Equal(int64(100000), got.Controls.MaxPerTransaction.AmountMinor)
+	c.Equal([]string{"7995"}, got.Controls.BlockedMCCs)
+	c.Equal(2, got.PolicyVersion)
+}
+
+func TestAuthorizeFailsOnInvalidCardOverrides(t *testing.T) {
+	c := require.New(t)
+	rec := &fakeRecorder{}
+	card := activeCard
+	card.Overrides = []byte(`{"blocked_mcc": ["7995"]}`)
+	svc := NewService(rec, fakeCards{card: card}, fakePolicies{}, pipeline.New(failingStage{}))
+
+	_, _, err := svc.Authorize(context.Background(), req())
+
+	c.ErrorContains(err, "card card_123")
+	c.Zero(rec.decided, "nothing must be claimed when loading fails")
+}
+
+func TestAuthorizeUsesTheRequestTime(t *testing.T) {
+	c := require.New(t)
+	var got pipeline.Evaluation
+	r := req()
+	r.CreatedAt = time.Date(2026, 11, 12, 3, 0, 0, 0, time.UTC)
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New(captureStage{&got}))
+	svc.now = steppingClock()
+
+	_, _, err := svc.Authorize(context.Background(), r)
+
+	c.NoError(err)
+	c.Equal(r.CreatedAt, got.Now)
+}
+
+func TestAuthorizeFallsBackToTheEngineClock(t *testing.T) {
+	c := require.New(t)
+	var got pipeline.Evaluation
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New(captureStage{&got}))
+	svc.now = steppingClock()
+
+	_, _, err := svc.Authorize(context.Background(), req())
+
+	c.NoError(err)
+	c.Equal(time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC), got.Now)
 }

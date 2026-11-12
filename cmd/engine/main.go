@@ -17,6 +17,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/authz"
 	"github.com/bescobarm/card-auth-engine/internal/controls"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 	"github.com/bescobarm/card-auth-engine/internal/store"
 	"github.com/bescobarm/card-auth-engine/migrations"
 )
@@ -51,11 +52,11 @@ func run(log *slog.Logger) error {
 		}
 	}
 
-	pl := pipeline.New(
-		controls.CardStatus{},
-		// SP02: hard controls · SP03: velocity and budget · SP04: anomaly score
-	)
-	svc := authz.NewService(st, st, st, pl)
+	policies := policy.NewCache(st)
+
+	// SP03: velocity and budget · SP04: anomaly score go after the hard controls.
+	pl := pipeline.New(controls.Hard()...)
+	svc := authz.NewService(st, st, policies, pl)
 
 	srv := &http.Server{
 		Addr:              ":" + env("PORT", "8080"),
@@ -88,6 +89,6 @@ func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	
+
 	return def
 }
