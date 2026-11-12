@@ -5,8 +5,10 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
 // Stage is one step of the decision. It reads and updates the Evaluation.
@@ -22,7 +24,10 @@ type Evaluation struct {
 	Request       domain.AuthRequest
 	Card          domain.Card
 	CardFound     bool
+	Policy        policy.Document
+	Controls      policy.Controls // company controls with the card's overrides applied
 	PolicyVersion int
+	Now           time.Time // transaction time: the request's created_at, or the engine clock
 	RiskScore     int
 
 	decision domain.Decision
