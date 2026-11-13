@@ -72,6 +72,8 @@ make cover               # test coverage per package (target: 80% on changed fil
 make load                # optional, needs k6: p50/p95/p99 latency
 ```
 
+For a short step-by-step test of what is built so far, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
 ### Try a single authorization
 
 ```bash
