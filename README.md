@@ -568,7 +568,7 @@ CREATE TABLE outbox (
 **Redis keys:**
 - `vel:{card_id}:{rule_id}`: sorted set of `authorization_id` → timestamp, for rolling windows.
 - `spend:{card_id}:{day|month}`: reserved + captured amount.
-- `hold:{authorization_id}`: reserved amount, released on reversal or expiry.
+- `hold:{card_id}:{authorization_id}`: reserved amount and applied `event_id`s, released on reversal or expiry.
 
 ### Example policy document
 
@@ -638,10 +638,10 @@ Response:
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `POST` | `/v1/authorizations/{id}/increment` | Incremental auth (hotel, car rental): raise the hold |
-| `POST` | `/v1/authorizations/{id}/reversal` | Release the hold (full or partial) |
+| `POST` | `/v1/authorizations/{id}/reversal` | Release the hold (full or partial). Body: `{"event_id", "amount_minor"?}`; repeats of an `event_id` replay (D-050) |
 | `POST` | `/v1/authorizations/{id}/capture` | Mark as captured (final amount may differ) |
 | `POST` | `/v1/authorizations/{id}/refund` | Refund after capture, restores budget |
-| `POST` | `/v1/authorizations/{id}/expire` | Release the hold on expiry |
+| `POST` | `/v1/authorizations/{id}/expire` | Release the hold on expiry. Body: `{"event_id"}` |
 | `PUT` | `/v1/companies/{id}/policy` | Publish a new policy version (validated) |
 | `GET` | `/v1/authorizations/{id}` | Full audit record, including the explanation once ready |
 | `GET` | `/v1/metrics` | Approval rate, decline reasons, latency percentiles |

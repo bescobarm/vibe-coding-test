@@ -50,6 +50,30 @@ auth() {
 | h | `for i in 1 2 3 4 5 6; do auth v$i card_456 300 5734; done` | 5 × `APPROVE`, then `DECLINE` `VELOCITY_EXCEEDED` (card testing: at most 5 charges ≤ 500 in 10 min) |
 | i | `for i in 1 2 3 4; do auth b$i card_456 50000 5734; done` | 3 × `APPROVE`, then `DECLINE` `OVER_DAILY_LIMIT` (1500 + 150000 + 50000 > 200000 USD per day) |
 
+## 4b. Reversal and expiry
+
+Run after 4i (card_456 has used its daily budget).
+
+```bash
+ev() { curl -s -X POST localhost:8080/v1/authorizations/$1/$2 -d "$3" | jq -c .; }
+ev b1 reversal '{"event_id": "r1", "amount_minor": 20000}'
+ev b1 reversal '{"event_id": "r1", "amount_minor": 20000}'
+ev b1 reversal '{"event_id": "r1", "amount_minor": 5000}'
+ev b2 expire '{"event_id": "x1"}'
+auth b5 card_456 50000 5734
+ev b4 reversal '{"event_id": "r2"}'
+```
+
+Expect, in order:
+1. `held_minor: 30000`, status `pending` (partial reversal).
+2. The same answer again: the event is applied once ([D-050](DECISIONS.md#d-050-lifecycle-calls-carry-an-event_id)).
+3. `event_id was already used for a different event` (409).
+4. Status `expired`, `released_minor: 50000`.
+5. `APPROVE`: the released budget is available again.
+6. `authorization was declined, nothing is held` (409).
+
+Reversed small charges still count for card testing ([D-051](DECISIONS.md#d-051-reversal-releases-the-amount-but-keeps-the-count)).
+
 ## 5. Publish a new policy version
 
 ```bash

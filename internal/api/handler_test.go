@@ -57,7 +57,7 @@ const validBody = `{"authorization_id":"auth_1","card_id":"card_123","amount_min
 "merchant":{"id":"m_1","name":"ACME","mcc":"5734","country":"US"},"entry_mode":"ecommerce"}`
 
 func newTestHandler(auth Authorizer, audit AuditReader, db Pinger) http.Handler {
-	return NewHandler(auth, audit, &fakePublisher{}, db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewHandler(Deps{Auth: auth, Audit: audit, Policies: &fakePublisher{}, DB: db}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -221,7 +221,7 @@ func TestWrongMethodReturns405(t *testing.T) {
 const validPolicy = `{"timezone":"America/Mexico_City","controls":{"blocked_mccs":["7995"],"allowed_entry_modes":["chip"]}}`
 
 func newPolicyHandler(p PolicyPublisher) http.Handler {
-	return NewHandler(&fakeAuthorizer{}, fakeAudit{}, p, fakePinger{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewHandler(Deps{Auth: &fakeAuthorizer{}, Audit: fakeAudit{}, Policies: p, DB: fakePinger{}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestPublishPolicyReturnsTheNewVersion(t *testing.T) {

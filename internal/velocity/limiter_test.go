@@ -11,6 +11,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 )
 
 const testTimeout = 2 * time.Second
@@ -206,4 +208,78 @@ func TestReserveRejectsAnUnexpectedReply(t *testing.T) {
 		Windows: []Window{window("count", 1, NoLimit)}})
 
 	c.ErrorIs(err, ErrUnexpectedReply)
+}
+
+func release(c *require.Assertions, l *Limiter, card, id, event string, amount int64) {
+	c.NoError(l.Release(context.Background(), lifecycle.Release{CardID: card, AuthorizationID: id, EventID: event, AmountMinor: amount}))
+}
+
+// D-051: a full release frees the budget, but the authorization still counts.
+func TestReleaseFreesTheAmountButKeepsTheCount(t *testing.T) {
+	c := require.New(t)
+	l, rdb, card := newTestLimiter(t)
+	count, daily := window("count", 5, NoLimit), window("daily", NoLimit, 500)
+	reserve(c, l, card, "a1", 400, count, daily)
+
+	release(c, l, card, "a1", "e1", 400)
+
+	c.Zero(rdb.HLen(context.Background(), "vel:{"+card+"}:daily:amt").Val())
+	c.Equal(int64(1), rdb.ZCard(context.Background(), "vel:{"+card+"}:count:ts").Val())
+	c.Equal("0", rdb.HGet(context.Background(), "hold:{"+card+"}:a1", "amount").Val())
+	c.True(reserve(c, l, card, "a2", 450, count, daily).Reserved, "AC2: the released budget is available again")
+}
+
+func TestPartialReleaseLowersTheHeldAmount(t *testing.T) {
+	c := require.New(t)
+	l, rdb, card := newTestLimiter(t)
+	daily := window("daily", NoLimit, 500)
+	reserve(c, l, card, "a1", 400, daily)
+
+	release(c, l, card, "a1", "e1", 150)
+
+	c.Equal("250", rdb.HGet(context.Background(), "vel:{"+card+"}:daily:amt", "a1").Val())
+	c.Equal(int64(250), reserve(c, l, card, "a2", 300, daily).SpentMinor)
+}
+
+func TestReleaseAppliesAnEventOnlyOnce(t *testing.T) {
+	c := require.New(t)
+	l, rdb, card := newTestLimiter(t)
+	reserve(c, l, card, "a1", 400, window("daily", NoLimit, 1000))
+
+	release(c, l, card, "a1", "e1", 100)
+	release(c, l, card, "a1", "e1", 100)
+
+	c.Equal("300", rdb.HGet(context.Background(), "hold:{"+card+"}:a1", "amount").Val())
+}
+
+func TestReleaseWithoutAHoldDoesNothing(t *testing.T) {
+	c := require.New(t)
+	l, rdb, card := newTestLimiter(t)
+
+	release(c, l, card, "never-reserved", "e1", 100)
+
+	c.Zero(rdb.Exists(context.Background(), "hold:{"+card+"}:never-reserved").Val())
+}
+
+func TestReleaseDoesNotBringBackAnEntryThatLeftTheWindow(t *testing.T) {
+	c := require.New(t)
+	l, rdb, card := newTestLimiter(t)
+	ctx := context.Background()
+	reserve(c, l, card, "a1", 400, window("daily", NoLimit, 1000))
+	rdb.HDel(ctx, "vel:{"+card+"}:daily:amt", "a1")
+
+	release(c, l, card, "a1", "e1", 100)
+
+	c.False(rdb.HExists(ctx, "vel:{"+card+"}:daily:amt", "a1").Val())
+}
+
+func TestReleaseFailsFastWhenRedisIsUnreachable(t *testing.T) {
+	c := require.New(t)
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	err := NewLimiter(rdb, 50*time.Millisecond).Release(context.Background(),
+		lifecycle.Release{CardID: "card_x", AuthorizationID: "a1", EventID: "e1", AmountMinor: 1})
+
+	c.ErrorContains(err, "release")
 }

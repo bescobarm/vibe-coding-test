@@ -72,7 +72,7 @@ One atomic Redis Lua script per card checks rolling velocity windows and daily/m
 
 ## Part 3: Suggested breakdown
 1. ✅ Reserve script + concurrency test (AC1): typed rules, Lua reserve, velocity stage, 100-parallel test end to end (2026-11-13).
-2. Reversal/expiry (release) + `event_id` table + AC2, AC4, AC7.
+2. ✅ Reversal/expiry (release) + `event_id` table + AC2, AC4, AC7 (2026-11-13). `held_minor` tracks the hold; `approved_minor` keeps the decision.
 3. Increment + capture + refund (adjust) + AC3.
 4. Rebuild from Postgres + AC5. First to move to next steps if the day runs short, then refund.
 5. `/check-tests -cov 80`.

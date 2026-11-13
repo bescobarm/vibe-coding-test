@@ -19,6 +19,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/api"
 	"github.com/bescobarm/card-auth-engine/internal/authz"
 	"github.com/bescobarm/card-auth-engine/internal/controls"
+	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 	"github.com/bescobarm/card-auth-engine/internal/store"
@@ -88,13 +89,15 @@ func run(log *slog.Logger) error {
 	defer rdb.Close() //nolint:errcheck // nothing to do on shutdown
 
 	// SP04: the anomaly score goes after velocity.
-	stages := append(controls.Hard(), velocity.NewStage(velocity.NewLimiter(rdb, redisTimeout)))
+	limiter := velocity.NewLimiter(rdb, redisTimeout)
+	stages := append(controls.Hard(), velocity.NewStage(limiter))
 	pl := pipeline.New(stages...)
 	svc := authz.NewService(st, st, policies, pl)
+	events := lifecycle.NewService(st, limiter)
 
 	srv := &http.Server{
 		Addr:              ":" + env("PORT", defaultPort),
-		Handler:           api.NewHandler(svc, st, policies, st, log),
+		Handler:           api.NewHandler(api.Deps{Auth: svc, Audit: st, Policies: policies, Lifecycle: events, DB: st}, log),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,

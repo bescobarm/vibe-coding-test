@@ -19,6 +19,8 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-011](#i-011-a-policy-stored-before-a-schema-change-becomes-invalid) | 2026-11-13 | Data | ✅ (workaround) |
 | [I-012](#i-012-redis-down-returns-500-until-the-fallback-exists) | 2026-11-13 | Reliability | 🟠 |
 | [I-013](#i-013-the-stage-name-appeared-twice-in-error-logs) | 2026-11-13 | Observability | ✅ |
+| [I-014](#i-014-one-event_id-on-two-authorizations-could-release-twice) | 2026-11-13 | Concurrency | ✅ |
+| [I-015](#i-015-a-live-check-ran-before-the-engine-was-ready) | 2026-11-13 | Tooling | ✅ |
 
 ---
 
@@ -77,4 +79,12 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-013: The stage name appeared twice in error logs
 - **Found:** the same live check logged `stage velocity: velocity: reserve: ...`. The pipeline already adds the stage name.
 - **Fix:** the velocity stage returns the reserve error unwrapped.
+
+### I-014: One event_id on two authorizations could release twice
+- **Found:** designing `ApplyEvent`, before writing it. The first plan locked the authorization row, checked the `event_id`, released in Redis, then inserted the event. Two calls with the same `event_id` on **different** authorizations lock different rows, so both would release in Redis before the second insert failed on the primary key.
+- **Fix:** claim the `event_id` first with `INSERT ... ON CONFLICT DO NOTHING`, the same pattern as `Decide`. The second call waits on the unique index and gets a replay or a conflict before touching Redis. Covered by `TestConcurrentCopiesOfAnEventApplyOnce` and `TestEventIDReusedForAnotherCallIsAConflict`.
+
+### I-015: A live check ran before the engine was ready
+- **Found:** the first live run of reversal and expiry printed nothing: the readiness loop polled `/healthz` with no pause, gave up in milliseconds, and the requests reached a port that wasn't listening yet.
+- **Fix:** reran once `/healthz` answered. Lesson for the SP06 simulator and load scripts: wait for `/healthz` with a pause and a timeout, and fail loudly instead of continuing.
 

@@ -15,16 +15,14 @@ import (
 
 	"github.com/bescobarm/card-auth-engine/internal/authz"
 	"github.com/bescobarm/card-auth-engine/internal/domain"
+	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
 const (
 	topicDecided    = "authorization.decided"
+	topicLifecycle  = "authorization.lifecycle"
 	uniqueViolation = "23505" // Postgres SQLSTATE
-
-	// Authorization statuses: an approval places a hold, a decline is final.
-	statusPending  = "pending"
-	statusDeclined = "declined"
 )
 
 //go:embed seed_demo.sql
@@ -114,7 +112,7 @@ const (
 
 const recordSQL = `
 UPDATE authorizations
-SET decision = $2, approved_minor = $3, status = $4, risk_score = $5, reasons = $6,
+SET decision = $2, approved_minor = $3, held_minor = $3, status = $4, risk_score = $5, reasons = $6,
     policy_version = $7, fallback_used = $8, latency_ms = $9, response = $10, updated_at = now()
 WHERE authorization_id = $1`
 
@@ -149,9 +147,9 @@ func (s *Store) Decide(ctx context.Context, req domain.AuthRequest, decide authz
 		return domain.AuthResponse{}, false, err
 	}
 
-	status := statusPending
+	status := lifecycle.StatusPending
 	if resp.Decision == domain.Decline {
-		status = statusDeclined
+		status = lifecycle.StatusDeclined
 	}
 
 	_, err = tx.Exec(ctx, recordSQL,
@@ -211,4 +209,113 @@ func (s *Store) GetAuthorization(ctx context.Context, id string) (domain.AuditRe
 
 	rec.Request, rec.Response, rec.Explanation = request, resp, explain
 	return rec, nil
+}
+
+
+const (
+	lockHoldSQL = `SELECT authorization_id, card_id, status, held_minor
+		FROM authorizations WHERE authorization_id = $1 FOR UPDATE`
+	claimEventSQL = `INSERT INTO lifecycle_events (event_id, authorization_id, type, amount_minor, response)
+		VALUES ($1, $2, $3, $4, '{}') ON CONFLICT (event_id) DO NOTHING`
+	storedEventSQL = `SELECT authorization_id, type, amount_minor, response FROM lifecycle_events WHERE event_id = $1`
+	recordEventSQL = `UPDATE lifecycle_events SET response = $2 WHERE event_id = $1`
+	updateHoldSQL  = `UPDATE authorizations SET status = $2, held_minor = $3, updated_at = now() WHERE authorization_id = $1`
+)
+
+// ApplyEvent implements lifecycle.Store.
+//
+// The authorization row is locked first, so events on one authorization run
+// one at a time. The event_id is claimed like an authorization_id in Decide:
+// a concurrent call with the same event_id waits on the unique index, then
+// replays the stored result, before anything reaches Redis.
+func (s *Store) ApplyEvent(ctx context.Context, ev lifecycle.Event, apply lifecycle.ApplyFunc) (lifecycle.Result, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return lifecycle.Result{}, false, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	var h lifecycle.Hold
+
+	err = tx.QueryRow(ctx, lockHoldSQL, ev.AuthorizationID).Scan(&h.AuthorizationID, &h.CardID, &h.Status, &h.HeldMinor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return lifecycle.Result{}, false, domain.ErrNotFound
+	}
+
+	if err != nil {
+		return lifecycle.Result{}, false, fmt.Errorf("lock authorization: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, claimEventSQL, ev.ID, ev.AuthorizationID, ev.Type, ev.AmountMinor)
+	if err != nil {
+		return lifecycle.Result{}, false, fmt.Errorf("claim event: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		_ = tx.Rollback(ctx)
+		res, err := s.storedEvent(ctx, ev)
+		return res, true, err
+	}
+
+	res, err := apply(ctx, h)
+	if err != nil {
+		return lifecycle.Result{}, false, err
+	}
+
+	err = recordEvent(ctx, tx, res)
+	if err != nil {
+		return lifecycle.Result{}, false, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return lifecycle.Result{}, false, fmt.Errorf("commit: %w", err)
+	}
+
+	return res, false, nil
+}
+
+func recordEvent(ctx context.Context, tx pgx.Tx, res lifecycle.Result) error {
+	_, err := tx.Exec(ctx, recordEventSQL, res.EventID, res)
+	if err != nil {
+		return fmt.Errorf("record event: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, updateHoldSQL, res.AuthorizationID, res.Status, res.HeldMinor)
+	if err != nil {
+		return fmt.Errorf("update hold: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, outboxSQL, topicLifecycle, res)
+	if err != nil {
+		return fmt.Errorf("outbox: %w", err)
+	}
+
+	return nil
+}
+
+// storedEvent replays a known event_id, or reports ErrEventConflict when the
+// same event_id was used for a different call.
+func (s *Store) storedEvent(ctx context.Context, ev lifecycle.Event) (lifecycle.Result, error) {
+	stored := lifecycle.Event{ID: ev.ID}
+
+	var raw []byte
+
+	err := s.pool.QueryRow(ctx, storedEventSQL, ev.ID).Scan(&stored.AuthorizationID, &stored.Type, &stored.AmountMinor, &raw)
+	if err != nil {
+		return lifecycle.Result{}, fmt.Errorf("load stored event: %w", err)
+	}
+
+	if !stored.Same(ev) {
+		return lifecycle.Result{}, lifecycle.ErrEventConflict
+	}
+
+	var res lifecycle.Result
+
+	err = json.Unmarshal(raw, &res)
+	if err != nil {
+		return lifecycle.Result{}, fmt.Errorf("decode stored event: %w", err)
+	}
+
+	return res, nil
 }

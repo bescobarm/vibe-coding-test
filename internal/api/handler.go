@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
+	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
@@ -76,21 +77,35 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
+// LifecycleApplier applies a reversal or expiry; the bool reports an idempotent replay.
+type LifecycleApplier interface {
+	Apply(ctx context.Context, ev lifecycle.Event) (lifecycle.Result, bool, error)
+}
+
+// Deps are the services behind the routes.
+type Deps struct {
+	Auth      Authorizer
+	Audit     AuditReader
+	Policies  PolicyPublisher
+	Lifecycle LifecycleApplier
+	DB        Pinger
+}
+
 type handler struct {
-	auth     Authorizer
-	audit    AuditReader
-	policies PolicyPublisher
-	db       Pinger
-	log      *slog.Logger
+	Deps
+
+	log *slog.Logger
 }
 
 // NewHandler returns the engine's HTTP routes.
-func NewHandler(auth Authorizer, audit AuditReader, policies PolicyPublisher, db Pinger, log *slog.Logger) http.Handler {
-	h := &handler{auth: auth, audit: audit, policies: policies, db: db, log: log}
+func NewHandler(d Deps, log *slog.Logger) http.Handler {
+	h := &handler{Deps: d, log: log}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/authorizations", h.authorize)
 	mux.HandleFunc("GET /v1/authorizations/{id}", h.getAuthorization)
+	mux.HandleFunc("POST /v1/authorizations/{id}/reversal", h.lifecycleEvent(lifecycle.TypeReversal))
+	mux.HandleFunc("POST /v1/authorizations/{id}/expire", h.lifecycleEvent(lifecycle.TypeExpiry))
 	mux.HandleFunc("PUT /v1/companies/{id}/policy", h.publishPolicy)
 	mux.HandleFunc("GET /healthz", h.health)
 
@@ -112,7 +127,7 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, replayed, err := h.auth.Authorize(r.Context(), req)
+	resp, replayed, err := h.Auth.Authorize(r.Context(), req)
 	if err != nil {
 		h.log.Error(errAuthorizeFailed.Error(), "authorization_id", req.AuthorizationID, "err", err)
 		h.writeError(w, http.StatusInternalServerError, errAuthorizeFailed)
@@ -137,7 +152,7 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) getAuthorization(w http.ResponseWriter, r *http.Request) {
-	rec, err := h.audit.GetAuthorization(r.Context(), r.PathValue(pathID))
+	rec, err := h.Audit.GetAuthorization(r.Context(), r.PathValue(pathID))
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		h.writeError(w, http.StatusNotFound, errAuthorizationNotFound)
@@ -177,7 +192,7 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	published, err := h.policies.Publish(r.Context(), doc)
+	published, err := h.Policies.Publish(r.Context(), doc)
 	switch {
 	case errors.Is(err, domain.ErrConflict):
 		h.writeError(w, http.StatusConflict, errPolicyConflict)
@@ -191,7 +206,7 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	err := h.db.Ping(r.Context())
+	err := h.DB.Ping(r.Context())
 	if err != nil {
 		h.writeJSON(w, http.StatusServiceUnavailable, healthStatus{Status: statusUnavailable})
 		return

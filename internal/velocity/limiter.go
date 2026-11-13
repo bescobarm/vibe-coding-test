@@ -10,12 +10,20 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 )
 
 //go:embed reserve.lua
 var reserveLua string
 
-var reserveScript = redis.NewScript(reserveLua)
+//go:embed release.lua
+var releaseLua string
+
+var (
+	reserveScript = redis.NewScript(reserveLua)
+	releaseScript = redis.NewScript(releaseLua)
+)
 
 // ErrUnexpectedReply means the script answered something the engine can't read.
 var ErrUnexpectedReply = errors.New("unexpected reply from the reserve script")
@@ -115,4 +123,20 @@ func scriptInput(r Reservation) ([]string, []any) {
 	}
 
 	return keys, args
+}
+
+// Release implements lifecycle.Releaser. It is idempotent per event_id, and a
+// card without a hold (no rule applied when it was approved) is a no-op.
+func (l *Limiter) Release(ctx context.Context, r lifecycle.Release) error {
+	ctx, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
+
+	key := fmt.Sprintf(fmtHoldKey, r.CardID, r.AuthorizationID)
+
+	err := releaseScript.Run(ctx, l.rdb, []string{key}, r.AuthorizationID, r.EventID, r.AmountMinor).Err()
+	if err != nil {
+		return fmt.Errorf("release: %w", err)
+	}
+
+	return nil
 }
