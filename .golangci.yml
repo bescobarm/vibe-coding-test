@@ -1,0 +1,27 @@
+version: "2"
+
+linters:
+  enable:
+    - wsl_v5      # blank lines around blocks: an if/for/switch block is followed by an empty line
+    - noinlineerr # no `if err := f(); err != nil`: assign first, then check
+    - cyclop      # cyclomatic complexity per function
+    - mnd         # magic numbers
+    - goconst     # repeated string literals become constants
+    - revive      # only the exported rule: exported identifiers need a doc comment
+  settings:
+    revive:
+      rules:
+        - name: exported
+    wsl_v5:
+      default: none
+      enable:
+        - after-block
+    cyclop:
+      max-complexity: 10
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [mnd, goconst]

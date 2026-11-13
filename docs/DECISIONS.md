@@ -66,6 +66,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-040](#d-040-shape-of-allowed-hours-and-which-clock-it-uses) | Shape of "allowed hours" and which clock it uses | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-042](#d-042-a-company-with-no-policy) | A company with no policy | 🟡 Proposed | Risk | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-043](#d-043-code-style-rules-enforced-by-linters) | Code style rules enforced by linters | 🟢 Accepted | Quality | — |
 
 ---
 
@@ -349,6 +350,30 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** A. Stop at the first failing control; the decline carries one reason.
 - **Why:** 📝 *my reasoning for choosing the simpler shape over the AI recommendation.*
 - **Consequences:** Hard controls run in a fixed order (card status, entry mode, MCC, country, per-transaction limit, allowed hours), so the reason shown is the first one in that order. The existing pipeline already stops at the first decline, so no change is needed there.
+
+### D-043: Code style rules enforced by linters
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (rules set by me; linter mapping proposed by AI)
+- **Context:** I want the same style in every file without reviewing it by hand.
+- **Decision (my rules):**
+  1. A blank line after every block (`if`, `for`, `switch`) before the next statement.
+  2. No init statement in `if`/`switch` (`if a := f(); a != nil`): assign first, then check.
+  3. Cyclomatic complexity of at most 10 per function.
+  4. No magic numbers or hardcoded texts: use named `const`/`var`.
+  5. Doc comments are required on exported identifiers only. Unexported ones get a comment only when they need extra context.
+  6. Errors are specific `errors.New` values (one per failure case), and no error is discarded with `_`.
+- **How it is enforced (`make lint`, config in `.golangci.yml`, golangci-lint v2):**
+
+  | Rule | Tool | Note |
+  |---|---|---|
+  | 1 | `wsl_v5` with only the `after-block` check | the other wsl rules are off |
+  | 2 | `noinlineerr` + a `grep` in `make lint` | `noinlineerr` only covers `err`; the grep catches the rest (`if v, ok := m[k]; ok`) |
+  | 3 | `cyclop`, `max-complexity: 10` | |
+  | 4 | `mnd` (numbers) + `goconst` (repeated strings) | no linter bans every string literal, so messages, SQL, error codes and JSON keys were moved to constants by hand |
+  | 5 | `revive`, only the `exported` rule | it can't flag a comment that isn't needed; obvious comments on unexported code were removed by hand |
+  | 6 | by hand in `internal/api` | `errcheck` (on by default) already fails on an unchecked error; it allows an explicit `_ =` |
+
+  `mnd` and `goconst` are off for `_test.go`: expected values in a test read better inline.
+- **Consequences:** `validateControls` (15) and `Migrate` (13) were split into small functions. API error bodies are typed structs instead of `map[string]string`. The API's `"error"` field is now the message of a specific error (e.g. `"policy is not valid JSON or has an unknown field"`, `"another policy version was published at the same time, retry"`) instead of a shared code like `invalid_json` or `internal`. A body over 64 KiB now gets 413 instead of 400. A response that fails to encode is logged. Validation messages shared by requests and policies live in `domain` (`domain.MsgRequired`, …). Log keys stay inline.
 
 ---
 

@@ -69,6 +69,7 @@ Then, in a second terminal:
 make simulate            # runs the fraud scenarios and prints the detection report
 make test                # unit, concurrency and idempotency tests
 make cover               # test coverage per package (target: 80% on changed files)
+make lint                # golangci-lint + style rules (D-043), needs golangci-lint v2
 make load                # optional, needs k6: p50/p95/p99 latency
 ```
 
@@ -753,6 +754,7 @@ The full log, including the options the AI suggested, the concerns raised and wh
 
 - **Unit tests:** each control, velocity rule and anomaly feature in isolation (table-driven tests in Go).
 - **Coverage gate:** `/check-tests -cov 80` before every commit. Every changed Go file must reach 80% line coverage.
+- **Lint gate:** `make lint` must report 0 issues: blank line after blocks, no init statement in `if`, cyclomatic complexity ≤ 10, no magic numbers or hardcoded texts, doc comments on exported code, specific errors ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)).
 - **Concurrency test:** 100 parallel authorizations on one card with a limit that only allows 10. Exactly 10 must be approved.
 - **Idempotency test:** the same request sent twice returns the same decision and counts once.
 - **Failure tests:** Redis unavailable or a slow dependency → fallback applied within the deadline, and flagged.

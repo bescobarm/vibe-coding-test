@@ -27,15 +27,18 @@ func (f *fakeStore) LatestPolicy(_ context.Context, id string) (Document, error)
 	if f.loadErr != nil {
 		return Document{}, f.loadErr
 	}
+
 	f.mu.Lock()
 	d, ok := f.latest[id]
 	f.mu.Unlock()
 	if f.beforeLoad != nil {
 		f.beforeLoad()
 	}
+
 	if !ok {
 		return Document{}, domain.ErrNotFound
 	}
+
 	return d, nil
 }
 
@@ -43,6 +46,7 @@ func (f *fakeStore) PublishPolicy(_ context.Context, d Document) (int, error) {
 	if f.publishErr != nil {
 		return 0, f.publishErr
 	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.publishV++
@@ -57,6 +61,7 @@ func newFakeStore(docs ...Document) *fakeStore {
 		f.latest[d.CompanyID] = d
 		f.publishV = max(f.publishV, d.Version)
 	}
+
 	return f
 }
 
@@ -165,11 +170,13 @@ func TestConcurrentReadsAndPublishesAreRaceFree(t *testing.T) {
 			}
 		})
 	}
+
 	wg.Wait()
 
 	for i := range errs {
 		c.NoError(errs[i], "call %d", i)
 	}
+
 	got, err := cache.Policy(context.Background(), "acme-mx")
 	c.NoError(err)
 	c.Equal(11, got.Version, "v1 plus 10 publishes")

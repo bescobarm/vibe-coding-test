@@ -24,6 +24,7 @@ type Recorder interface {
 	Decide(ctx context.Context, req domain.AuthRequest, decide DecideFunc) (resp domain.AuthResponse, replayed bool, err error)
 }
 
+// CardReader loads a card, or returns domain.ErrNotFound.
 type CardReader interface {
 	GetCard(ctx context.Context, cardID string) (domain.Card, error)
 }
@@ -33,6 +34,7 @@ type PolicyReader interface {
 	Policy(ctx context.Context, companyID string) (policy.Document, error)
 }
 
+// Service decides authorizations: it loads the card and policy, then runs the pipeline once per authorization_id.
 type Service struct {
 	recorder Recorder
 	cards    CardReader
@@ -41,6 +43,7 @@ type Service struct {
 	now      func() time.Time
 }
 
+// NewService returns a Service that uses the real clock.
 func NewService(r Recorder, c CardReader, p PolicyReader, pl *pipeline.Pipeline) *Service {
 	return &Service{
 		recorder: r,
@@ -74,7 +77,8 @@ func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain
 	}
 
 	if e.CardFound {
-		if err := s.loadPolicy(ctx, e); err != nil {
+		err := s.loadPolicy(ctx, e)
+		if err != nil {
 			return domain.AuthResponse{}, false, err
 		}
 	}
@@ -108,10 +112,16 @@ func (s *Service) loadPolicy(ctx context.Context, e *pipeline.Evaluation) error 
 	if err != nil {
 		return fmt.Errorf("card %s: %w", e.Card.ID, err)
 	}
+
 	e.Controls = controls
 	return nil
 }
 
+const (
+	microsPerHundredthMS = 10
+	hundredthsPerMS      = 100
+)
+
 func roundMS(d time.Duration) float64 {
-	return math.Round(float64(d.Microseconds())/10) / 100
+	return math.Round(float64(d.Microseconds())/microsPerHundredthMS) / hundredthsPerMS
 }

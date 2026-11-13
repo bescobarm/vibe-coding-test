@@ -26,6 +26,7 @@ type Cache struct {
 	docs  atomic.Pointer[map[string]Document]
 }
 
+// NewCache returns an empty cache backed by store.
 func NewCache(store Store) *Cache {
 	c := &Cache{store: store}
 	c.docs.Store(&map[string]Document{})
@@ -34,13 +35,16 @@ func NewCache(store Store) *Cache {
 
 // Policy returns the company's latest policy, loading it from the store on the first request.
 func (c *Cache) Policy(ctx context.Context, companyID string) (Document, error) {
-	if d, ok := (*c.docs.Load())[companyID]; ok {
-		return d, nil
+	cached, ok := (*c.docs.Load())[companyID]
+	if ok {
+		return cached, nil
 	}
+
 	d, err := c.store.LatestPolicy(ctx, companyID)
 	if err != nil {
 		return Document{}, err
 	}
+
 	return c.put(d), nil
 }
 
@@ -51,6 +55,7 @@ func (c *Cache) Publish(ctx context.Context, doc Document) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
+
 	doc.Version = v
 	return c.put(doc), nil
 }
@@ -61,9 +66,11 @@ func (c *Cache) put(d Document) Document {
 	defer c.mu.Unlock()
 
 	current := *c.docs.Load()
-	if cached, ok := current[d.CompanyID]; ok && cached.Version >= d.Version {
+	cached, ok := current[d.CompanyID]
+	if ok && cached.Version >= d.Version {
 		return cached
 	}
+
 	next := maps.Clone(current)
 	next[d.CompanyID] = d
 	c.docs.Store(&next)
