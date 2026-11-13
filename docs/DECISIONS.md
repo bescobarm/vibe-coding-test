@@ -67,6 +67,15 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-042](#d-042-a-company-with-no-policy) | A company with no policy: embedded default policy | 🟢 Accepted | Risk | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-043](#d-043-code-style-rules-enforced-by-linters) | Code style rules enforced by linters | 🟢 Accepted | Quality | — |
+| [D-044](#d-044-velocity-limits-are-per-card-only) | Velocity limits are per card only | 🟢 Accepted | Scope | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-045](#d-045-rolling-windows-use-the-engine-clock) | Rolling windows use the engine clock | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-046](#d-046-redis-client-go-redis) | Redis client: go-redis | 🟢 Accepted | Tooling | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-047](#d-047-lua-tests-run-against-the-compose-redis) | Lua tests run against the Compose Redis | 🟢 Accepted | Testing | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-048](#d-048-redis-calls-have-a-fixed-timeout) | Redis calls have a fixed timeout | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-049](#d-049-amount-rules-have-a-currency) | Amount rules have a currency | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-050](#d-050-lifecycle-calls-carry-an-event_id) | Lifecycle calls carry an `event_id` | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-051](#d-051-reversal-releases-the-amount-but-keeps-the-count) | Reversal releases the amount but keeps the count | 🟢 Accepted | Risk | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-052](#d-052-shape-of-a-velocity-rule) | Shape of a velocity rule | 🟢 Accepted | API | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 
 ---
 
@@ -398,6 +407,79 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - A bad default fails `go test`, not production.
   - Open: whether the default includes a money limit (see D-041). Decide before implementing.
   - Next steps for the write-up: store a hash of the default for exact replay, or move it to a versioned row (option D).
+
+### D-044: Velocity limits are per card only
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** FR2 mentions card and company limits; the policy example only shows `"scope": "card"` (SP03 brief Q1).
+- **Options:** A: card only · B: card and company.
+- **AI input and concerns:** A. Each Lua call then touches only one card's keys. A company-wide key makes every card of the company wait on the same keys (correct, but serialized), and in Redis Cluster all those keys must share one hash slot.
+- **Decision:** A. `scope` accepts only `card`; company-wide limits go to next steps.
+- **Why:** 📝
+
+### D-045: Rolling windows use the engine clock
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** The SP03 brief says windows use server time, while D-040 uses the request's `created_at` for allowed hours.
+- **Options:** A: the request's `created_at` (consistent with D-040) · B: the engine clock.
+- **AI input and concerns:** B. A wrong or old `created_at` could move a request out of a window and bypass a money limit. Allowed hours don't count money, so they can keep `created_at`. The engine clock is injected, so tests still use a fake clock (D-036).
+- **Decision:** B. Velocity and budget windows use the engine clock; the audit keeps both times.
+- **Why:** 📝
+
+### D-046: Redis client: go-redis
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Options:** A: `redis/go-redis/v9` · B: `rueidis`.
+- **AI input and concerns:** A. The most widely used client; `redis.Script` runs EVALSHA and falls back to EVAL. rueidis is faster, which doesn't matter at this scale.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-047: Lua tests run against the Compose Redis
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Options:** A: miniredis · B: the real Redis from Compose, tests skipped when it isn't running.
+- **AI input and concerns:** B. miniredis's Lua support is partial, so a passing test could hide a script bug. The store tests already use the real Postgres the same way.
+- **Decision:** B.
+- **Why:** 📝
+
+### D-048: Redis calls have a fixed timeout
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md) · **Related:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Options:** A: no special handling until SP05 · B: a fixed timeout on every Redis call now.
+- **AI input and concerns:** B, small. A 50 ms timeout means a slow or dead Redis returns an error quickly, and SP05 only has to map that error to the fallback.
+- **Decision:** B. 50 ms (`REDIS_TIMEOUT_MS`).
+- **Why:** 📝
+
+### D-049: Amount rules have a currency
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** A daily budget like 200000 must sum amounts in one currency; FX conversion is out of scope.
+- **Options:** A: the rule has a currency and a request in another currency is declined with the rule's reason · B: the rule has a currency and other currencies are not counted · C: no currency, raw minor units are summed.
+- **AI input and concerns:** A, consistent with D-041. B lets any foreign-currency purchase bypass the budget; C counts 1000 MXN the same as 1000 USD.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-050: Lifecycle calls carry an `event_id`
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** Partial reversals and refunds can legitimately happen more than once, so "already reversed" can't detect a retry.
+- **Options:** A: every lifecycle call carries an `event_id`, stored in a `lifecycle_events` table; a repeat returns the stored result · B: only full reversal, expiry and capture are idempotent (by state); a repeated partial is applied twice.
+- **AI input and concerns:** A. Processors send an id per event, and it covers partials. About 1 hour more than B.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-051: Reversal releases the amount but keeps the count
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** A full reversal or expiry restores budget. Should the authorization also leave count-based windows ("max 5 small charges in 10 minutes")?
+- **Options:** A: release the amount, keep the count · B: remove it from both.
+- **AI input and concerns:** A. Card testers' small charges are often reversed quickly; removing them from the count would let them evade the card-testing rule.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-052: Shape of a velocity rule
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Decision:**
+  - `{id, scope, window, max_count, max_amount, filter}`. `scope` is only `card` (D-044).
+  - `window` is a Go duration (`10m`, `1h`, at most 31 days) or `calendar_day` / `calendar_month` in the policy time zone (D-026).
+  - `max_count` and/or `max_amount {amount_minor, currency}` (D-049).
+  - `filter {max_amount_minor, mccs}`: the rule only applies to matching requests.
+  - Reasons: an amount rule on `calendar_day` → `OVER_DAILY_LIMIT`, on `calendar_month` → `OVER_MONTHLY_LIMIT`; everything else → `VELOCITY_EXCEEDED`.
+  - Card overrides can't change velocity rules (next steps).
+- **AI input and concerns:** Matches the README policy example, with `max_amount` gaining a currency.
+- **Why:** 📝
 
 ## Proposed (waiting for my decision)
 
