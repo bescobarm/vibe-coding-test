@@ -65,7 +65,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-039](#d-039-should-a-decline-report-every-failing-control-or-only-the-first) | Report every failing control or only the first | 🟢 Accepted | API | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-040](#d-040-shape-of-allowed-hours-and-which-clock-it-uses) | Shape of "allowed hours" and which clock it uses | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
-| [D-042](#d-042-a-company-with-no-policy) | A company with no policy | 🟡 Proposed | Risk | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-042](#d-042-a-company-with-no-policy) | A company with no policy: embedded default policy | 🟢 Accepted | Risk | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-043](#d-043-code-style-rules-enforced-by-linters) | Code style rules enforced by linters | 🟢 Accepted | Quality | — |
 
 ---
@@ -378,6 +378,27 @@ Entries marked 📝 need my own words before the interview (for example, what th
 
 ---
 
+### D-042: A company with no policy
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted, **not implemented yet** (start of SP05) · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Context:** Today a card whose company has no policy gets no hard controls and is approved with `policy_version: 0` (same behavior as SP01). SP05's fallback reads `fallback.mode` from the policy, so it also needs an answer when there is none.
+- **Options:**
+  - A: keep it (no policy means no restrictions).
+  - B: decline with a new `POLICY_MISSING` reason (fail-closed).
+  - C: a default policy embedded in the binary (`go:embed`), validated by a unit test. About 1 h.
+  - D: a default policy stored as a policy row under a reserved company id, seeded by a migration. About 2.5–3 h.
+- **AI input and concerns:** The AI first recommended B, then D, then C after a deeper look at the code:
+  - D gives exact replay (the audit can record which policy decided) and can be changed at runtime with the existing `PUT` endpoint. But it needs a migration, an audit column (the audit stores only a version number, unique per company), a reserved id, and B's `POLICY_MISSING` as a last resort. Every policy-schema change in SP03–SP05 would also need a new seed migration, or the stored default fails `policy.Load` at runtime.
+  - C fails at build time instead of at runtime, works when Postgres is down (a policy of last resort for SP05), and needs no schema change. Its cost: a changed default can't be replayed exactly unless a hash of it is stored, and changing it needs a deploy.
+  - A money limit in the default would decline every request in another currency (D-041).
+  - Companies without a policy query Postgres on every request, because the cache doesn't remember a miss. This is a separate fix, not part of this decision.
+- **Decision:** C. When the company has no policy, the engine applies the embedded default and adds the reason `DEFAULT_POLICY_APPLIED`; the audit keeps `policy_version: 0`.
+- **Why:** 📝
+- **Consequences:**
+  - SP05 always has a `fallback.mode` to read, even with Postgres down.
+  - A bad default fails `go test`, not production.
+  - Open: whether the default includes a money limit (see D-041). Decide before implementing.
+  - Next steps for the write-up: store a hash of the default for exact replay, or move it to a versioned row (option D).
+
 ## Proposed (waiting for my decision)
 
 ### D-040: Shape of "allowed hours" and which clock it uses
@@ -395,10 +416,3 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN") · B: skip the limit for that request.
 - **AI recommendation:** A. Skipping would let any purchase in another currency bypass the limit.
 - **Decision:** _pending my review_
-
-### D-042: A company with no policy
-- **Status:** 🟡 Proposed, **not implemented** · **Blocks:** SP05 (fallback needs a policy too)
-- **Context:** Today a card whose company has no policy gets no hard controls and is approved with `policy_version: 0` (same behavior as SP01).
-- **Options:** A: keep it (no policy means no restrictions) · B: decline with a new `POLICY_MISSING` reason (fail-closed).
-- **AI recommendation:** B. A missing policy is a setup error, and approving everything is the riskier failure.
-- **Decision:** _pending_
