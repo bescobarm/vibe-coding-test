@@ -245,3 +245,17 @@ func refund(h Hold, ev Event) (Result, int64, error) {
 
 	return Result{Status: status, CapturedMinor: h.CapturedMinor, RefundedMinor: h.RefundedMinor + amount}, -amount, nil
 }
+
+// CountedMinor is what this authorization counts toward amount budgets: the
+// hold while pending, the captured amount minus refunds once captured (D-053),
+// and nothing once reversed or expired.
+func (h Hold) CountedMinor() int64 {
+	switch h.Status {
+	case StatusPending:
+		return h.HeldMinor
+	case StatusCaptured, StatusRefunded:
+		return h.CapturedMinor - h.RefundedMinor
+	default:
+		return 0
+	}
+}

@@ -93,6 +93,17 @@ Expect, in order:
 5. `refunded_minor: 7000`, still `captured`.
 6. Status `refunded`, `refunded_minor: 47000`.
 
+## 4d. Redis loses its data
+
+After 4i, stop the engine (Ctrl-C), then:
+
+```bash
+docker compose exec redis redis-cli flushall
+make run
+```
+
+Expect `"msg":"velocity counters ready","rebuilt_authorizations":N` in the log before `engine listening`, then `auth b9 card_456 50000 5734` is still `DECLINE` `OVER_DAILY_LIMIT`: the budget was rebuilt from Postgres ([D-055](DECISIONS.md#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost)).
+
 ## 5. Publish a new policy version
 
 ```bash

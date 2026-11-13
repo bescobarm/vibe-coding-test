@@ -309,4 +309,3 @@ func TestGetHoldOfAnUnknownAuthorizationIsNotFound(t *testing.T) {
 
 	c.ErrorIs(err, domain.ErrNotFound)
 }
-

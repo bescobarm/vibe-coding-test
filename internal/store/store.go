@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,6 +18,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/domain"
 	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
+	"github.com/bescobarm/card-auth-engine/internal/velocity"
 )
 
 const (
@@ -211,11 +213,10 @@ func (s *Store) GetAuthorization(ctx context.Context, id string) (domain.AuditRe
 	return rec, nil
 }
 
-
 const (
 	holdSQL = `SELECT authorization_id, card_id, currency, mcc, status, held_minor, captured_minor, refunded_minor
 		FROM authorizations WHERE authorization_id = $1`
-	lockHoldSQL = holdSQL + ` FOR UPDATE`
+	lockHoldSQL   = holdSQL + ` FOR UPDATE`
 	claimEventSQL = `INSERT INTO lifecycle_events (event_id, authorization_id, type, amount_minor, response)
 		VALUES ($1, $2, $3, $4, '{}') ON CONFLICT (event_id) DO NOTHING`
 	storedEventSQL = `SELECT authorization_id, type, amount_minor, response FROM lifecycle_events WHERE event_id = $1`
@@ -337,3 +338,25 @@ func scanHold(row pgx.Row) (lifecycle.Hold, error) {
 	return h, nil
 }
 
+const approvedSinceSQL = `
+SELECT a.authorization_id, a.card_id, c.company_id, a.amount_minor, a.mcc, a.currency, a.status,
+       a.held_minor, a.captured_minor, a.refunded_minor, a.created_at
+FROM authorizations a JOIN cards c ON c.card_id = a.card_id
+WHERE a.decision = 'APPROVE' AND a.created_at >= $1`
+
+// ApprovedSince implements velocity.RebuildSource.
+func (s *Store) ApprovedSince(ctx context.Context, since time.Time) ([]velocity.Authorization, error) {
+	rows, err := s.pool.Query(ctx, approvedSinceSQL, since)
+	if err != nil {
+		return nil, fmt.Errorf("query approved: %w", err)
+	}
+
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (velocity.Authorization, error) {
+		var a velocity.Authorization
+
+		err := row.Scan(&a.AuthorizationID, &a.CardID, &a.CompanyID, &a.AmountMinor, &a.MCC, &a.Currency, &a.Status,
+			&a.HeldMinor, &a.CapturedMinor, &a.RefundedMinor, &a.CreatedAt)
+
+		return a, err
+	})
+}

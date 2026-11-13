@@ -171,4 +171,3 @@ func TestRefundBeforeCaptureReturns409(t *testing.T) {
 	c.Equal(http.StatusConflict, w.Code)
 	c.EqualError(lifecycle.ErrNotCaptured, decodeError(c, w).Error)
 }
-

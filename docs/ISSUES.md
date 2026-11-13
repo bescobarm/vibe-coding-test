@@ -24,6 +24,9 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-016](#i-016-releasing-a-hold-would-overwrite-window-entries) | 2026-11-13 | Correctness | ✅ |
 | [I-017](#i-017-an-internal-field-made-a-replay-differ-from-the-original-answer) | 2026-11-13 | Reliability | ✅ |
 | [I-018](#i-018-a-scripted-test-rewrite-broke-the-build) | 2026-11-13 | Tooling | ✅ |
+| [I-019](#i-019-the-lint-gate-did-not-check-formatting) | 2026-11-13 | Tooling | ✅ |
+| [I-020](#i-020-redis-data-lost-while-the-engine-runs-is-not-detected) | 2026-11-13 | Reliability | ⏭️ |
+| [I-021](#i-021-a-table-driven-test-slipped-in) | 2026-11-13 | Tests | ✅ |
 
 ---
 
@@ -103,4 +106,16 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-018: A scripted test rewrite broke the build
 - **Found:** a regex used to update test call sites matched `_` as a variable name (`\w` includes `_`) and declared unused variables.
 - **Fix:** fixed by hand from the compiler's list. Lesson: for small edits, a targeted replace beats a broad regex.
+
+### I-019: The lint gate did not check formatting
+- **Found:** `gofmt -l` listed 5 files after step 4 while `make lint` reported 0 issues. My scripted edits had left double blank lines, trailing newlines and an unaligned `const` block.
+- **Fix:** `.golangci.yml` enables the `gofmt` formatter. Before formatting, `golangci-lint run` reported the files; after `gofmt -w`, 0 issues.
+
+### I-020: Redis data lost while the engine runs is not detected
+- **Found:** designing D-055. The marker is checked only at startup. If Redis loses its data while the engine runs, reserves start from empty counters and limits can be exceeded until the next restart.
+- **Plan (next steps):** check the marker in the reserve script (an empty Redis has none) and answer "counters not ready", which SP05 maps to the fallback. Or run Redis with AOF persistence.
+
+### I-021: A table-driven test slipped in
+- **Found:** reviewing step 4's tests: `TestCountedMinorFollowsTheStatus` looped over a map of cases, which D-030 rules out, and lived in the wrong package.
+- **Fix:** replaced by four one-scenario tests in `internal/lifecycle`.
 

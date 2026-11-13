@@ -497,7 +497,7 @@ Two simultaneous authorizations on the same card could each see "enough budget" 
 | **Redis Lua script** (check + reserve in one atomic step) | Atomic and fast (sub-ms) | Redis becomes critical, so a durability and recovery strategy is needed |
 | Eventually consistent counters | Fastest | Limits can be exceeded (Lithic documents this edge case) |
 
-**Choice:** a Redis Lua script for the hot path, plus a Postgres audit log as the source of truth to rebuild counters if Redis is lost.
+**Choice:** a Redis Lua script for the hot path, plus a Postgres audit log as the source of truth to rebuild counters if Redis is lost. The engine rebuilds them at startup when Redis comes back empty ([D-055](docs/DECISIONS.md#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost)).
 
 ### 10.6 Where AI fits (and where it doesn't)
 

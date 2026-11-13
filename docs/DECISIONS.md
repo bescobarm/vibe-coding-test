@@ -78,6 +78,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-052](#d-052-shape-of-a-velocity-rule) | Shape of a velocity rule | 🟢 Accepted | API | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-053](#d-053-a-capture-counts-the-captured-amount) | A capture counts the captured amount | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-054](#d-054-lifecycle-details-for-increment-capture-and-refund) | Lifecycle details: increment, capture, refund | 🟡 Proposed (implemented) | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-055](#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost) | Rebuild the Redis counters at startup when they are lost | 🟡 Proposed (implemented) | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 
 ---
 
@@ -502,6 +503,20 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - **Refund** only after a capture. Partial refunds are allowed until the captured amount is refunded; without `amount_minor` it refunds what is left.
   - Every lifecycle answer shows the full state (`held_minor`, `captured_minor`, `refunded_minor`); only an increment has a `decision`.
 - **Alternatives not built:** multiple partial captures; increments that skip the hard controls; refunds without a capture.
+- **Decision:** _pending my review_
+
+### D-055: Rebuild the Redis counters at startup when they are lost
+- **Status:** 🟡 Proposed, **already implemented** in SP03 step 4. Needs my review. · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** D-003 makes Postgres the source of truth and asks for a way to rebuild Redis (AC5).
+- **AI recommendation (as built):**
+  - **When:** at engine startup, before serving, if the marker key `velocity:counters_ready` is missing. A `FLUSHALL` or a Redis restart without persistence deletes the marker with everything else. Running before serving means no reserve can race with the rebuild.
+  - **What:** every approved authorization of the last 31 days (the longest window), with the company's **current** policy: count windows get every approved authorization, reversed ones included (D-051); amount windows get the hold while pending, captured minus refunded once captured (D-053), nothing once reversed or expired.
+  - **Failure:** logged, not fatal; the marker stays unset so the next start retries.
+- **Known limits (next steps):**
+  - Data lost **while** the engine runs isn't detected until a restart ([I-020](ISSUES.md#i-020-redis-data-lost-while-the-engine-runs-is-not-detected)).
+  - An increment counted in a later window than its authorization (yesterday's check-in) is rebuilt in the authorization's window.
+  - Windows use the authorization's `created_at` (claim time) instead of the engine clock at reserve time: a few milliseconds apart.
+- **Alternatives not built:** a separate `cmd/rebuild` command; Redis persistence (AOF) as the only protection.
 - **Decision:** _pending my review_
 
 ### D-040: Shape of "allowed hours" and which clock it uses

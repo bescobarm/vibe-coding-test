@@ -193,3 +193,31 @@ func TestSameComparesEveryField(t *testing.T) {
 	c.False(ev.Same(Event{ID: "e1", AuthorizationID: "a2", Type: TypeReversal, AmountMinor: amount(100)}))
 	c.False(ev.Same(Event{ID: "e1", AuthorizationID: "a1", Type: TypeExpiry, AmountMinor: amount(100)}))
 }
+
+func TestAPendingAuthorizationCountsItsHold(t *testing.T) {
+	c := require.New(t)
+
+	c.Equal(int64(400), pending(400).CountedMinor())
+}
+
+func TestACapturedAuthorizationCountsWhatWasNotRefunded(t *testing.T) {
+	c := require.New(t)
+
+	c.Equal(int64(400), captured(460, 60).CountedMinor())
+}
+
+func TestARefundedAuthorizationCountsNothing(t *testing.T) {
+	c := require.New(t)
+	h := captured(460, 460)
+	h.Status = StatusRefunded
+
+	c.Zero(h.CountedMinor())
+}
+
+func TestAReversedAuthorizationCountsNothing(t *testing.T) {
+	c := require.New(t)
+	h := pending(400)
+	h.Status = StatusReversed
+
+	c.Zero(h.CountedMinor())
+}
