@@ -2,7 +2,7 @@
 
 > A decision service that approves or declines corporate card transactions in milliseconds. It combines per-company spend controls, velocity limits and an explainable anomaly score, and it is built to stay **fast, safe and auditable** when things go wrong.
 
-> 🚧 **Status:** implementation in progress (Day 1 of 3, started 2026-11-12, due 2026-11-15). The commands in [How to run](#1-how-to-run) are the target interface. Each one works once the matching sub-project in [Implementation plan](#16-implementation-plan) is done.
+> 🚧 **Status:** implementation in progress (started Thu 2026-11-12, due **Mon 2026-11-16**). The commands in [How to run](#1-how-to-run) are the target interface. Each one works once the matching sub-project in [Implementation plan](#16-implementation-plan) is done.
 
 | Deliverable | Where |
 |---|---|
@@ -73,6 +73,8 @@ make lint                # golangci-lint + style rules (D-043), needs golangci-l
 make load                # optional, needs k6: p50/p95/p99 latency
 ```
 
+For a short step-by-step test of what is built so far, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
 ### Try a single authorization
 
 ```bash
@@ -113,7 +115,7 @@ Send the same request again: you get the same decision, and the amount is counte
 
 ## 2. MVP at a glance
 
-The deadline is 3 days. The brief says *"a focused problem solved well beats a huge one solved halfway"*, so the MVP keeps everything the demo and the safety story depend on and drops the rest. Each cut is recorded in [docs/DECISIONS.md](docs/DECISIONS.md#d-011-mvp-scope-cuts).
+The deadline is short (due Mon 2026-11-16). The brief says *"a focused problem solved well beats a huge one solved halfway"*, so the MVP keeps everything the demo and the safety story depend on and drops the rest. Each cut is recorded in [docs/DECISIONS.md](docs/DECISIONS.md#d-011-mvp-scope-cuts).
 
 | ✅ In the MVP | ✂️ Cut (moved to [What I'd do next](#18-what-id-do-next)) |
 |---|---|
@@ -335,7 +337,7 @@ stateDiagram-v2
 
 ## 9. Scope
 
-The goal is a **focused, working feature** in 3 days (2026-11-12 → 2026-11-15), "a feature you'd ship in your first weeks."
+The goal is a **focused, working feature** by Mon 2026-11-16 (started 2026-11-12), "a feature you'd ship in your first weeks."
 
 ### In scope
 - Go HTTP service exposing the authorization webhook plus lifecycle and admin endpoints.
@@ -788,10 +790,11 @@ Each sub-project has a brief in [briefs/](briefs/) (generated with `/problem-bri
 
 | Day | Date | Sub-projects |
 |---|---|---|
-| **Day 1** | Thu 2026-11-12 | [01 Walking skeleton](briefs/01-walking-skeleton-brief.md) (compose, migrations, endpoint, idempotency, audit) · [02 Policy and hard controls](briefs/02-policy-and-hard-controls-brief.md) |
-| **Day 2** | Fri 2026-11-13 | [03 Velocity, budget and lifecycle](briefs/03-velocity-budget-lifecycle-brief.md) · [04 Anomaly scoring](briefs/04-anomaly-scoring-brief.md) · [05 Deadline and fallback](briefs/05-deadline-and-fallback-brief.md) |
-| **Day 3** | Sat 2026-11-14 | [06 Simulator and report](briefs/06-simulator-and-report-brief.md) · [07 Mocked LLM explainer](briefs/07-mock-llm-explainer-brief.md) · `WRITEUP.md` |
-| **Buffer** | Sun 2026-11-15 | Video, final README pass, submission |
+| **Day 1** | Thu 2026-11-12 | ✅ [01 Walking skeleton](briefs/01-walking-skeleton-brief.md) (compose, migrations, endpoint, idempotency, audit) · ✅ [02 Policy and hard controls](briefs/02-policy-and-hard-controls-brief.md) |
+| **Day 2** | Fri 2026-11-13 | ✅ Lint rules ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)) · [03 Velocity, budget and lifecycle](briefs/03-velocity-budget-lifecycle-brief.md) |
+| **Day 3** | Sat 2026-11-14 | [04 Anomaly scoring](briefs/04-anomaly-scoring-brief.md) · [05 Deadline and fallback](briefs/05-deadline-and-fallback-brief.md) |
+| **Day 4** | Sun 2026-11-15 | [06 Simulator and report](briefs/06-simulator-and-report-brief.md) · [07 Mocked LLM explainer](briefs/07-mock-llm-explainer-brief.md) · `WRITEUP.md` |
+| **Delivery** | Mon 2026-11-16 | Video, final README pass, submission |
 
 Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-brief.md).
 
