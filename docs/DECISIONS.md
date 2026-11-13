@@ -26,7 +26,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 |---|---|---|---|---|
 | [D-001](#d-001-problem-real-time-card-authorization) | Problem: real-time card authorization | 🟢 Accepted | Product | [00](../briefs/00-card-auth-engine-brief.md) |
 | [D-002](#d-002-language-go) | Language: Go | 🟢 Accepted | Stack | [00](../briefs/00-card-auth-engine-brief.md) |
-| [D-003](#d-003-hot-path-state-redis-lua-postgres-as-source-of-truth) | Hot-path state: Redis and Lua, Postgres as source of truth | 🟢 Accepted | Architecture | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-003](#d-003-hot-path-state-redis-and-lua-postgres-as-source-of-truth) | Hot-path state: Redis and Lua, Postgres as source of truth | 🟢 Accepted | Architecture | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-004](#d-004-rules-as-versioned-json-policies) | Rules as versioned JSON policies | 🟢 Accepted | Architecture | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-005](#d-005-explainable-weighted-score-instead-of-ml) | Explainable weighted score instead of ML | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-006](#d-006-per-company-limited-fail-open) | Per-company limited fail-open | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
@@ -63,8 +63,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-037](#d-037-how-policies-are-cached) | How policies are cached | 🟢 Accepted | Performance | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-038](#d-038-is-outside-allowed-hours-a-hard-control-or-a-score-signal) | "Outside allowed hours": hard control or score signal | 🟢 Accepted | Risk | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-039](#d-039-should-a-decline-report-every-failing-control-or-only-the-first) | Report every failing control or only the first | 🟢 Accepted | API | [02](../briefs/02-policy-and-hard-controls-brief.md) |
-| [D-040](#d-040-shape-of-allowed-hours-and-which-clock-it-uses) | Shape of "allowed hours" and which clock it uses | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
-| [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-040](#d-040-shape-of-allowed-hours-and-which-clock-it-uses) | Shape of "allowed hours" and which clock it uses | 🟢 Accepted | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟢 Accepted | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-042](#d-042-a-company-with-no-policy) | A company with no policy: embedded default policy | 🟢 Accepted | Risk | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-043](#d-043-code-style-rules-enforced-by-linters) | Code style rules enforced by linters | 🟢 Accepted | Quality | — |
 | [D-044](#d-044-velocity-limits-are-per-card-only) | Velocity limits are per card only | 🟢 Accepted | Scope | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
@@ -77,8 +77,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-051](#d-051-reversal-releases-the-amount-but-keeps-the-count) | Reversal releases the amount but keeps the count | 🟢 Accepted | Risk | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-052](#d-052-shape-of-a-velocity-rule) | Shape of a velocity rule | 🟢 Accepted | API | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-053](#d-053-a-capture-counts-the-captured-amount) | A capture counts the captured amount | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
-| [D-054](#d-054-lifecycle-details-for-increment-capture-and-refund) | Lifecycle details: increment, capture, refund | 🟡 Proposed (implemented) | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
-| [D-055](#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost) | Rebuild the Redis counters at startup when they are lost | 🟡 Proposed (implemented) | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-054](#d-054-lifecycle-details-for-increment-capture-and-refund) | Lifecycle details: increment, capture, refund | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-055](#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost) | Rebuild the Redis counters at startup when they are lost | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 
 ---
 
@@ -492,23 +492,40 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** A.
 - **Why:** 📝
 
-## Proposed (waiting for my decision)
+### D-040: Shape of "allowed hours" and which clock it uses
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
+- **Context:** D-038 made allowed hours a hard control, but the policy format didn't define it.
+- **Options:**
+  - Shape: A: `"allowed_hours": {"start": "06:00", "end": "23:00"}`, one daily window, end exclusive, and a window like 22:00–06:00 crosses midnight · B: a window per weekday (more flexible, more to validate).
+  - Clock: A: the request's `created_at` (the processor's timestamp), falling back to the engine clock if it is missing · B: always the engine clock.
+- **AI input and concerns:** A and A. One window covers the threats in scope. The processor's timestamp makes decisions reproducible from the audit log and makes the demo deterministic. A card can override the window.
+- **Decision:** A and A: one daily window `{start, end}` (end exclusive, may cross midnight), timed by the request's `created_at`, falling back to the engine clock.
+- **Why:** 📝
+
+### D-041: A request in a different currency than the transaction limit
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
+- **Context:** `max_per_transaction` has a currency. Multi-currency budgets with FX conversion are out of scope (README §18).
+- **Options:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN") · B: skip the limit for that request.
+- **AI input and concerns:** A. Skipping would let any purchase in another currency bypass the limit.
+- **Decision:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN").
+- **Why:** 📝
 
 ### D-054: Lifecycle details for increment, capture and refund
-- **Status:** 🟡 Proposed, **already implemented** in SP03 step 3. Needs my review. · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
 - **Context:** D-027 fixed the shape of an increment, and D-053 how a capture counts. Building them needed smaller choices.
-- **AI recommendation (as built):**
+- **AI input and concerns (as built):**
   - **Increment** re-runs the card status and the per-transaction limit on the **new total**, then checks every amount rule (count rules don't change: same authorization). A declined increment keeps the hold and is stored, so a retry replays the decline. If the original authorization is outside today's window (yesterday's hotel check-in), only the increment counts today.
   - **Capture** happens once, only on a pending authorization, and needs `amount_minor`. It's never declined (D-053).
   - **Refund** only after a capture. Partial refunds are allowed until the captured amount is refunded; without `amount_minor` it refunds what is left.
   - Every lifecycle answer shows the full state (`held_minor`, `captured_minor`, `refunded_minor`); only an increment has a `decision`.
 - **Alternatives not built:** multiple partial captures; increments that skip the hard controls; refunds without a capture.
-- **Decision:** _pending my review_
+- **Decision:** As built: increments re-run card status and the per-transaction limit on the new total, then the amount windows; a declined increment is stored and keeps the hold; one capture per authorization, never declined; refunds only after a capture, partial allowed; answers show the full state.
+- **Why:** 📝
 
 ### D-055: Rebuild the Redis counters at startup when they are lost
-- **Status:** 🟡 Proposed, **already implemented** in SP03 step 4. Needs my review. · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
 - **Context:** D-003 makes Postgres the source of truth and asks for a way to rebuild Redis (AC5).
-- **AI recommendation (as built):**
+- **AI input and concerns (as built):**
   - **When:** at engine startup, before serving, if the marker key `velocity:counters_ready` is missing. A `FLUSHALL` or a Redis restart without persistence deletes the marker with everything else. Running before serving means no reserve can race with the rebuild.
   - **What:** every approved authorization of the last 31 days (the longest window), with the company's **current** policy: count windows get every approved authorization, reversed ones included (D-051); amount windows get the hold while pending, captured minus refunded once captured (D-053), nothing once reversed or expired.
   - **Failure:** logged, not fatal; the marker stays unset so the next start retries.
@@ -517,20 +534,10 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - An increment counted in a later window than its authorization (yesterday's check-in) is rebuilt in the authorization's window.
   - Windows use the authorization's `created_at` (claim time) instead of the engine clock at reserve time: a few milliseconds apart.
 - **Alternatives not built:** a separate `cmd/rebuild` command; Redis persistence (AOF) as the only protection.
-- **Decision:** _pending my review_
+- **Decision:** As built: rebuild at startup, before serving, when the marker key is missing; failures are logged and retried on the next start.
+- **Why:** 📝
 
-### D-040: Shape of "allowed hours" and which clock it uses
-- **Status:** 🟡 Proposed, **already implemented** in SP02. Needs my review. · **Blocks:** SP02
-- **Context:** D-038 made allowed hours a hard control, but the policy format didn't define it.
-- **Options:**
-  - Shape: A: `"allowed_hours": {"start": "06:00", "end": "23:00"}`, one daily window, end exclusive, and a window like 22:00–06:00 crosses midnight · B: a window per weekday (more flexible, more to validate).
-  - Clock: A: the request's `created_at` (the processor's timestamp), falling back to the engine clock if it is missing · B: always the engine clock.
-- **AI recommendation:** A and A. One window covers the threats in scope. The processor's timestamp makes decisions reproducible from the audit log and makes the demo deterministic. A card can override the window.
-- **Decision:** _pending my review_
+## Proposed (waiting for my decision)
 
-### D-041: A request in a different currency than the transaction limit
-- **Status:** 🟡 Proposed, **already implemented** in SP02. Needs my review. · **Blocks:** SP02
-- **Context:** `max_per_transaction` has a currency. Multi-currency budgets with FX conversion are out of scope (README §18).
-- **Options:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN") · B: skip the limit for that request.
-- **AI recommendation:** A. Skipping would let any purchase in another currency bypass the limit.
-- **Decision:** _pending my review_
+None right now.
+

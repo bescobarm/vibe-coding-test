@@ -27,6 +27,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-019](#i-019-the-lint-gate-did-not-check-formatting) | 2026-11-13 | Tooling | ✅ |
 | [I-020](#i-020-redis-data-lost-while-the-engine-runs-is-not-detected) | 2026-11-13 | Reliability | ⏭️ |
 | [I-021](#i-021-a-table-driven-test-slipped-in) | 2026-11-13 | Tests | ✅ |
+| [I-022](#i-022-the-link-to-d-003-was-broken) | 2026-11-13 | Docs | ✅ |
 
 ---
 
@@ -118,4 +119,8 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-021: A table-driven test slipped in
 - **Found:** reviewing step 4's tests: `TestCountedMinorFollowsTheStatus` looped over a map of cases, which D-030 rules out, and lived in the wrong package.
 - **Fix:** replaced by four one-scenario tests in `internal/lifecycle`.
+
+### I-022: The link to D-003 was broken
+- **Found:** checking every link of the new trade-offs page. The decision index, the SP03 brief and the new page linked D-003 with an anchor that skipped the word "and" in its title, so the link went nowhere.
+- **Fix:** corrected in every file, and a script checked that every `DECISIONS.md#...` link in the repo matches a heading.
 

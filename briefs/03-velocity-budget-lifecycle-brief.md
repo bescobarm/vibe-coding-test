@@ -10,7 +10,7 @@ One atomic Redis Lua script per card checks rolling velocity windows and daily/m
 ## Part 1: Brief
 
 ### 1. Context and problem
-- Two simultaneous swipes must not both pass a limit that allows one (README §10.5, [D-003](../docs/DECISIONS.md#d-003-hot-path-state-redis-lua-postgres-as-source-of-truth)).
+- Two simultaneous swipes must not both pass a limit that allows one (README §10.5, [D-003](../docs/DECISIONS.md#d-003-hot-path-state-redis-and-lua-postgres-as-source-of-truth)).
 - Spend limits must count pending holds, or many simultaneous pending authorizations can exceed a limit (README §6.4).
 - The full lifecycle stays in the MVP ([D-012](../docs/DECISIONS.md#d-012-keep-the-full-lifecycle-in-the-mvp)).
 

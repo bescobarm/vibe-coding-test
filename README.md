@@ -9,6 +9,8 @@
 | Code + run instructions | This repo, starting with [How to run](#1-how-to-run) |
 | Design and research | This README, sections 4–15 |
 | Decision log (for the interview) | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| Trade-offs in short (for the interview) | [docs/TRADEOFFS.md](docs/TRADEOFFS.md) |
+| Issues found while building | [docs/ISSUES.md](docs/ISSUES.md) |
 | Problem briefs (one per sub-project) | [briefs/](briefs/) |
 | One-page write-up | `WRITEUP.md` 🚧 (Day 3) |
 | 5-minute video | Link added on submission 🚧 |
@@ -735,7 +737,7 @@ The simulator can also make the mock misbehave on purpose (`MOCK_LLM_FAILURE_RAT
 
 ## 14. Key decisions and trade-offs
 
-The full log, including the options the AI suggested, the concerns raised and why I chose each option, is in **[docs/DECISIONS.md](docs/DECISIONS.md)**. Summary:
+The full log, including the options the AI suggested, the concerns raised and why I chose each option, is in **[docs/DECISIONS.md](docs/DECISIONS.md)**. The short version, one line per trade-off, is **[docs/TRADEOFFS.md](docs/TRADEOFFS.md)**. Summary:
 
 | Decision | Chosen | Alternatives | Why |
 |---|---|---|---|
