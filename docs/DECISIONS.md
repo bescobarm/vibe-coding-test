@@ -63,6 +63,9 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-037](#d-037-how-policies-are-cached) | How policies are cached | 🟢 Accepted | Performance | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-038](#d-038-is-outside-allowed-hours-a-hard-control-or-a-score-signal) | "Outside allowed hours": hard control or score signal | 🟢 Accepted | Risk | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-039](#d-039-should-a-decline-report-every-failing-control-or-only-the-first) | Report every failing control or only the first | 🟢 Accepted | API | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-040](#d-040-shape-of-allowed-hours-and-which-clock-it-uses) | Shape of "allowed hours" and which clock it uses | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-042](#d-042-a-company-with-no-policy) | A company with no policy | 🟡 Proposed | Risk | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 
 ---
 
@@ -351,4 +354,25 @@ Entries marked 📝 need my own words before the interview (for example, what th
 
 ## Proposed (waiting for my decision)
 
-_None right now._
+### D-040: Shape of "allowed hours" and which clock it uses
+- **Status:** 🟡 Proposed, **already implemented** in SP02. Needs my review. · **Blocks:** SP02
+- **Context:** D-038 made allowed hours a hard control, but the policy format didn't define it.
+- **Options:**
+  - Shape: A: `"allowed_hours": {"start": "06:00", "end": "23:00"}`, one daily window, end exclusive, and a window like 22:00–06:00 crosses midnight · B: a window per weekday (more flexible, more to validate).
+  - Clock: A: the request's `created_at` (the processor's timestamp), falling back to the engine clock if it is missing · B: always the engine clock.
+- **AI recommendation:** A and A. One window covers the threats in scope. The processor's timestamp makes decisions reproducible from the audit log and makes the demo deterministic. A card can override the window.
+- **Decision:** _pending my review_
+
+### D-041: A request in a different currency than the transaction limit
+- **Status:** 🟡 Proposed, **already implemented** in SP02. Needs my review. · **Blocks:** SP02
+- **Context:** `max_per_transaction` has a currency. Multi-currency budgets with FX conversion are out of scope (README §18).
+- **Options:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN") · B: skip the limit for that request.
+- **AI recommendation:** A. Skipping would let any purchase in another currency bypass the limit.
+- **Decision:** _pending my review_
+
+### D-042: A company with no policy
+- **Status:** 🟡 Proposed, **not implemented** · **Blocks:** SP05 (fallback needs a policy too)
+- **Context:** Today a card whose company has no policy gets no hard controls and is approved with `policy_version: 0` (same behavior as SP01).
+- **Options:** A: keep it (no policy means no restrictions) · B: decline with a new `POLICY_MISSING` reason (fail-closed).
+- **AI recommendation:** B. A missing policy is a setup error, and approving everything is the riskier failure.
+- **Decision:** _pending_

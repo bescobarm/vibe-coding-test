@@ -12,6 +12,9 @@ import (
 // ErrNotFound is returned by stores when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrConflict is returned when a write loses a race with another write.
+var ErrConflict = errors.New("conflict")
+
 type Decision string
 
 const (
@@ -21,7 +24,12 @@ const (
 
 // Reason codes returned to the processor and stored in the audit log.
 const (
-	ReasonCardInactive = "CARD_INACTIVE"
+	ReasonCardInactive         = "CARD_INACTIVE"
+	ReasonEntryModeNotAllowed  = "ENTRY_MODE_NOT_ALLOWED"
+	ReasonMCCBlocked           = "MCC_BLOCKED"
+	ReasonCountryNotAllowed    = "COUNTRY_NOT_ALLOWED"
+	ReasonOverTransactionLimit = "OVER_TRANSACTION_LIMIT"
+	ReasonOutsideAllowedHours  = "OUTSIDE_ALLOWED_HOURS"
 )
 
 type Reason struct {
@@ -76,6 +84,7 @@ type Card struct {
 	CompanyID    string
 	CardholderID string
 	Status       CardStatus
+	Overrides    json.RawMessage // card-level controls that replace the company's, field by field
 }
 
 // AuditRecord is the full stored record of one authorization.

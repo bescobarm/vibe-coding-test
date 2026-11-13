@@ -11,6 +11,7 @@ import (
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
 // DecideFunc produces the decision. The store calls it at most once per
@@ -27,8 +28,9 @@ type CardReader interface {
 	GetCard(ctx context.Context, cardID string) (domain.Card, error)
 }
 
+// PolicyReader returns the company's latest policy, or domain.ErrNotFound if it has none.
 type PolicyReader interface {
-	LatestPolicyVersion(ctx context.Context, companyID string) (int, error)
+	Policy(ctx context.Context, companyID string) (policy.Document, error)
 }
 
 type Service struct {
@@ -66,13 +68,15 @@ func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain
 		return domain.AuthResponse{}, false, fmt.Errorf("load card: %w", err)
 	}
 
-	if e.CardFound {
-		v, err := s.policies.LatestPolicyVersion(ctx, card.CompanyID)
-		if err != nil {
-			return domain.AuthResponse{}, false, fmt.Errorf("load policy: %w", err)
-		}
+	e.Now = req.CreatedAt
+	if e.Now.IsZero() {
+		e.Now = start
+	}
 
-		e.PolicyVersion = v
+	if e.CardFound {
+		if err := s.loadPolicy(ctx, e); err != nil {
+			return domain.AuthResponse{}, false, err
+		}
 	}
 
 	return s.recorder.Decide(ctx, req, func(ctx context.Context) (domain.AuthResponse, error) {
@@ -86,6 +90,26 @@ func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain
 
 		return resp, nil
 	})
+}
+
+// loadPolicy sets the company policy and the card's effective controls.
+// A company without a policy has no controls and records policy version 0.
+func (s *Service) loadPolicy(ctx context.Context, e *pipeline.Evaluation) error {
+	doc, err := s.policies.Policy(ctx, e.Card.CompanyID)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+	case err != nil:
+		return fmt.Errorf("load policy: %w", err)
+	default:
+		e.Policy, e.PolicyVersion = doc, doc.Version
+	}
+
+	controls, err := policy.Effective(e.Policy.Controls, e.Card.Overrides)
+	if err != nil {
+		return fmt.Errorf("card %s: %w", e.Card.ID, err)
+	}
+	e.Controls = controls
+	return nil
 }
 
 func roundMS(d time.Duration) float64 {

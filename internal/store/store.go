@@ -10,10 +10,12 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bescobarm/card-auth-engine/internal/authz"
 	"github.com/bescobarm/card-auth-engine/internal/domain"
+	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
 const topicDecided = "authorization.decided"
@@ -42,20 +44,44 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 func (s *Store) GetCard(ctx context.Context, cardID string) (domain.Card, error) {
 	var c domain.Card
 	err := s.pool.QueryRow(ctx,
-		`SELECT card_id, company_id, cardholder_id, status FROM cards WHERE card_id = $1`, cardID,
-	).Scan(&c.ID, &c.CompanyID, &c.CardholderID, &c.Status)
+		`SELECT card_id, company_id, cardholder_id, status, overrides FROM cards WHERE card_id = $1`, cardID,
+	).Scan(&c.ID, &c.CompanyID, &c.CardholderID, &c.Status, &c.Overrides)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Card{}, domain.ErrNotFound
 	}
 	return c, err
 }
 
-// LatestPolicyVersion returns 0 when the company has no policy yet.
-func (s *Store) LatestPolicyVersion(ctx context.Context, companyID string) (int, error) {
-	var v int
+// LatestPolicy implements policy.Store.
+func (s *Store) LatestPolicy(ctx context.Context, companyID string) (policy.Document, error) {
+	var raw []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT COALESCE(MAX(version), 0) FROM policies WHERE company_id = $1`, companyID,
+		`SELECT document FROM policies WHERE company_id = $1 ORDER BY version DESC LIMIT 1`, companyID,
+	).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return policy.Document{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return policy.Document{}, err
+	}
+	return policy.Load(raw)
+}
+
+// PublishPolicy implements policy.Store. It inserts the next version and writes
+// that version into the stored document. Two concurrent publishes for the same
+// company collide on the primary key and the loser gets ErrConflict.
+func (s *Store) PublishPolicy(ctx context.Context, doc policy.Document) (int, error) {
+	var v int
+	err := s.pool.QueryRow(ctx, `
+		WITH next AS (SELECT COALESCE(MAX(version), 0) + 1 AS v FROM policies WHERE company_id = $1)
+		INSERT INTO policies (company_id, version, document, created_by)
+		SELECT $1, v, $2::jsonb || jsonb_build_object('version', v), 'api' FROM next
+		RETURNING version`, doc.CompanyID, doc,
 	).Scan(&v)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return 0, domain.ErrConflict
+	}
 	return v, err
 }
 

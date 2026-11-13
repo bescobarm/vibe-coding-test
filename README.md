@@ -59,6 +59,8 @@ git clone <repo-url> card-auth-engine && cd card-auth-engine
 
 docker compose up -d     # Postgres on :55432, Redis on :6379
 make run                 # applies migrations (embedded), seeds demo companies and cards, serves on :8080
+                         # demo cards: card_123, card_456 (active), card_frozen, card_terminated,
+                         # card_exec (per-transaction limit raised to 100000 by a card override)
 ```
 
 Then, in a second terminal:
@@ -104,6 +106,7 @@ Send the same request again: you get the same decision, and the amount is counte
 | `zsh: command not found: docker` | Install a Docker runtime (`brew install --cask orbstack`), **open the app once** so it installs the `docker` CLI, then open a new terminal. |
 | `password authentication failed for user "auth"` or `port already in use` | Another Postgres is on the same host port. The compose file uses **55432** on purpose so it doesn't clash with local installs on 5432/5433. Check with `lsof -nP -iTCP:55432 -sTCP:LISTEN`. |
 | `no Go files in ./cmd/engine` | The engine isn't built yet in your checkout. Pull the latest `main`. |
+| Demo data looks outdated (e.g. no `card_exec`, no allowed hours) | The seed never overwrites existing rows. Run `make reset && make run` to start from a fresh database. |
 
 ---
 
@@ -568,11 +571,13 @@ CREATE TABLE outbox (
 {
   "company_id": "acme-mx",
   "version": 3,
+  "timezone": "America/Mexico_City",
   "controls": {
     "blocked_mccs": ["7995", "5933"],
     "allowed_countries": ["MX", "US", "CO"],
     "max_per_transaction": { "amount_minor": 50000, "currency": "USD" },
-    "allowed_entry_modes": ["chip", "contactless", "ecommerce", "wallet"]
+    "allowed_entry_modes": ["chip", "contactless", "ecommerce", "wallet"],
+    "allowed_hours": { "start": "06:00", "end": "23:00" }
   },
   "velocity": [
     { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 } },

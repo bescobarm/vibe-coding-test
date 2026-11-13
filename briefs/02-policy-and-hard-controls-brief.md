@@ -1,6 +1,6 @@
 # SP02 Policy and Hard Controls: Brief
 
-> **Status:** Draft v1 · **Last updated:** 2026-11-12 · **Owner:** Brayan Escobar · **Parent:** [00](00-card-auth-engine-brief.md) · **Generated with:** `/problem-brief-creator`
+> **Status:** ✅ Done (v2) · **Last updated:** 2026-11-12 · **Owner:** Brayan Escobar · **Parent:** [00](00-card-auth-engine-brief.md) · **Generated with:** `/problem-brief-creator`
 
 ## TL;DR
 Load each company's versioned JSON policy, apply card-level overrides, and run the deterministic hard controls (card status, MCC, country, entry mode, per-transaction limit, allowed hours). Any failure declines immediately with a reason code.
@@ -63,3 +63,12 @@ Load each company's versioned JSON policy, apply card-level overrides, and run t
 3. Hard-control stage plugged into the SP01 pipeline.
 4. Override merging.
 5. `/check-tests -cov 80`.
+
+---
+
+## Outcome (2026-11-12)
+- AC1–AC5 verified in tests and live: unknown entry mode → 400 with `controls.allowed_entry_modes[0]`; publishing v2 changes new decisions while old rows keep v1; MCC 7995 → `MCC_BLOCKED`; `card_exec` (override 100000) approves 80000 while `card_123` declines it. `/check-tests -cov 80`: every changed file at 85–100%.
+- **Built:** `internal/policy` (strict parsing, validation, card overrides, lock-free cache), five new hard-control stages run in the D-039 order, `PUT /v1/companies/{id}/policy` (server-assigned version, 409 on a concurrent publish).
+- **Changed from plan:** the policy cache is in `internal/policy`, not the store, so the store stays a plain Postgres layer. `velocity` is stored as raw JSON and gets typed in SP03.
+- **Decided while building, needs review:** allowed-hours shape and clock ([D-040](../docs/DECISIONS.md#d-040-shape-of-allowed-hours-and-which-clock-it-uses)), currency mismatch ([D-041](../docs/DECISIONS.md#d-041-a-request-in-a-different-currency-than-the-transaction-limit)). **Open:** a company with no policy ([D-042](../docs/DECISIONS.md#d-042-a-company-with-no-policy)).
+- **Unknown fields are rejected on `PUT`.** A typo like `blocked_mcc` would otherwise be ignored and silently turn a control off.
