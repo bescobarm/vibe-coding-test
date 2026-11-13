@@ -3,7 +3,7 @@
 > **Status:** Draft v1 · **Last updated:** 2026-11-12 · **Owner:** Brayan Escobar · **Generated with:** `/problem-brief-creator` · **Sources:** [README.md](../README.md), challenge instructions (v1), answers on 2026-11-12
 
 ## TL;DR
-Build a Go service that answers a card processor's real-time authorization webhook with `APPROVE` / `DECLINE` plus reason codes, using per-company controls, velocity limits and an explainable anomaly score. It must be idempotent, auditable and safe when dependencies fail. It is the Stage 2 submission of a vibe coding challenge, due **2026-11-15**, with a working demo, a 5-minute video and a 1-page write-up.
+Build a Go service that answers a card processor's real-time authorization webhook with `APPROVE` / `DECLINE` plus reason codes, using per-company controls, velocity limits and an explainable anomaly score. It must be idempotent, auditable and safe when dependencies fail. It is the Stage 2 submission of a vibe coding challenge, due **Mon 2026-11-16** (moved from 2026-11-15 in the HR interview, D-010), with a working demo, a 5-minute video and a 1-page write-up.
 
 No requirement conflicts are open. Three features were cut by decision ([D-011](../docs/DECISIONS.md#d-011-mvp-scope-cuts)).
 
@@ -14,7 +14,7 @@ No requirement conflicts are open. Three features were cut by decision ([D-011](
 ### 1. Context and problem
 - Corporate card platforms must decide every swipe in real time. Too permissive means fraud and out-of-policy spend; too strict means false declines; too slow means the processor decides instead (Stripe 2 s, Marqeta 3 s, Lithic 6 s with ≤ 3 s recommended). *(README §5, §6.3)*
 - Lithic may send the same request twice, so decisions must be idempotent. *(README §6.3)*
-- **Why now:** the challenge asks for a real problem solved as a feature shipped in the first weeks. Deadline 3 days. *(challenge instructions)*
+- **Why now:** the challenge asks for a real problem solved as a feature shipped in the first weeks. Deadline 3 days, later moved to Mon 2026-11-16 (D-010). *(challenge instructions, HR interview)*
 
 ### 2. Goal and success metrics
 - **Outcome:** a reviewer can run the engine locally, watch it stop each fraud scenario with a clear reason, and see it stay correct under retries, concurrency and dependency failure.
@@ -53,7 +53,7 @@ No requirement conflicts are open. Three features were cut by decision ([D-011](
 - **R11.** Every decision is logged with what the AI suggested and what was chosen ([D-017](../docs/DECISIONS.md#d-017-log-every-decision)).
 
 ### 6. Constraints and dependencies
-- **Time:** 2026-11-12 → 2026-11-15, one person.
+- **Time:** 2026-11-12 → 2026-11-16, one person.
 - **Tech:** Go 1.27 (installed), Postgres + Redis via Docker Compose. **Docker is not installed yet** ([D-019](../docs/DECISIONS.md#d-019-docker-runtime)); a local Postgres 14 already uses port 5432 ([D-020](../docs/DECISIONS.md#d-020-postgres-host-port)).
 - **Rules:** must be new work (libraries and boilerplate allowed); runs locally, no deployment needed.
 
@@ -119,10 +119,10 @@ A walking skeleton first (one request in, one audited decision out), then vertic
 | SP01 | Walking skeleton: compose, migrations, endpoint, idempotency, audit | M / low | [01](01-walking-skeleton-brief.md) | Nov 12 |
 | SP02 | Policy and hard controls | M / low | [02](02-policy-and-hard-controls-brief.md) | Nov 12 |
 | SP03 | Velocity, budget and lifecycle (Lua) | L / high | [03](03-velocity-budget-lifecycle-brief.md) | Nov 13 |
-| SP04 | Anomaly scoring and risk policy | M / medium | [04](04-anomaly-scoring-brief.md) | Nov 13 |
-| SP05 | Deadline and fallback | M / medium | [05](05-deadline-and-fallback-brief.md) | Nov 13 |
-| SP06 | Simulator, report, metrics, load test | M / low | [06](06-simulator-and-report-brief.md) | Nov 14 |
-| SP07 | Mocked LLM explainer | S / low | [07](07-mock-llm-explainer-brief.md) | Nov 14 |
+| SP04 | Anomaly scoring and risk policy | M / medium | [04](04-anomaly-scoring-brief.md) | Nov 14 |
+| SP05 | Deadline and fallback | M / medium | [05](05-deadline-and-fallback-brief.md) | Nov 14 |
+| SP06 | Simulator, report, metrics, load test | M / low | [06](06-simulator-and-report-brief.md) | Nov 15 |
+| SP07 | Mocked LLM explainer | S / low | [07](07-mock-llm-explainer-brief.md) | Nov 15 |
 
 ### Order and dependencies
 

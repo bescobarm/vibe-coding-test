@@ -33,7 +33,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-007](#d-007-money-in-integer-minor-units) | Money in integer minor units | 🟢 Accepted | Data | [01](../briefs/01-walking-skeleton-brief.md) |
 | [D-008](#d-008-idempotency-key-is-the-processors-authorization_id) | Idempotency key = processor's `authorization_id` | 🟢 Accepted | Reliability | [01](../briefs/01-walking-skeleton-brief.md) |
 | [D-009](#d-009-no-llm-in-the-hot-path) | No LLM in the hot path | 🟢 Accepted | AI | [07](../briefs/07-mock-llm-explainer-brief.md) |
-| [D-010](#d-010-deadline-2026-11-15) | Deadline: 2026-11-15 | 🟢 Accepted | Planning | [00](../briefs/00-card-auth-engine-brief.md) |
+| [D-010](#d-010-deadline-2026-11-16) | Deadline: 2026-11-16 (revised) | 🟢 Accepted | Planning | [00](../briefs/00-card-auth-engine-brief.md) |
 | [D-011](#d-011-mvp-scope-cuts) | MVP scope cuts | 🟢 Accepted | Scope | [00](../briefs/00-card-auth-engine-brief.md) |
 | [D-012](#d-012-keep-the-full-lifecycle-in-the-mvp) | Keep the full lifecycle in the MVP | 🟢 Accepted | Scope | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-013](#d-013-mock-the-llm-explainer) | Mock the LLM explainer | 🟢 Accepted | AI | [07](../briefs/07-mock-llm-explainer-brief.md) |
@@ -138,10 +138,11 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** LLMs only produce asynchronous explanations after the decision.
 - **Why:** An LLM call takes hundreds of ms to seconds against a 2–3 s processor deadline, and its output is not deterministic enough for an auditable decision.
 
-### D-010: Deadline: 2026-11-15
-- **Date:** 2026-11-12 · **Status:** 🟢 Accepted
+### D-010: Deadline: 2026-11-16
+- **Date:** 2026-11-12, revised 2026-11-13 · **Status:** 🟢 Accepted
 - **Context:** The challenge gives 3 days from receiving the instructions.
-- **Decision:** Instructions received 2026-11-12, so the submission is due 2026-11-15. Plan: build on Nov 12–14, keep Nov 15 for the video and submission.
+- **Decision (original):** Instructions received 2026-11-12, so the submission was due 2026-11-15. Plan: build on Nov 12–14, keep Nov 15 for the video and submission.
+- **Revision (2026-11-13):** In the HR interview the delivery date was set to **Monday 2026-11-16**. New plan: build Nov 13–15 (SP03 → SP07 and `WRITEUP.md`), keep Nov 16 for the video and submission (README §16).
 
 ### D-011: MVP scope cuts
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted · **Brief:** [00](../briefs/00-card-auth-engine-brief.md)
