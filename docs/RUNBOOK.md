@@ -62,7 +62,7 @@ A typo is rejected, not ignored:
 curl -s -X PUT localhost:8080/v1/companies/acme-mx/policy -d '{"controls": {"blocked_mcc": ["7995"]}}'
 ```
 
-Expect `invalid_json` with `unknown field "blocked_mcc"`.
+Expect `"error": "policy is not valid JSON or has an unknown field"` and `unknown field "blocked_mcc"` in `detail`.
 
 ## 6. Audit trail
 
