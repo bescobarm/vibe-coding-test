@@ -32,6 +32,9 @@ const (
 	ReasonCountryNotAllowed    = "COUNTRY_NOT_ALLOWED"
 	ReasonOverTransactionLimit = "OVER_TRANSACTION_LIMIT"
 	ReasonOutsideAllowedHours  = "OUTSIDE_ALLOWED_HOURS"
+	ReasonOverDailyLimit       = "OVER_DAILY_LIMIT"
+	ReasonOverMonthlyLimit     = "OVER_MONTHLY_LIMIT"
+	ReasonVelocityExceeded     = "VELOCITY_EXCEEDED"
 )
 
 // Reason explains a decision with a code and a human-readable message.

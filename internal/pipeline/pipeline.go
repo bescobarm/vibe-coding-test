@@ -28,6 +28,7 @@ type Evaluation struct {
 	Controls      policy.Controls // company controls with the card's overrides applied
 	PolicyVersion int
 	Now           time.Time // transaction time: the request's created_at, or the engine clock
+	ReceivedAt    time.Time // engine clock when the request arrived; velocity windows use it (D-045)
 	RiskScore     int
 
 	decision domain.Decision

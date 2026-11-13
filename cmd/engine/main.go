@@ -4,14 +4,17 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/bescobarm/card-auth-engine/internal/api"
 	"github.com/bescobarm/card-auth-engine/internal/authz"
@@ -19,12 +22,15 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 	"github.com/bescobarm/card-auth-engine/internal/store"
+	"github.com/bescobarm/card-auth-engine/internal/velocity"
 	"github.com/bescobarm/card-auth-engine/migrations"
 )
 
 const (
 	defaultDatabaseURL = "postgres://auth:auth@localhost:55432/auth?sslmode=disable"
 	defaultPort        = "8080"
+	defaultRedisAddr   = "localhost:6379"
+	defaultRedisMS     = 50 // D-048
 	envTrue            = "true"
 
 	readHeaderTimeout = 2 * time.Second
@@ -68,8 +74,22 @@ func run(log *slog.Logger) error {
 
 	policies := policy.NewCache(st)
 
-	// SP03: velocity and budget · SP04: anomaly score go after the hard controls.
-	pl := pipeline.New(controls.Hard()...)
+	redisTimeout, err := envMillis("REDIS_TIMEOUT_MS", defaultRedisMS)
+	if err != nil {
+		return err
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:         env("REDIS_ADDR", defaultRedisAddr),
+		DialTimeout:  redisTimeout,
+		ReadTimeout:  redisTimeout,
+		WriteTimeout: redisTimeout,
+	})
+	defer rdb.Close() //nolint:errcheck // nothing to do on shutdown
+
+	// SP04: the anomaly score goes after velocity.
+	stages := append(controls.Hard(), velocity.NewStage(velocity.NewLimiter(rdb, redisTimeout)))
+	pl := pipeline.New(stages...)
 	svc := authz.NewService(st, st, policies, pl)
 
 	srv := &http.Server{
@@ -107,4 +127,13 @@ func env(key, def string) string {
 	}
 
 	return def
+}
+
+func envMillis(key string, def int) (time.Duration, error) {
+	ms, err := strconv.Atoi(env(key, strconv.Itoa(def)))
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+
+	return time.Duration(ms) * time.Millisecond, nil
 }

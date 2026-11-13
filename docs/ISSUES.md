@@ -16,6 +16,9 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-008](#i-008-merged-branches-were-not-deleted-on-github) | 2026-11-13 | Git | ✅ |
 | [I-009](#i-009-the-audit-cannot-say-which-companys-policy-decided) | 2026-11-13 | Data | ⏭️ |
 | [I-010](#i-010-a-company-without-a-policy-hits-postgres-on-every-request) | 2026-11-13 | Performance | 🟠 |
+| [I-011](#i-011-a-policy-stored-before-a-schema-change-becomes-invalid) | 2026-11-13 | Data | ✅ (workaround) |
+| [I-012](#i-012-redis-down-returns-500-until-the-fallback-exists) | 2026-11-13 | Reliability | 🟠 |
+| [I-013](#i-013-the-stage-name-appeared-twice-in-error-logs) | 2026-11-13 | Observability | ✅ |
 
 ---
 
@@ -61,3 +64,17 @@ Every problem found while building: what happened, how it was found, and how it 
 - **Found:** researching D-042. `Cache.Policy` caches documents but not "not found" ([cache.go](../internal/policy/cache.go)).
 - **Impact:** one extra Postgres read per request for those companies; may matter for the p99 < 100 ms load test (SP06).
 - **Plan:** cache the miss when the D-042 default is built (SP05), so a later publish replaces it.
+
+### I-011: A policy stored before a schema change becomes invalid
+- **Found:** SP03 changed `daily-spend` from `max_amount_minor` to `max_amount {amount_minor, currency}` (D-049, D-052). The local database still held the old seed, which now fails `policy.Load`: every `acme-mx` request would get a 500.
+- **Cause:** policies are never updated in place (D-004), and the seed uses `ON CONFLICT DO NOTHING`, so an old version stays forever.
+- **Fix:** demo data only: `make reset` before running this branch (noted in the runbook). For real data, a schema change needs a migration that publishes a converted version. This is the same risk D-042 option D had.
+
+### I-012: Redis down returns 500 until the fallback exists
+- **Found:** live check of SP03 with Redis stopped: `500` in 54 ms (`reserve: context deadline exceeded`). The 50 ms timeout works (D-048).
+- **Plan:** SP05 maps this error to the company fallback (AC4 of the parent brief).
+
+### I-013: The stage name appeared twice in error logs
+- **Found:** the same live check logged `stage velocity: velocity: reserve: ...`. The pipeline already adds the stage name.
+- **Fix:** the velocity stage returns the reserve error unwrapped.
+

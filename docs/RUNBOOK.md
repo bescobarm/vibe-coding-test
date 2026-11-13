@@ -1,6 +1,6 @@
 # Runbook: test the current build
 
-The shortest path to see what is built so far (SP01 walking skeleton + SP02 policies and hard controls) working end to end.
+The shortest path to see what is built so far (SP01 walking skeleton, SP02 policies and hard controls, SP03 velocity and daily budget) working end to end.
 
 **Needs:** Docker running, Go 1.25+, `jq`. Optional: `golangci-lint` v2 for step 7.
 
@@ -9,6 +9,8 @@ The shortest path to see what is built so far (SP01 walking skeleton + SP02 poli
 ```bash
 make reset && make run
 ```
+
+`make reset` also empties Redis, and it is required after pulling a change to the policy format: a policy stored by an older seed fails validation ([I-011](ISSUES.md#i-011-a-policy-stored-before-a-schema-change-becomes-invalid)).
 
 Leave it running. Wait for `"msg":"engine listening"`. Everything below goes in a second terminal.
 
@@ -45,6 +47,8 @@ auth() {
 | e | `auth a4 card_123 80000 5734` | `DECLINE` `OVER_TRANSACTION_LIMIT` (limit 50000) |
 | f | `auth a5 card_exec 80000 5734` | `APPROVE` (card override raises the limit to 100000) |
 | g | `auth a6 card_123 4500 5734 2026-11-12T09:00:00Z` | `DECLINE` `OUTSIDE_ALLOWED_HOURS` (03:00 in Mexico City) |
+| h | `for i in 1 2 3 4 5 6; do auth v$i card_456 300 5734; done` | 5 × `APPROVE`, then `DECLINE` `VELOCITY_EXCEEDED` (card testing: at most 5 charges ≤ 500 in 10 min) |
+| i | `for i in 1 2 3 4; do auth b$i card_456 50000 5734; done` | 3 × `APPROVE`, then `DECLINE` `OVER_DAILY_LIMIT` (1500 + 150000 + 50000 > 200000 USD per day) |
 
 ## 5. Publish a new policy version
 

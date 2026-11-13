@@ -99,6 +99,8 @@ Send the same request again: you get the same decision, and the amount is counte
 | `PORT` | `8080` | HTTP port |
 | `DATABASE_URL` | `postgres://auth:auth@localhost:55432/auth?sslmode=disable` | Postgres (source of truth, audit log) |
 | `REDIS_ADDR` | `localhost:6379` | Redis (velocity counters and holds) |
+| `REDIS_TIMEOUT_MS` | `50` | Timeout of every Redis call, so a slow Redis fails fast ([D-048](docs/DECISIONS.md#d-048-redis-calls-have-a-fixed-timeout)) |
+| `SEED_DEMO` | `true` | Insert the demo company, policy and cards on start |
 | `INTERNAL_DEADLINE_MS` | `500` | Hard budget per decision. After it, the company's fallback applies |
 | `EXPLAINER` | `mock` | `mock` (simulated LLM) or `template` (no LLM at all) |
 
@@ -584,7 +586,7 @@ CREATE TABLE outbox (
   },
   "velocity": [
     { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 } },
-    { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount_minor": 200000 }
+    { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
   ],
   "risk": { "flag_at": 40, "decline_at": 70 },
   "fallback": { "mode": "fail_open_limited", "max_amount_minor": 20000 }
