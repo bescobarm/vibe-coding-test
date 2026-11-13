@@ -106,7 +106,7 @@ func TestAuthorizeRejectsInvalidJSON(t *testing.T) {
 	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", `{"authorization_id":`)
 
 	c.Equal(http.StatusBadRequest, w.Code)
-	c.Equal("invalid_json", decode(c, w)["error"])
+	c.Equal(errMalformedRequest.Error(), decode(c, w)["error"])
 	c.Empty(auth.got.AuthorizationID, "a rejected request must not reach the authorizer")
 }
 
@@ -117,8 +117,8 @@ func TestAuthorizeRejectsABodyThatIsTooLarge(t *testing.T) {
 
 	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", body)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	c.Equal("invalid_json", decode(c, w)["error"])
+	c.Equal(http.StatusRequestEntityTooLarge, w.Code)
+	c.Equal(errBodyTooLarge.Error(), decode(c, w)["error"])
 	c.Empty(auth.got.AuthorizationID, "a rejected request must not reach the authorizer")
 }
 
@@ -130,7 +130,7 @@ func TestAuthorizeRejectsARequestThatFailsValidation(t *testing.T) {
 
 	c.Equal(http.StatusBadRequest, w.Code)
 	body := decode(c, w)
-	c.Equal("invalid_request", body["error"])
+	c.Equal(errInvalidRequest.Error(), body["error"])
 	fields, ok := body["fields"].(map[string]any)
 	c.True(ok, "fields must be an object: %v", body)
 	c.Equal("required", fields["card_id"])
@@ -144,7 +144,7 @@ func TestAuthorizeHidesInternalErrors(t *testing.T) {
 	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", validBody)
 
 	c.Equal(http.StatusInternalServerError, w.Code)
-	c.Equal("internal", decode(c, w)["error"])
+	c.Equal(errAuthorizeFailed.Error(), decode(c, w)["error"])
 	c.NotContains(w.Body.String(), "10.0.0.5")
 }
 
@@ -167,7 +167,7 @@ func TestGetAuthorizationReturns404WhenMissing(t *testing.T) {
 	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{err: domain.ErrNotFound}, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
 
 	c.Equal(http.StatusNotFound, w.Code)
-	c.Equal("not_found", decode(c, w)["error"])
+	c.Equal(errAuthorizationNotFound.Error(), decode(c, w)["error"])
 }
 
 func TestGetAuthorizationReturns500OnStoreError(t *testing.T) {
@@ -176,7 +176,7 @@ func TestGetAuthorizationReturns500OnStoreError(t *testing.T) {
 	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{err: errors.New("boom")}, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
 
 	c.Equal(http.StatusInternalServerError, w.Code)
-	c.Equal("internal", decode(c, w)["error"])
+	c.Equal(errAuditUnavailable.Error(), decode(c, w)["error"])
 }
 
 func TestHealthIsOKWhenTheDatabaseIsUp(t *testing.T) {
@@ -239,7 +239,7 @@ func TestPublishPolicyRejectsInvalidJSON(t *testing.T) {
 	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":`)
 
 	c.Equal(http.StatusBadRequest, w.Code)
-	c.Equal("invalid_json", decode(c, w)["error"])
+	c.Equal(errMalformedPolicy.Error(), decode(c, w)["error"])
 }
 
 func TestPublishPolicyRejectsABodyThatIsTooLarge(t *testing.T) {
@@ -248,8 +248,8 @@ func TestPublishPolicyRejectsABodyThatIsTooLarge(t *testing.T) {
 
 	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", body)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	c.Equal("invalid_json", decode(c, w)["error"])
+	c.Equal(http.StatusRequestEntityTooLarge, w.Code)
+	c.Equal(errBodyTooLarge.Error(), decode(c, w)["error"])
 }
 
 func TestPublishPolicyRejectsUnknownFields(t *testing.T) {
@@ -259,7 +259,7 @@ func TestPublishPolicyRejectsUnknownFields(t *testing.T) {
 
 	c.Equal(http.StatusBadRequest, w.Code)
 	body := decode(c, w)
-	c.Equal("invalid_json", body["error"])
+	c.Equal(errMalformedPolicy.Error(), body["error"])
 	c.Contains(body["detail"], "blocked_mcc")
 }
 
@@ -271,7 +271,7 @@ func TestPublishPolicyListsInvalidFields(t *testing.T) {
 
 	c.Equal(http.StatusBadRequest, w.Code)
 	body := decode(c, w)
-	c.Equal("invalid_policy", body["error"])
+	c.Equal(errInvalidPolicy.Error(), body["error"])
 	fields, ok := body["fields"].(map[string]any)
 	c.True(ok, "fields must be an object: %v", body)
 	c.Equal("unknown entry mode", fields["controls.allowed_entry_modes[1]"])
@@ -284,9 +284,7 @@ func TestPublishPolicyRejectsAnotherCompanysID(t *testing.T) {
 	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"company_id":"other"}`)
 
 	c.Equal(http.StatusBadRequest, w.Code)
-	fields, ok := decode(c, w)["fields"].(map[string]any)
-	c.True(ok)
-	c.Equal("must match the URL", fields["company_id"])
+	c.Equal(errCompanyMismatch.Error(), decode(c, w)["error"])
 }
 
 func TestPublishPolicyReturns409OnAConcurrentPublish(t *testing.T) {
@@ -295,7 +293,7 @@ func TestPublishPolicyReturns409OnAConcurrentPublish(t *testing.T) {
 	w := do(newPolicyHandler(&fakePublisher{err: domain.ErrConflict}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
 
 	c.Equal(http.StatusConflict, w.Code)
-	c.Equal("conflict", decode(c, w)["error"])
+	c.Equal(errPolicyConflict.Error(), decode(c, w)["error"])
 }
 
 func TestPublishPolicyHidesStoreErrors(t *testing.T) {
@@ -304,5 +302,18 @@ func TestPublishPolicyHidesStoreErrors(t *testing.T) {
 	w := do(newPolicyHandler(&fakePublisher{err: errors.New("pq: disk full")}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
 
 	c.Equal(http.StatusInternalServerError, w.Code)
+	c.Equal(errPublishFailed.Error(), decode(c, w)["error"])
 	c.NotContains(w.Body.String(), "disk full")
+}
+
+func TestWriteJSONLogsAValueThatCannotBeEncoded(t *testing.T) {
+	c := require.New(t)
+	var logs strings.Builder
+	h := &handler{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	w := httptest.NewRecorder()
+
+	h.writeJSON(w, http.StatusOK, func() {})
+
+	c.Equal(http.StatusOK, w.Code)
+	c.Contains(logs.String(), "write response failed")
 }

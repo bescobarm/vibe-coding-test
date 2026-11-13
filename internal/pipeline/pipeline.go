@@ -35,6 +35,7 @@ type Evaluation struct {
 	halted   bool
 }
 
+// NewEvaluation starts an evaluation with no reasons and an APPROVE decision.
 func NewEvaluation(req domain.AuthRequest) *Evaluation {
 	return &Evaluation{Request: req, reasons: []domain.Reason{}}
 }
@@ -51,6 +52,7 @@ func (e *Evaluation) AddReason(code, message string) {
 	e.reasons = append(e.reasons, domain.Reason{Code: code, Message: message})
 }
 
+// Halted reports whether a stage declined.
 func (e *Evaluation) Halted() bool { return e.halted }
 
 // Decision is APPROVE unless a stage declined.
@@ -62,6 +64,7 @@ func (e *Evaluation) Decision() domain.Decision {
 	return e.decision
 }
 
+// Reasons returns the reasons recorded so far.
 func (e *Evaluation) Reasons() []domain.Reason { return e.reasons }
 
 // Response builds the processor-facing answer. Latency is set by the caller.
@@ -80,10 +83,12 @@ func (e *Evaluation) Response() domain.AuthResponse {
 	return resp
 }
 
+// Pipeline is an ordered list of stages.
 type Pipeline struct {
 	stages []Stage
 }
 
+// New returns a pipeline that runs stages in the given order.
 func New(stages ...Stage) *Pipeline {
 	return &Pipeline{stages: stages}
 }

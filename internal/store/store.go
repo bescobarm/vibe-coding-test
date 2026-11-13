@@ -30,14 +30,17 @@ const (
 //go:embed seed_demo.sql
 var demoSeed string
 
+// Store implements the engine's storage interfaces on Postgres.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
+// New returns a Store that uses pool.
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+// Ping checks that Postgres is reachable.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
@@ -48,6 +51,7 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 	return err
 }
 
+// GetCard loads a card, or returns domain.ErrNotFound.
 func (s *Store) GetCard(ctx context.Context, cardID string) (domain.Card, error) {
 	var c domain.Card
 	err := s.pool.QueryRow(ctx,
@@ -187,6 +191,7 @@ func (s *Store) storedResponse(ctx context.Context, id string) (domain.AuthRespo
 	return resp, nil
 }
 
+// GetAuthorization reads one authorization from the audit log, or returns domain.ErrNotFound.
 func (s *Store) GetAuthorization(ctx context.Context, id string) (domain.AuditRecord, error) {
 	var (
 		rec                    domain.AuditRecord

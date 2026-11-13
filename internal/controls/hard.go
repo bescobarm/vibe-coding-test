@@ -9,7 +9,6 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 )
 
-// Decline message formats, one per hard control.
 const (
 	fmtEntryMode        = "Entry mode %s is not allowed"
 	fmtMCCBlocked       = "Merchant category %s is blocked"
@@ -33,10 +32,13 @@ func Hard() []pipeline.Stage {
 	}
 }
 
+// EntryMode declines an entry mode the company does not allow (all are allowed when none are listed).
 type EntryMode struct{}
 
+// Name implements pipeline.Stage.
 func (EntryMode) Name() string { return "entry_mode" }
 
+// Evaluate implements pipeline.Stage.
 func (EntryMode) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	allowed := e.Controls.AllowedEntryModes
 	if len(allowed) > 0 && !slices.Contains(allowed, e.Request.EntryMode) {
@@ -47,10 +49,13 @@ func (EntryMode) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	return nil
 }
 
+// MCC declines a blocked merchant category.
 type MCC struct{}
 
+// Name implements pipeline.Stage.
 func (MCC) Name() string { return "mcc" }
 
+// Evaluate implements pipeline.Stage.
 func (MCC) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	if slices.Contains(e.Controls.BlockedMCCs, e.Request.Merchant.MCC) {
 		e.Decline(domain.ReasonMCCBlocked,
@@ -60,10 +65,13 @@ func (MCC) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	return nil
 }
 
+// Country declines a merchant country outside the allowed list (all are allowed when none are listed).
 type Country struct{}
 
+// Name implements pipeline.Stage.
 func (Country) Name() string { return "country" }
 
+// Evaluate implements pipeline.Stage.
 func (Country) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	allowed := e.Controls.AllowedCountries
 	if len(allowed) > 0 && !slices.Contains(allowed, e.Request.Merchant.Country) {
@@ -79,8 +87,10 @@ func (Country) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 // the engine can't tell whether it is over the limit (D-041).
 type TransactionLimit struct{}
 
+// Name implements pipeline.Stage.
 func (TransactionLimit) Name() string { return "transaction_limit" }
 
+// Evaluate implements pipeline.Stage.
 func (TransactionLimit) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	limit := e.Controls.MaxPerTransaction
 	switch {
@@ -101,8 +111,10 @@ func (TransactionLimit) Evaluate(_ context.Context, e *pipeline.Evaluation) erro
 // time zone (D-026, D-038).
 type AllowedHours struct{}
 
+// Name implements pipeline.Stage.
 func (AllowedHours) Name() string { return "allowed_hours" }
 
+// Evaluate implements pipeline.Stage.
 func (AllowedHours) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	h := e.Controls.AllowedHours
 	if h == nil {

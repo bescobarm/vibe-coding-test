@@ -15,8 +15,10 @@ var ErrNotFound = errors.New("not found")
 // ErrConflict is returned when a write loses a race with another write.
 var ErrConflict = errors.New("conflict")
 
+// Decision is the engine's answer to the processor.
 type Decision string
 
+// Decisions the engine can return.
 const (
 	Approve Decision = "APPROVE"
 	Decline Decision = "DECLINE"
@@ -32,11 +34,13 @@ const (
 	ReasonOutsideAllowedHours  = "OUTSIDE_ALLOWED_HOURS"
 )
 
+// Reason explains a decision with a code and a human-readable message.
 type Reason struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
+// Merchant is where the card is being used.
 type Merchant struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -71,14 +75,17 @@ type AuthResponse struct {
 	LatencyMS           float64  `json:"latency_ms"`
 }
 
+// CardStatus is the lifecycle state of a card; only active cards can spend.
 type CardStatus string
 
+// Card statuses.
 const (
 	CardActive     CardStatus = "active"
 	CardFrozen     CardStatus = "frozen"
 	CardTerminated CardStatus = "terminated"
 )
 
+// Card is an issued card and the company it belongs to.
 type Card struct {
 	ID           string
 	CompanyID    string

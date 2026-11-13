@@ -26,6 +26,7 @@ type Cache struct {
 	docs  atomic.Pointer[map[string]Document]
 }
 
+// NewCache returns an empty cache backed by store.
 func NewCache(store Store) *Cache {
 	c := &Cache{store: store}
 	c.docs.Store(&map[string]Document{})

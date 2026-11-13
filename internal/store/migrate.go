@@ -84,7 +84,6 @@ func applyIfNew(ctx context.Context, conn *pgxpool.Conn, files fs.FS, name strin
 	return apply(ctx, conn, name, string(sql))
 }
 
-// apply runs one migration and records it in the same transaction.
 func apply(ctx context.Context, conn *pgxpool.Conn, name, sql string) error {
 	tx, err := conn.Begin(ctx)
 	if err != nil {

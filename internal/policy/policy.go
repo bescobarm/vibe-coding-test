@@ -37,6 +37,7 @@ type Controls struct {
 	AllowedHours      *AllowedHours `json:"allowed_hours,omitempty"` // D-038: hard control
 }
 
+// Money is an amount in minor units (cents) and its ISO currency.
 type Money struct {
 	AmountMinor int64  `json:"amount_minor"`
 	Currency    string `json:"currency"`
@@ -51,11 +52,13 @@ type AllowedHours struct {
 	start, end int // minutes after midnight
 }
 
+// Risk holds the anomaly score thresholds: flag at FlagAt, decline at DeclineAt.
 type Risk struct {
 	FlagAt    int `json:"flag_at"`
 	DeclineAt int `json:"decline_at"`
 }
 
+// Fallback is what to do when a dependency fails or the deadline is hit (D-006).
 type Fallback struct {
 	Mode           string `json:"mode"`
 	MaxAmountMinor int64  `json:"max_amount_minor,omitempty"`
@@ -241,7 +244,6 @@ func validateControls(c *Controls, prefix string, errs map[string]string) {
 	validateHours(c.AllowedHours, prefix+"allowed_hours", errs)
 }
 
-// validateEach reports every value in list that ok rejects, as field[i] → msg.
 func validateEach(list []string, field string, ok func(string) bool, msg string, errs map[string]string) {
 	for i, v := range list {
 		if !ok(v) {

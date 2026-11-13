@@ -359,6 +359,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
   2. No init statement in `if`/`switch` (`if a := f(); a != nil`): assign first, then check.
   3. Cyclomatic complexity of at most 10 per function.
   4. No magic numbers or hardcoded texts: use named `const`/`var`.
+  5. Doc comments are required on exported identifiers only. Unexported ones get a comment only when they need extra context.
+  6. Errors are specific `errors.New` values (one per failure case), and no error is discarded with `_`.
 - **How it is enforced (`make lint`, config in `.golangci.yml`, golangci-lint v2):**
 
   | Rule | Tool | Note |
@@ -367,9 +369,11 @@ Entries marked 📝 need my own words before the interview (for example, what th
   | 2 | `noinlineerr` + a `grep` in `make lint` | `noinlineerr` only covers `err`; the grep catches the rest (`if v, ok := m[k]; ok`) |
   | 3 | `cyclop`, `max-complexity: 10` | |
   | 4 | `mnd` (numbers) + `goconst` (repeated strings) | no linter bans every string literal, so messages, SQL, error codes and JSON keys were moved to constants by hand |
+  | 5 | `revive`, only the `exported` rule | it can't flag a comment that isn't needed; obvious comments on unexported code were removed by hand |
+  | 6 | by hand in `internal/api` | `errcheck` (on by default) already fails on an unchecked error; it allows an explicit `_ =` |
 
   `mnd` and `goconst` are off for `_test.go`: expected values in a test read better inline.
-- **Consequences:** `validateControls` (15) and `Migrate` (13) were split into small functions. API error bodies are typed structs instead of `map[string]string`. Validation messages shared by requests and policies live in `domain` (`domain.MsgRequired`, …). Log keys stay inline.
+- **Consequences:** `validateControls` (15) and `Migrate` (13) were split into small functions. API error bodies are typed structs instead of `map[string]string`. The API's `"error"` field is now the message of a specific error (e.g. `"policy is not valid JSON or has an unknown field"`, `"another policy version was published at the same time, retry"`) instead of a shared code like `invalid_json` or `internal`. A body over 64 KiB now gets 413 instead of 400. A response that fails to encode is logged. Validation messages shared by requests and policies live in `domain` (`domain.MsgRequired`, …). Log keys stay inline.
 
 ---
 
