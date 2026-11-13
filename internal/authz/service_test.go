@@ -22,6 +22,7 @@ func (f *fakeRecorder) Decide(ctx context.Context, _ domain.AuthRequest, decide 
 	if f.replay != nil {
 		return *f.replay, true, nil
 	}
+
 	f.decided++
 	resp, err := decide(ctx)
 	return resp, false, err
@@ -68,6 +69,7 @@ func (s cardFoundStage) Evaluate(_ context.Context, e *pipeline.Evaluation) erro
 	if !e.CardFound {
 		e.Decline(domain.ReasonCardInactive, "Card not found")
 	}
+
 	return nil
 }
 

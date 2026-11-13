@@ -103,6 +103,16 @@ var (
 	countryRe  = regexp.MustCompile(`^[A-Z]{2}$`)
 )
 
+// Validation messages shared by requests and policies.
+const (
+	MsgRequired  = "required"
+	MsgPositive  = "must be greater than 0"
+	MsgCurrency  = "must be a 3-letter uppercase ISO code"
+	MsgMCC       = "must be 4 digits"
+	MsgCountry   = "must be a 2-letter uppercase ISO code"
+	MsgEntryMode = "unknown entry mode"
+)
+
 // EntryModes lists the accepted values of entry_mode.
 var EntryModes = map[string]bool{
 	"chip": true, "contactless": true, "ecommerce": true,
@@ -114,25 +124,32 @@ var EntryModes = map[string]bool{
 func (r AuthRequest) Validate() map[string]string {
 	errs := map[string]string{}
 	if r.AuthorizationID == "" {
-		errs["authorization_id"] = "required"
+		errs["authorization_id"] = MsgRequired
 	}
+
 	if r.CardID == "" {
-		errs["card_id"] = "required"
+		errs["card_id"] = MsgRequired
 	}
+
 	if r.AmountMinor <= 0 {
-		errs["amount_minor"] = "must be greater than 0"
+		errs["amount_minor"] = MsgPositive
 	}
+
 	if !currencyRe.MatchString(r.Currency) {
-		errs["currency"] = "must be a 3-letter uppercase ISO code"
+		errs["currency"] = MsgCurrency
 	}
+
 	if !mccRe.MatchString(r.Merchant.MCC) {
-		errs["merchant.mcc"] = "must be 4 digits"
+		errs["merchant.mcc"] = MsgMCC
 	}
+
 	if !countryRe.MatchString(r.Merchant.Country) {
-		errs["merchant.country"] = "must be a 2-letter uppercase ISO code"
+		errs["merchant.country"] = MsgCountry
 	}
+
 	if !EntryModes[r.EntryMode] {
-		errs["entry_mode"] = "unknown entry mode"
+		errs["entry_mode"] = MsgEntryMode
 	}
+
 	return errs
 }

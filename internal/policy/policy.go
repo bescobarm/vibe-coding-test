@@ -61,13 +61,37 @@ type Fallback struct {
 	MaxAmountMinor int64  `json:"max_amount_minor,omitempty"`
 }
 
+const (
+	minutesPerHour   = 60
+	maxRiskScore     = 100
+	clockHourEnd     = 2 // "HH" in "HH:MM"
+	clockMinuteStart = 3 // "MM" in "HH:MM"
+	jsonNull         = "null"
+
+	prefixControls  = "controls."
+	prefixOverrides = "overrides."
+
+	msgUnknownTimezone = "unknown IANA time zone"
+	msgRiskOrder       = "need 0 < flag_at < decline_at <= 100"
+	msgFallbackMode    = "must be " + FailClosed + " or " + FailOpenLimited
+	msgNotNegative     = "must not be negative"
+	msgClock           = "must be HH:MM (24h)"
+	msgHoursMustDiffer = "start and end must differ"
+)
+
+// Fallback modes (D-006).
+const (
+	FailClosed      = "fail_closed"
+	FailOpenLimited = "fail_open_limited"
+)
+
 var (
 	mccRe      = regexp.MustCompile(`^[0-9]{4}$`)
 	countryRe  = regexp.MustCompile(`^[A-Z]{2}$`)
 	currencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
 	clockRe    = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 
-	fallbackModes = map[string]bool{"fail_closed": true, "fail_open_limited": true}
+	fallbackModes = map[string]bool{FailClosed: true, FailOpenLimited: true}
 )
 
 // Parse decodes a document sent by a client. Unknown fields are rejected, so a
@@ -75,21 +99,27 @@ var (
 // Call Validate afterwards.
 func Parse(data []byte) (Document, error) {
 	var d Document
-	if err := decodeStrict(data, &d); err != nil {
+	err := decodeStrict(data, &d)
+	if err != nil {
 		return Document{}, err
 	}
+
 	return d, nil
 }
 
 // Load decodes and validates a document read back from storage.
 func Load(data []byte) (Document, error) {
 	var d Document
-	if err := json.Unmarshal(data, &d); err != nil {
+	err := json.Unmarshal(data, &d)
+	if err != nil {
 		return Document{}, fmt.Errorf("decode policy: %w", err)
 	}
-	if errs := d.Validate(); len(errs) > 0 {
+
+	errs := d.Validate()
+	if len(errs) > 0 {
 		return Document{}, fmt.Errorf("stored policy %s v%d is invalid: %v", d.CompanyID, d.Version, errs)
 	}
+
 	return d, nil
 }
 
@@ -98,29 +128,46 @@ func Load(data []byte) (Document, error) {
 func (d *Document) Validate() map[string]string {
 	errs := map[string]string{}
 	if d.CompanyID == "" {
-		errs["company_id"] = "required"
+		errs["company_id"] = domain.MsgRequired
 	}
 
 	loc, err := time.LoadLocation(d.Timezone)
 	if err != nil {
-		errs["timezone"] = "unknown IANA time zone"
+		errs["timezone"] = msgUnknownTimezone
 	}
+
 	d.loc = loc
 
-	validateControls(&d.Controls, "controls.", errs)
+	validateControls(&d.Controls, prefixControls, errs)
+	validateRisk(d.Risk, errs)
+	validateFallback(d.Fallback, errs)
 
-	if r := d.Risk; r != nil && !(0 < r.FlagAt && r.FlagAt < r.DeclineAt && r.DeclineAt <= 100) {
-		errs["risk"] = "need 0 < flag_at < decline_at <= 100"
-	}
-	if f := d.Fallback; f != nil {
-		if !fallbackModes[f.Mode] {
-			errs["fallback.mode"] = "must be fail_closed or fail_open_limited"
-		}
-		if f.MaxAmountMinor < 0 {
-			errs["fallback.max_amount_minor"] = "must not be negative"
-		}
-	}
 	return errs
+}
+
+func validateRisk(r *Risk, errs map[string]string) {
+	if r == nil {
+		return
+	}
+
+	ordered := 0 < r.FlagAt && r.FlagAt < r.DeclineAt && r.DeclineAt <= maxRiskScore
+	if !ordered {
+		errs["risk"] = msgRiskOrder
+	}
+}
+
+func validateFallback(f *Fallback, errs map[string]string) {
+	if f == nil {
+		return
+	}
+
+	if !fallbackModes[f.Mode] {
+		errs["fallback.mode"] = msgFallbackMode
+	}
+
+	if f.MaxAmountMinor < 0 {
+		errs["fallback.max_amount_minor"] = msgNotNegative
+	}
 }
 
 // Location is the company's time zone, UTC by default.
@@ -128,6 +175,7 @@ func (d Document) Location() *time.Location {
 	if d.loc == nil {
 		return time.UTC
 	}
+
 	return d.loc
 }
 
@@ -135,15 +183,18 @@ func (d Document) Location() *time.Location {
 // field: any field present in the overrides replaces the company value, and an
 // explicit empty list removes the restriction for that card.
 func Effective(company Controls, overrides json.RawMessage) (Controls, error) {
-	if len(overrides) == 0 || string(overrides) == "null" {
+	if len(overrides) == 0 || string(overrides) == jsonNull {
 		return company, nil
 	}
+
 	var o Controls
-	if err := decodeStrict(overrides, &o); err != nil {
+	err := decodeStrict(overrides, &o)
+	if err != nil {
 		return Controls{}, fmt.Errorf("decode card overrides: %w", err)
 	}
+
 	errs := map[string]string{}
-	validateControls(&o, "overrides.", errs)
+	validateControls(&o, prefixOverrides, errs)
 	if len(errs) > 0 {
 		return Controls{}, fmt.Errorf("invalid card overrides: %v", errs)
 	}
@@ -152,67 +203,89 @@ func Effective(company Controls, overrides json.RawMessage) (Controls, error) {
 	if o.BlockedMCCs != nil {
 		out.BlockedMCCs = o.BlockedMCCs
 	}
+
 	if o.AllowedCountries != nil {
 		out.AllowedCountries = o.AllowedCountries
 	}
+
 	if o.MaxPerTransaction != nil {
 		out.MaxPerTransaction = o.MaxPerTransaction
 	}
+
 	if o.AllowedEntryModes != nil {
 		out.AllowedEntryModes = o.AllowedEntryModes
 	}
+
 	if o.AllowedHours != nil {
 		out.AllowedHours = o.AllowedHours
 	}
+
 	return out, nil
 }
 
 // Contains reports whether t, already in the company's time zone, falls inside the window.
 func (h AllowedHours) Contains(t time.Time) bool {
-	m := t.Hour()*60 + t.Minute()
+	m := t.Hour()*minutesPerHour + t.Minute()
 	if h.start < h.end {
 		return h.start <= m && m < h.end
 	}
+
 	return m >= h.start || m < h.end
 }
 
 func validateControls(c *Controls, prefix string, errs map[string]string) {
-	for i, mcc := range c.BlockedMCCs {
-		if !mccRe.MatchString(mcc) {
-			errs[fmt.Sprintf("%sblocked_mccs[%d]", prefix, i)] = "must be 4 digits"
+	validateEach(c.BlockedMCCs, prefix+"blocked_mccs", mccRe.MatchString, domain.MsgMCC, errs)
+	validateEach(c.AllowedCountries, prefix+"allowed_countries", countryRe.MatchString, domain.MsgCountry, errs)
+	validateEach(c.AllowedEntryModes, prefix+"allowed_entry_modes", isEntryMode, domain.MsgEntryMode, errs)
+	validateMoney(c.MaxPerTransaction, prefix+"max_per_transaction", errs)
+	validateHours(c.AllowedHours, prefix+"allowed_hours", errs)
+}
+
+// validateEach reports every value in list that ok rejects, as field[i] → msg.
+func validateEach(list []string, field string, ok func(string) bool, msg string, errs map[string]string) {
+	for i, v := range list {
+		if !ok(v) {
+			errs[fmt.Sprintf("%s[%d]", field, i)] = msg
 		}
 	}
-	for i, cc := range c.AllowedCountries {
-		if !countryRe.MatchString(cc) {
-			errs[fmt.Sprintf("%sallowed_countries[%d]", prefix, i)] = "must be a 2-letter uppercase ISO code"
-		}
+}
+
+func isEntryMode(mode string) bool {
+	return domain.EntryModes[mode]
+}
+
+func validateMoney(m *Money, field string, errs map[string]string) {
+	if m == nil {
+		return
 	}
-	for i, mode := range c.AllowedEntryModes {
-		if !domain.EntryModes[mode] {
-			errs[fmt.Sprintf("%sallowed_entry_modes[%d]", prefix, i)] = "unknown entry mode"
-		}
+
+	if m.AmountMinor <= 0 {
+		errs[field+".amount_minor"] = domain.MsgPositive
 	}
-	if m := c.MaxPerTransaction; m != nil {
-		if m.AmountMinor <= 0 {
-			errs[prefix+"max_per_transaction.amount_minor"] = "must be greater than 0"
-		}
-		if !currencyRe.MatchString(m.Currency) {
-			errs[prefix+"max_per_transaction.currency"] = "must be a 3-letter uppercase ISO code"
-		}
+
+	if !currencyRe.MatchString(m.Currency) {
+		errs[field+".currency"] = domain.MsgCurrency
 	}
-	if h := c.AllowedHours; h != nil {
-		start, okStart := minutes(h.Start)
-		end, okEnd := minutes(h.End)
-		switch {
-		case !okStart:
-			errs[prefix+"allowed_hours.start"] = "must be HH:MM (24h)"
-		case !okEnd:
-			errs[prefix+"allowed_hours.end"] = "must be HH:MM (24h)"
-		case start == end:
-			errs[prefix+"allowed_hours"] = "start and end must differ"
-		default:
-			h.start, h.end = start, end
-		}
+}
+
+// validateHours also resolves the window to minutes, so Contains can use it.
+func validateHours(h *AllowedHours, field string, errs map[string]string) {
+	if h == nil {
+		return
+	}
+
+	start, okStart := minutes(h.Start)
+	end, okEnd := minutes(h.End)
+
+	switch {
+	case !okStart:
+		errs[field+".start"] = msgClock
+	case !okEnd:
+		errs[field+".end"] = msgClock
+	case start == end:
+		errs[field] = msgHoursMustDiffer
+	default:
+		h.start, h.end = start, end
 	}
 }
 
@@ -220,9 +293,10 @@ func minutes(clock string) (int, bool) {
 	if !clockRe.MatchString(clock) {
 		return 0, false
 	}
-	h, _ := strconv.Atoi(clock[:2])
-	m, _ := strconv.Atoi(clock[3:])
-	return h*60 + m, true
+
+	h, _ := strconv.Atoi(clock[:clockHourEnd])
+	m, _ := strconv.Atoi(clock[clockMinuteStart:])
+	return h*minutesPerHour + m, true
 }
 
 func decodeStrict(data []byte, v any) error {

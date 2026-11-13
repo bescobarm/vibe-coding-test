@@ -33,14 +33,18 @@ func newTestStore(t *testing.T, maxConns int32) (*store.Store, *pgxpool.Pool) {
 	if url == "" {
 		url = "postgres://auth:auth@localhost:55432/auth?sslmode=disable"
 	}
+
 	ctx := context.Background()
 
 	admin, err := pgxpool.New(ctx, url)
 	c.NoError(err, "connect")
-	if err := admin.Ping(ctx); err != nil {
+
+	err = admin.Ping(ctx)
+	if err != nil {
 		admin.Close()
 		t.Skipf("Postgres not reachable (run `make up`): %v", err)
 	}
+
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	schema := "test_" + hex.EncodeToString(b)
@@ -57,6 +61,7 @@ func newTestStore(t *testing.T, maxConns int32) (*store.Store, *pgxpool.Pool) {
 	if maxConns > 0 {
 		cfg.MaxConns = maxConns
 	}
+
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	c.NoError(err)
 	t.Cleanup(pool.Close)
@@ -356,12 +361,14 @@ func TestConcurrentDuplicatesAreDecidedOnce(t *testing.T) {
 			results[i], _, errs[i] = svc.Authorize(ctx, request("auth_dup", "card_123"))
 		}()
 	}
+
 	wg.Wait()
 
 	for i := range n {
 		c.NoError(errs[i], "request %d", i)
 		c.Equal(results[0], results[i], "request %d got a different answer", i)
 	}
+
 	c.Equal(int32(1), evaluations.Load(), "pipeline must run exactly once")
 }
 
@@ -383,6 +390,7 @@ func TestConcurrentDistinctRequestsDoNotExhaustThePool(t *testing.T) {
 			_, _, errs[i] = svc.Authorize(ctx, request(fmt.Sprintf("auth_many_%d", i), "card_123"))
 		}()
 	}
+
 	wg.Wait()
 
 	for i := range n {

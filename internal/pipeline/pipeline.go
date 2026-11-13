@@ -58,6 +58,7 @@ func (e *Evaluation) Decision() domain.Decision {
 	if e.decision == "" {
 		return domain.Approve
 	}
+
 	return e.decision
 }
 
@@ -75,6 +76,7 @@ func (e *Evaluation) Response() domain.AuthResponse {
 	if resp.Decision == domain.Approve {
 		resp.ApprovedAmountMinor = e.Request.AmountMinor
 	}
+
 	return resp
 }
 
@@ -89,12 +91,15 @@ func New(stages ...Stage) *Pipeline {
 // Run evaluates the stages in order and stops at the first decline.
 func (p *Pipeline) Run(ctx context.Context, e *Evaluation) error {
 	for _, s := range p.stages {
-		if err := s.Evaluate(ctx, e); err != nil {
+		err := s.Evaluate(ctx, e)
+		if err != nil {
 			return fmt.Errorf("stage %s: %w", s.Name(), err)
 		}
+
 		if e.halted {
 			return nil
 		}
 	}
+
 	return nil
 }

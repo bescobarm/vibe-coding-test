@@ -74,7 +74,8 @@ func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain
 	}
 
 	if e.CardFound {
-		if err := s.loadPolicy(ctx, e); err != nil {
+		err := s.loadPolicy(ctx, e)
+		if err != nil {
 			return domain.AuthResponse{}, false, err
 		}
 	}
@@ -108,10 +109,17 @@ func (s *Service) loadPolicy(ctx context.Context, e *pipeline.Evaluation) error 
 	if err != nil {
 		return fmt.Errorf("card %s: %w", e.Card.ID, err)
 	}
+
 	e.Controls = controls
 	return nil
 }
 
+const (
+	microsPerHundredthMS = 10
+	hundredthsPerMS      = 100
+)
+
+// roundMS returns d in milliseconds, rounded to two decimals.
 func roundMS(d time.Duration) float64 {
-	return math.Round(float64(d.Microseconds())/10) / 100
+	return math.Round(float64(d.Microseconds())/microsPerHundredthMS) / hundredthsPerMS
 }

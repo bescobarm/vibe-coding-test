@@ -14,7 +14,43 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
-const maxBodyBytes = 64 << 10
+const (
+	maxBodyBytes      = 64 << 10
+	microsPerMilli    = 1000
+	pathID            = "id"
+	headerReplay      = "Idempotent-Replay"
+	headerContentType = "Content-Type"
+	contentTypeJSON   = "application/json"
+
+	errInvalidJSON    = "invalid_json"
+	errInvalidRequest = "invalid_request"
+	errInvalidPolicy  = "invalid_policy"
+	errNotFound       = "not_found"
+	errConflict       = "conflict"
+	errInternal       = "internal"
+
+	detailConflict    = "another version was published at the same time; retry"
+	fieldCompanyID    = "company_id"
+	msgMustMatchURL   = "must match the URL"
+	statusOK          = "ok"
+	statusUnavailable = "unavailable"
+)
+
+// apiError is the body of every non-2xx response.
+type apiError struct {
+	Error  string            `json:"error"`
+	Detail string            `json:"detail,omitempty"`
+	Fields map[string]string `json:"fields,omitempty"`
+}
+
+type healthStatus struct {
+	Status string `json:"status"`
+}
+
+type publishedPolicy struct {
+	CompanyID string `json:"company_id"`
+	Version   int    `json:"version"`
+}
 
 type Authorizer interface {
 	Authorize(ctx context.Context, req domain.AuthRequest) (domain.AuthResponse, bool, error)
@@ -57,13 +93,13 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(&req)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		writeJSON(w, http.StatusBadRequest, apiError{Error: errInvalidJSON, Detail: err.Error()})
 		return
 	}
 
 	errs := req.Validate()
 	if len(errs) > 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request", "fields": errs})
+		writeJSON(w, http.StatusBadRequest, apiError{Error: errInvalidRequest, Fields: errs})
 		return
 	}
 
@@ -71,7 +107,7 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.log.Error("authorize failed", "authorization_id", req.AuthorizationID, "err", err)
 
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		writeJSON(w, http.StatusInternalServerError, apiError{Error: errInternal})
 
 		return
 	}
@@ -86,20 +122,20 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if replayed {
-		w.Header().Set("Idempotent-Replay", "true")
+		w.Header().Set(headerReplay, "true")
 	}
 
 	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *handler) getAuthorization(w http.ResponseWriter, r *http.Request) {
-	rec, err := h.audit.GetAuthorization(r.Context(), r.PathValue("id"))
+	rec, err := h.audit.GetAuthorization(r.Context(), r.PathValue(pathID))
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		writeJSON(w, http.StatusNotFound, apiError{Error: errNotFound})
 	case err != nil:
 		h.log.Error("get authorization failed", "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		writeJSON(w, http.StatusInternalServerError, apiError{Error: errInternal})
 	default:
 		writeJSON(w, http.StatusOK, rec)
 	}
@@ -110,48 +146,54 @@ func (h *handler) getAuthorization(w http.ResponseWriter, r *http.Request) {
 func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		writeJSON(w, http.StatusBadRequest, apiError{Error: errInvalidJSON, Detail: err.Error()})
 		return
 	}
+
 	doc, err := policy.Parse(body)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		writeJSON(w, http.StatusBadRequest, apiError{Error: errInvalidJSON, Detail: err.Error()})
 		return
 	}
 
-	companyID := r.PathValue("id")
+	companyID := r.PathValue(pathID)
 	if doc.CompanyID != "" && doc.CompanyID != companyID {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "invalid_policy", "fields": map[string]string{"company_id": "must match the URL"},
+		writeJSON(w, http.StatusBadRequest, apiError{
+			Error: errInvalidPolicy, Fields: map[string]string{fieldCompanyID: msgMustMatchURL},
 		})
+
 		return
 	}
+
 	doc.CompanyID = companyID
 
-	if errs := doc.Validate(); len(errs) > 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_policy", "fields": errs})
+	errs := doc.Validate()
+	if len(errs) > 0 {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: errInvalidPolicy, Fields: errs})
 		return
 	}
 
 	published, err := h.policies.Publish(r.Context(), doc)
 	switch {
 	case errors.Is(err, domain.ErrConflict):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "conflict", "detail": "another version was published at the same time; retry"})
+		writeJSON(w, http.StatusConflict, apiError{Error: errConflict, Detail: detailConflict})
 	case err != nil:
-		h.log.Error("publish policy failed", "company_id", companyID, "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		h.log.Error("publish policy failed", fieldCompanyID, companyID, "err", err)
+		writeJSON(w, http.StatusInternalServerError, apiError{Error: errInternal})
 	default:
-		h.log.Info("policy published", "company_id", companyID, "version", published.Version)
-		writeJSON(w, http.StatusCreated, map[string]any{"company_id": companyID, "version": published.Version})
+		h.log.Info("policy published", fieldCompanyID, companyID, "version", published.Version)
+		writeJSON(w, http.StatusCreated, publishedPolicy{CompanyID: companyID, Version: published.Version})
 	}
 }
 
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	if err := h.db.Ping(r.Context()); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+	err := h.db.Ping(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, healthStatus{Status: statusUnavailable})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+
+	writeJSON(w, http.StatusOK, healthStatus{Status: statusOK})
 }
 
 type statusRecorder struct {
@@ -171,12 +213,12 @@ func (h *handler) logRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 		h.log.Debug("http",
 			"method", r.Method, "path", r.URL.Path, "status", rec.status,
-			"duration_ms", float64(time.Since(start).Microseconds())/1000)
+			"duration_ms", float64(time.Since(start).Microseconds())/microsPerMilli)
 	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
@@ -186,5 +228,6 @@ func reasonCodes(rs []domain.Reason) []string {
 	for i, r := range rs {
 		codes[i] = r.Code
 	}
+
 	return codes
 }

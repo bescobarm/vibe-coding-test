@@ -18,7 +18,14 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
-const topicDecided = "authorization.decided"
+const (
+	topicDecided    = "authorization.decided"
+	uniqueViolation = "23505" // Postgres SQLSTATE
+
+	// Authorization statuses: an approval places a hold, a decline is final.
+	statusPending  = "pending"
+	statusDeclined = "declined"
+)
 
 //go:embed seed_demo.sql
 var demoSeed string
@@ -49,6 +56,7 @@ func (s *Store) GetCard(ctx context.Context, cardID string) (domain.Card, error)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Card{}, domain.ErrNotFound
 	}
+
 	return c, err
 }
 
@@ -61,9 +69,11 @@ func (s *Store) LatestPolicy(ctx context.Context, companyID string) (policy.Docu
 	if errors.Is(err, pgx.ErrNoRows) {
 		return policy.Document{}, domain.ErrNotFound
 	}
+
 	if err != nil {
 		return policy.Document{}, err
 	}
+
 	return policy.Load(raw)
 }
 
@@ -79,9 +89,10 @@ func (s *Store) PublishPolicy(ctx context.Context, doc policy.Document) (int, er
 		RETURNING version`, doc.CompanyID, doc,
 	).Scan(&v)
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
 		return 0, domain.ErrConflict
 	}
+
 	return v, err
 }
 
@@ -91,6 +102,11 @@ INSERT INTO authorizations
    decision, status, request)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', 'claiming', $9)
 ON CONFLICT (authorization_id) DO NOTHING`
+
+const (
+	outboxSQL         = `INSERT INTO outbox (topic, payload) VALUES ($1, $2)`
+	storedResponseSQL = `SELECT response FROM authorizations WHERE authorization_id = $1`
+)
 
 const recordSQL = `
 UPDATE authorizations
@@ -117,6 +133,7 @@ func (s *Store) Decide(ctx context.Context, req domain.AuthRequest, decide authz
 	if err != nil {
 		return domain.AuthResponse{}, false, fmt.Errorf("claim: %w", err)
 	}
+
 	if tag.RowsAffected() == 0 {
 		_ = tx.Rollback(ctx)
 		resp, err := s.storedResponse(ctx, req.AuthorizationID)
@@ -128,38 +145,45 @@ func (s *Store) Decide(ctx context.Context, req domain.AuthRequest, decide authz
 		return domain.AuthResponse{}, false, err
 	}
 
-	status := "pending" // an approval places a hold
+	status := statusPending
 	if resp.Decision == domain.Decline {
-		status = "declined"
+		status = statusDeclined
 	}
-	if _, err := tx.Exec(ctx, recordSQL,
+
+	_, err = tx.Exec(ctx, recordSQL,
 		req.AuthorizationID, resp.Decision, resp.ApprovedAmountMinor, status, resp.RiskScore,
-		resp.Reasons, resp.PolicyVersion, resp.FallbackUsed, resp.LatencyMS, resp,
-	); err != nil {
+		resp.Reasons, resp.PolicyVersion, resp.FallbackUsed, resp.LatencyMS, resp)
+	if err != nil {
 		return domain.AuthResponse{}, false, fmt.Errorf("record: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO outbox (topic, payload) VALUES ($1, $2)`, topicDecided, resp,
-	); err != nil {
+
+	_, err = tx.Exec(ctx, outboxSQL, topicDecided, resp)
+	if err != nil {
 		return domain.AuthResponse{}, false, fmt.Errorf("outbox: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+
+	err = tx.Commit(ctx)
+	if err != nil {
 		return domain.AuthResponse{}, false, fmt.Errorf("commit: %w", err)
 	}
+
 	return resp, false, nil
 }
 
 func (s *Store) storedResponse(ctx context.Context, id string) (domain.AuthResponse, error) {
 	var raw []byte
-	if err := s.pool.QueryRow(ctx,
-		`SELECT response FROM authorizations WHERE authorization_id = $1`, id,
-	).Scan(&raw); err != nil {
+	err := s.pool.QueryRow(ctx, storedResponseSQL, id).Scan(&raw)
+	if err != nil {
 		return domain.AuthResponse{}, fmt.Errorf("load stored response: %w", err)
 	}
+
 	var resp domain.AuthResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
+
+	err = json.Unmarshal(raw, &resp)
+	if err != nil {
 		return domain.AuthResponse{}, fmt.Errorf("decode stored response: %w", err)
 	}
+
 	return resp, nil
 }
 
@@ -175,9 +199,11 @@ func (s *Store) GetAuthorization(ctx context.Context, id string) (domain.AuditRe
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.AuditRecord{}, domain.ErrNotFound
 	}
+
 	if err != nil {
 		return domain.AuditRecord{}, err
 	}
+
 	rec.Request, rec.Response, rec.Explanation = request, resp, explain
 	return rec, nil
 }
