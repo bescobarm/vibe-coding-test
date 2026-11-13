@@ -2,6 +2,7 @@ package policy
 
 import (
 	"encoding/json"
+	"io"
 	"testing"
 	"time"
 
@@ -60,7 +61,7 @@ func TestParseRejectsInvalidJSON(t *testing.T) {
 
 	_, err := Parse([]byte(`{"controls":`))
 
-	c.Error(err)
+	c.ErrorIs(err, io.ErrUnexpectedEOF)
 }
 
 func TestValidateRequiresTheCompanyID(t *testing.T) {
