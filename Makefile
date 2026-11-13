@@ -2,7 +2,7 @@ DATABASE_URL ?= postgres://auth:auth@localhost:55432/auth?sslmode=disable
 COVER_DIR    ?= $(or $(TMPDIR),/tmp)/card-auth-engine-cover
 export DATABASE_URL
 
-.PHONY: up down reset run test cover vet simulate load
+.PHONY: up down reset run test cover vet lint simulate load
 
 up: ## Start Postgres and Redis and wait until they are healthy
 	docker compose up -d --wait
@@ -26,6 +26,12 @@ cover: up ## Coverage per function
 
 vet:
 	go vet ./...
+
+INIT_IN_IF := ^[[:space:]]*(if|switch) [^{]*:= [^{]*;
+
+lint: ## golangci-lint (.golangci.yml) plus a check that no if/switch has an init statement
+	golangci-lint run ./...
+	@! grep -rnE '$(INIT_IN_IF)' --include='*.go' . || { echo "assign first, then check: no init statement in if/switch (D-043)"; false; }
 
 simulate:
 	@echo "Not implemented yet: arrives with sub-project 06 (briefs/06-simulator-and-report-brief.md)"
