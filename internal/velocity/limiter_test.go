@@ -190,7 +190,7 @@ func TestReserveFailsFastWhenRedisIsUnreachable(t *testing.T) {
 	_, err := l.Reserve(context.Background(), Reservation{CardID: "card_x", AuthorizationID: "a1", AmountMinor: 1, Now: t0,
 		Windows: []Window{window("count", 1, NoLimit)}})
 
-	c.ErrorContains(err, "reserve")
+	c.ErrorContains(err, "run script")
 }
 
 // shortReplyScripter answers every script call with a reply of the wrong length.
@@ -211,7 +211,7 @@ func TestReserveRejectsAnUnexpectedReply(t *testing.T) {
 }
 
 func release(c *require.Assertions, l *Limiter, card, id, event string, amount int64) {
-	c.NoError(l.Release(context.Background(), lifecycle.Release{CardID: card, AuthorizationID: id, EventID: event, AmountMinor: amount}))
+	c.NoError(l.Adjust(context.Background(), lifecycle.Adjust{CardID: card, AuthorizationID: id, EventID: event, DeltaMinor: -amount}))
 }
 
 // D-051: a full release frees the budget, but the authorization still counts.
@@ -273,13 +273,25 @@ func TestReleaseDoesNotBringBackAnEntryThatLeftTheWindow(t *testing.T) {
 	c.False(rdb.HExists(ctx, "vel:{"+card+"}:daily:amt", "a1").Val())
 }
 
+// D-053: a capture above the hold raises what the budget counts.
+func TestAdjustUpCountsACaptureAboveTheHold(t *testing.T) {
+	c := require.New(t)
+	l, rdb, card := newTestLimiter(t)
+	reserve(c, l, card, "a1", 400, window("daily", NoLimit, 1000))
+
+	c.NoError(l.Adjust(context.Background(), lifecycle.Adjust{CardID: card, AuthorizationID: "a1", EventID: "cap", DeltaMinor: 60}))
+
+	c.Equal("460", rdb.HGet(context.Background(), "vel:{"+card+"}:daily:amt", "a1").Val())
+	c.Equal("460", rdb.HGet(context.Background(), "hold:{"+card+"}:a1", "amount").Val())
+}
+
 func TestReleaseFailsFastWhenRedisIsUnreachable(t *testing.T) {
 	c := require.New(t)
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
 	t.Cleanup(func() { _ = rdb.Close() })
 
-	err := NewLimiter(rdb, 50*time.Millisecond).Release(context.Background(),
-		lifecycle.Release{CardID: "card_x", AuthorizationID: "a1", EventID: "e1", AmountMinor: 1})
+	err := NewLimiter(rdb, 50*time.Millisecond).Adjust(context.Background(),
+		lifecycle.Adjust{CardID: "card_x", AuthorizationID: "a1", EventID: "e1", DeltaMinor: -1})
 
-	c.ErrorContains(err, "release")
+	c.ErrorContains(err, "adjust")
 }

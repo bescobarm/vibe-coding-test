@@ -76,6 +76,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-050](#d-050-lifecycle-calls-carry-an-event_id) | Lifecycle calls carry an `event_id` | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-051](#d-051-reversal-releases-the-amount-but-keeps-the-count) | Reversal releases the amount but keeps the count | 🟢 Accepted | Risk | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-052](#d-052-shape-of-a-velocity-rule) | Shape of a velocity rule | 🟢 Accepted | API | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-053](#d-053-a-capture-counts-the-captured-amount) | A capture counts the captured amount | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-054](#d-054-lifecycle-details-for-increment-capture-and-refund) | Lifecycle details: increment, capture, refund | 🟡 Proposed (implemented) | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 
 ---
 
@@ -481,7 +483,26 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **AI input and concerns:** Matches the README policy example, with `max_amount` gaining a currency.
 - **Why:** 📝
 
+### D-053: A capture counts the captured amount
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** The final captured amount can differ from the hold (tips, fuel). A capture is never declined: the money is already spent.
+- **Options:** A: budgets count the captured amount · B: budgets keep counting the held amount.
+- **AI input and concerns:** A. It is the money actually spent. A capture above the hold can push a card over its budget after the fact; later requests are declined, the capture itself is not.
+- **Decision:** A.
+- **Why:** 📝
+
 ## Proposed (waiting for my decision)
+
+### D-054: Lifecycle details for increment, capture and refund
+- **Status:** 🟡 Proposed, **already implemented** in SP03 step 3. Needs my review. · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** D-027 fixed the shape of an increment, and D-053 how a capture counts. Building them needed smaller choices.
+- **AI recommendation (as built):**
+  - **Increment** re-runs the card status and the per-transaction limit on the **new total**, then checks every amount rule (count rules don't change: same authorization). A declined increment keeps the hold and is stored, so a retry replays the decline. If the original authorization is outside today's window (yesterday's hotel check-in), only the increment counts today.
+  - **Capture** happens once, only on a pending authorization, and needs `amount_minor`. It's never declined (D-053).
+  - **Refund** only after a capture. Partial refunds are allowed until the captured amount is refunded; without `amount_minor` it refunds what is left.
+  - Every lifecycle answer shows the full state (`held_minor`, `captured_minor`, `refunded_minor`); only an increment has a `decision`.
+- **Alternatives not built:** multiple partial captures; increments that skip the hard controls; refunds without a capture.
+- **Decision:** _pending my review_
 
 ### D-040: Shape of "allowed hours" and which clock it uses
 - **Status:** 🟡 Proposed, **already implemented** in SP02. Needs my review. · **Blocks:** SP02

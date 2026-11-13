@@ -19,8 +19,14 @@ var (
 	msgAmountNotAllowed = "not allowed: expiry releases the whole hold"
 )
 
-// lifecycleRequest is the body of a reversal or expiry. Without amount_minor a
-// reversal releases the whole hold.
+// amountRules says, per event type, whether amount_minor is required, optional or not allowed.
+var (
+	amountRequired = map[string]bool{lifecycle.TypeIncrement: true, lifecycle.TypeCapture: true}
+	amountRefused  = map[string]bool{lifecycle.TypeExpiry: true}
+)
+
+// lifecycleRequest is the body of every lifecycle call. Without amount_minor a
+// reversal releases the whole hold and a refund refunds what is left.
 type lifecycleRequest struct {
 	EventID     string `json:"event_id"`
 	AmountMinor *int64 `json:"amount_minor,omitempty"`
@@ -33,8 +39,10 @@ func (r lifecycleRequest) validate(eventType string) map[string]string {
 	}
 
 	switch {
+	case r.AmountMinor == nil && amountRequired[eventType]:
+		errs[fieldAmountMinor] = domain.MsgRequired
 	case r.AmountMinor == nil:
-	case eventType == lifecycle.TypeExpiry:
+	case amountRefused[eventType]:
 		errs[fieldAmountMinor] = msgAmountNotAllowed
 	case *r.AmountMinor <= 0:
 		errs[fieldAmountMinor] = domain.MsgPositive
@@ -45,7 +53,8 @@ func (r lifecycleRequest) validate(eventType string) map[string]string {
 
 // lifecycleConflicts are refusals the client can fix; each message is returned as is.
 var lifecycleConflicts = []error{
-	lifecycle.ErrDeclined, lifecycle.ErrNotPending, lifecycle.ErrOverHold, lifecycle.ErrEventConflict,
+	lifecycle.ErrDeclined, lifecycle.ErrNotPending, lifecycle.ErrNotCaptured,
+	lifecycle.ErrOverHold, lifecycle.ErrOverRefund, lifecycle.ErrEventConflict,
 }
 
 func (h *handler) lifecycleEvent(eventType string) http.HandlerFunc {
@@ -73,7 +82,7 @@ func (h *handler) lifecycleEvent(eventType string) http.HandlerFunc {
 		}
 
 		h.log.Info("lifecycle", "authorization_id", ev.AuthorizationID, "event_id", ev.ID, "type", eventType,
-			"status", res.Status, "released_minor", res.ReleasedMinor, "replayed", replayed)
+			"status", res.Status, "decision", res.Decision, "held_minor", res.HeldMinor, "replayed", replayed)
 
 		if replayed {
 			w.Header().Set(headerReplay, "true")

@@ -93,7 +93,7 @@ func run(log *slog.Logger) error {
 	stages := append(controls.Hard(), velocity.NewStage(limiter))
 	pl := pipeline.New(stages...)
 	svc := authz.NewService(st, st, policies, pl)
-	events := lifecycle.NewService(st, limiter)
+	events := lifecycle.NewService(st, st, limiter, st, policies)
 
 	srv := &http.Server{
 		Addr:              ":" + env("PORT", defaultPort),

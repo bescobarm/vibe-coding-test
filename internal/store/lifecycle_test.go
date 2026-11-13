@@ -22,6 +22,13 @@ func (f fixture) reverse(name, event string, amt *int64) (lifecycle.Result, bool
 	return f.events.Apply(f.ctx, lifecycle.Event{ID: f.id(event), AuthorizationID: f.id(name), Type: lifecycle.TypeReversal, AmountMinor: amt})
 }
 
+func (f fixture) event(name, event, eventType string, amt *int64) lifecycle.Result {
+	f.t.Helper()
+	res, _, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.id(event), AuthorizationID: f.id(name), Type: eventType, AmountMinor: amt})
+	require.NoError(f.t, err)
+	return res
+}
+
 func (f fixture) stored(name string) (string, int64) {
 	f.t.Helper()
 	var (
@@ -50,7 +57,7 @@ func TestReversalReleasesTheBudgetForTheNextRequest(t *testing.T) {
 	c.NoError(err)
 	c.False(replayed)
 	c.Equal(lifecycle.Result{AuthorizationID: f.id("a1"), EventID: f.id("e1"), Type: lifecycle.TypeReversal,
-		Status: lifecycle.StatusReversed, ReleasedMinor: 400, HeldMinor: 0}, res)
+		Status: lifecycle.StatusReversed, HeldMinor: 0}, res)
 	c.Equal(domain.Approve, f.authorize("a3", 450).Decision)
 }
 
@@ -220,3 +227,86 @@ func TestConcurrentCopiesOfAnEventApplyOnce(t *testing.T) {
 	c.Equal(int64(300), held)
 	c.Equal("300", f.redisHold("a1"))
 }
+
+// AC3 of SP03, the hotel scenario: auth 300 with a 500 daily limit, +150
+// approved, +100 more declined OVER_DAILY_LIMIT.
+func TestHotelIncrementsStopAtTheDailyLimit(t *testing.T) {
+	c := require.New(t)
+	f := newFixture(t, budget500)
+	c.Equal(domain.Approve, f.authorize("hotel", 300).Decision)
+
+	first := f.event("hotel", "inc1", lifecycle.TypeIncrement, amount(150))
+	second := f.event("hotel", "inc2", lifecycle.TypeIncrement, amount(100))
+
+	c.Equal(domain.Approve, first.Decision)
+	c.Equal(int64(450), first.HeldMinor)
+	c.Equal(domain.Decline, second.Decision)
+	c.Equal(domain.ReasonOverDailyLimit, second.Reasons[0].Code)
+	_, held := f.stored("hotel")
+	c.Equal(int64(450), held)
+}
+
+// A declined increment is stored: a retry replays the decline instead of re-deciding.
+func TestADeclinedIncrementIsReplayed(t *testing.T) {
+	c := require.New(t)
+	f := newFixture(t, budget500)
+	f.authorize("hotel", 300)
+	declined := f.event("hotel", "inc1", lifecycle.TypeIncrement, amount(300))
+
+	again, replayed, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.id("inc1"), AuthorizationID: f.id("hotel"),
+		Type: lifecycle.TypeIncrement, AmountMinor: amount(300)})
+
+	c.NoError(err)
+	c.True(replayed)
+	c.Equal(declined, again)
+}
+
+// D-053: a capture above the hold counts the captured amount.
+func TestCaptureAboveTheHoldUsesUpTheBudget(t *testing.T) {
+	c := require.New(t)
+	f := newFixture(t, budget500)
+	f.authorize("dinner", 400)
+
+	res := f.event("dinner", "cap1", lifecycle.TypeCapture, amount(460))
+
+	c.Equal(lifecycle.StatusCaptured, res.Status)
+	c.Equal(int64(460), res.CapturedMinor)
+	c.Equal(domain.Decline, f.authorize("coffee", 50).Decision, "460 + 50 is over 500")
+	c.Equal(domain.Approve, f.authorize("water", 40).Decision)
+}
+
+func TestRefundGivesTheBudgetBack(t *testing.T) {
+	c := require.New(t)
+	f := newFixture(t, budget500)
+	f.authorize("dinner", 400)
+	f.event("dinner", "cap1", lifecycle.TypeCapture, amount(400))
+
+	partial := f.event("dinner", "ref1", lifecycle.TypeRefund, amount(100))
+	full := f.event("dinner", "ref2", lifecycle.TypeRefund, nil)
+
+	c.Equal(lifecycle.StatusCaptured, partial.Status)
+	c.Equal(int64(100), partial.RefundedMinor)
+	c.Equal(lifecycle.StatusRefunded, full.Status)
+	c.Equal(int64(400), full.RefundedMinor)
+	c.Equal(domain.Approve, f.authorize("next", 500).Decision)
+}
+
+func TestRefundBeforeCaptureIsRefused(t *testing.T) {
+	c := require.New(t)
+	f := newFixture(t, budget500)
+	f.authorize("dinner", 400)
+
+	_, _, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.id("ref1"), AuthorizationID: f.id("dinner"), Type: lifecycle.TypeRefund})
+
+	c.ErrorIs(err, lifecycle.ErrNotCaptured)
+}
+
+func TestGetHoldOfAnUnknownAuthorizationIsNotFound(t *testing.T) {
+	c := require.New(t)
+	f := newFixture(t, budget500)
+
+	_, err := f.st.GetHold(f.ctx, "missing")
+
+	c.ErrorIs(err, domain.ErrNotFound)
+}
+

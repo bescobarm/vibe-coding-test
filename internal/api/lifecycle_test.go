@@ -35,13 +35,13 @@ func newLifecycleHandler(f *fakeLifecycle) http.Handler {
 func TestReversalReturnsTheNewHold(t *testing.T) {
 	c := require.New(t)
 	f := &fakeLifecycle{res: lifecycle.Result{AuthorizationID: "a1", EventID: "e1", Type: lifecycle.TypeReversal,
-		Status: lifecycle.StatusPending, ReleasedMinor: 100, HeldMinor: 300}}
+		Status: lifecycle.StatusPending, HeldMinor: 300}}
 
 	w := do(newLifecycleHandler(f), http.MethodPost, "/v1/authorizations/a1/reversal", `{"event_id": "e1", "amount_minor": 100}`)
 
 	c.Equal(http.StatusOK, w.Code)
 	c.JSONEq(`{"authorization_id": "a1", "event_id": "e1", "type": "reversal", "status": "pending",
-		"released_minor": 100, "held_minor": 300}`, w.Body.String())
+		"held_minor": 300, "captured_minor": 0, "refunded_minor": 0}`, w.Body.String())
 	c.Equal("a1", f.got.AuthorizationID)
 	c.Equal(lifecycle.TypeReversal, f.got.Type)
 	c.Equal(int64(100), *f.got.AmountMinor)
@@ -125,3 +125,50 @@ func TestLifecycleFailureReturns500(t *testing.T) {
 	c.Equal(http.StatusInternalServerError, w.Code)
 	c.EqualError(errEventFailed, decodeError(c, w).Error)
 }
+
+func TestIncrementReturnsTheDecision(t *testing.T) {
+	c := require.New(t)
+	f := &fakeLifecycle{res: lifecycle.Result{AuthorizationID: "a1", EventID: "e1", Type: lifecycle.TypeIncrement,
+		Decision: domain.Decline, Reasons: []domain.Reason{{Code: domain.ReasonOverDailyLimit, Message: "over"}},
+		Status: lifecycle.StatusPending, HeldMinor: 450}}
+
+	w := do(newLifecycleHandler(f), http.MethodPost, "/v1/authorizations/a1/increment", `{"event_id": "e1", "amount_minor": 100}`)
+
+	c.Equal(http.StatusOK, w.Code)
+	c.JSONEq(`{"authorization_id": "a1", "event_id": "e1", "type": "increment", "decision": "DECLINE",
+		"reasons": [{"code": "OVER_DAILY_LIMIT", "message": "over"}], "status": "pending",
+		"held_minor": 450, "captured_minor": 0, "refunded_minor": 0}`, w.Body.String())
+	c.Equal(lifecycle.TypeIncrement, f.got.Type)
+}
+
+func TestIncrementAndCaptureRequireAnAmount(t *testing.T) {
+	c := require.New(t)
+	h := newLifecycleHandler(&fakeLifecycle{})
+
+	inc := do(h, http.MethodPost, "/v1/authorizations/a1/increment", `{"event_id": "e1"}`)
+	capture := do(h, http.MethodPost, "/v1/authorizations/a1/capture", `{"event_id": "e1"}`)
+
+	c.Equal(map[string]string{fieldAmountMinor: domain.MsgRequired}, decodeError(c, inc).Fields)
+	c.Equal(map[string]string{fieldAmountMinor: domain.MsgRequired}, decodeError(c, capture).Fields)
+}
+
+func TestRefundWithoutAmountRefundsWhatIsLeft(t *testing.T) {
+	c := require.New(t)
+	f := &fakeLifecycle{}
+
+	w := do(newLifecycleHandler(f), http.MethodPost, "/v1/authorizations/a1/refund", `{"event_id": "e1"}`)
+
+	c.Equal(http.StatusOK, w.Code)
+	c.Equal(lifecycle.TypeRefund, f.got.Type)
+	c.Nil(f.got.AmountMinor)
+}
+
+func TestRefundBeforeCaptureReturns409(t *testing.T) {
+	c := require.New(t)
+
+	w := do(newLifecycleHandler(&fakeLifecycle{err: lifecycle.ErrNotCaptured}), http.MethodPost, "/v1/authorizations/a1/refund", `{"event_id": "e1"}`)
+
+	c.Equal(http.StatusConflict, w.Code)
+	c.EqualError(lifecycle.ErrNotCaptured, decodeError(c, w).Error)
+}
+

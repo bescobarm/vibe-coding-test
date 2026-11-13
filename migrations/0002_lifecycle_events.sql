@@ -1,7 +1,10 @@
 -- Lifecycle (SP03). held_minor is the amount still on hold: it starts at the
 -- approved amount and goes down with reversals, while approved_minor keeps
 -- what the decision approved.
-ALTER TABLE authorizations ADD COLUMN held_minor BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE authorizations
+  ADD COLUMN held_minor     BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN captured_minor BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN refunded_minor BIGINT NOT NULL DEFAULT 0;
 UPDATE authorizations SET held_minor = COALESCE(approved_minor, 0) WHERE status = 'pending';
 
 -- One row per lifecycle call. event_id makes every call idempotent, including

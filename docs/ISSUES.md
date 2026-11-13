@@ -21,6 +21,9 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-013](#i-013-the-stage-name-appeared-twice-in-error-logs) | 2026-11-13 | Observability | ✅ |
 | [I-014](#i-014-one-event_id-on-two-authorizations-could-release-twice) | 2026-11-13 | Concurrency | ✅ |
 | [I-015](#i-015-a-live-check-ran-before-the-engine-was-ready) | 2026-11-13 | Tooling | ✅ |
+| [I-016](#i-016-releasing-a-hold-would-overwrite-window-entries) | 2026-11-13 | Correctness | ✅ |
+| [I-017](#i-017-an-internal-field-made-a-replay-differ-from-the-original-answer) | 2026-11-13 | Reliability | ✅ |
+| [I-018](#i-018-a-scripted-test-rewrite-broke-the-build) | 2026-11-13 | Tooling | ✅ |
 
 ---
 
@@ -87,4 +90,17 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-015: A live check ran before the engine was ready
 - **Found:** the first live run of reversal and expiry printed nothing: the readiness loop polled `/healthz` with no pause, gave up in milliseconds, and the requests reached a port that wasn't listening yet.
 - **Fix:** reran once `/healthz` answered. Lesson for the SP06 simulator and load scripts: wait for `/healthz` with a pause and a timeout, and fail loudly instead of continuing.
+
+### I-016: Releasing a hold would overwrite window entries
+- **Found:** designing increments (step 3). The step 2 release set every window entry to the hold's remaining total. That was only right while all entries were equal; after an increment, yesterday's window holds the original amount and today's only the increment, so a reversal would have raised one of them.
+- **Fix:** before any increment shipped, release became `adjust`: each entry moves by the same signed delta and is deleted at zero or below.
+
+### I-017: An internal field made a replay differ from the original answer
+- **Found:** `TestRepeatedEventReleasesOnce` and `TestADeclinedIncrementIsReplayed` failed: `lifecycle.Result` carried an unexported `delta` that is lost when the result is stored as JSON, so the first answer and its replay were not equal.
+- **Fix:** `Transition` returns the budget change as a separate value; `Result` only holds what the client sees. Lesson: what is returned to a client must be exactly what is stored.
+- **Note:** columns `captured_minor` and `refunded_minor` were added to migration `0002` itself, which was safe only because `0002` hasn't reached `main` or any kept database.
+
+### I-018: A scripted test rewrite broke the build
+- **Found:** a regex used to update test call sites matched `_` as a variable name (`\w` includes `_`) and declared unused variables.
+- **Fix:** fixed by hand from the compiler's list. Lesson: for small edits, a targeted replace beats a broad regex.
 

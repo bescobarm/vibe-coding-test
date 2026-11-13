@@ -213,13 +213,16 @@ func (s *Store) GetAuthorization(ctx context.Context, id string) (domain.AuditRe
 
 
 const (
-	lockHoldSQL = `SELECT authorization_id, card_id, status, held_minor
-		FROM authorizations WHERE authorization_id = $1 FOR UPDATE`
+	holdSQL = `SELECT authorization_id, card_id, currency, mcc, status, held_minor, captured_minor, refunded_minor
+		FROM authorizations WHERE authorization_id = $1`
+	lockHoldSQL = holdSQL + ` FOR UPDATE`
 	claimEventSQL = `INSERT INTO lifecycle_events (event_id, authorization_id, type, amount_minor, response)
 		VALUES ($1, $2, $3, $4, '{}') ON CONFLICT (event_id) DO NOTHING`
 	storedEventSQL = `SELECT authorization_id, type, amount_minor, response FROM lifecycle_events WHERE event_id = $1`
 	recordEventSQL = `UPDATE lifecycle_events SET response = $2 WHERE event_id = $1`
-	updateHoldSQL  = `UPDATE authorizations SET status = $2, held_minor = $3, updated_at = now() WHERE authorization_id = $1`
+	updateHoldSQL  = `UPDATE authorizations
+		SET status = $2, held_minor = $3, captured_minor = $4, refunded_minor = $5, updated_at = now()
+		WHERE authorization_id = $1`
 )
 
 // ApplyEvent implements lifecycle.Store.
@@ -235,15 +238,9 @@ func (s *Store) ApplyEvent(ctx context.Context, ev lifecycle.Event, apply lifecy
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	var h lifecycle.Hold
-
-	err = tx.QueryRow(ctx, lockHoldSQL, ev.AuthorizationID).Scan(&h.AuthorizationID, &h.CardID, &h.Status, &h.HeldMinor)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return lifecycle.Result{}, false, domain.ErrNotFound
-	}
-
+	h, err := scanHold(tx.QueryRow(ctx, lockHoldSQL, ev.AuthorizationID))
 	if err != nil {
-		return lifecycle.Result{}, false, fmt.Errorf("lock authorization: %w", err)
+		return lifecycle.Result{}, false, err
 	}
 
 	tag, err := tx.Exec(ctx, claimEventSQL, ev.ID, ev.AuthorizationID, ev.Type, ev.AmountMinor)
@@ -281,7 +278,7 @@ func recordEvent(ctx context.Context, tx pgx.Tx, res lifecycle.Result) error {
 		return fmt.Errorf("record event: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, updateHoldSQL, res.AuthorizationID, res.Status, res.HeldMinor)
+	_, err = tx.Exec(ctx, updateHoldSQL, res.AuthorizationID, res.Status, res.HeldMinor, res.CapturedMinor, res.RefundedMinor)
 	if err != nil {
 		return fmt.Errorf("update hold: %w", err)
 	}
@@ -319,3 +316,24 @@ func (s *Store) storedEvent(ctx context.Context, ev lifecycle.Event) (lifecycle.
 
 	return res, nil
 }
+
+// GetHold implements lifecycle.HoldReader.
+func (s *Store) GetHold(ctx context.Context, authorizationID string) (lifecycle.Hold, error) {
+	return scanHold(s.pool.QueryRow(ctx, holdSQL, authorizationID))
+}
+
+func scanHold(row pgx.Row) (lifecycle.Hold, error) {
+	var h lifecycle.Hold
+
+	err := row.Scan(&h.AuthorizationID, &h.CardID, &h.Currency, &h.MCC, &h.Status, &h.HeldMinor, &h.CapturedMinor, &h.RefundedMinor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return lifecycle.Hold{}, domain.ErrNotFound
+	}
+
+	if err != nil {
+		return lifecycle.Hold{}, fmt.Errorf("read authorization: %w", err)
+	}
+
+	return h, nil
+}
+

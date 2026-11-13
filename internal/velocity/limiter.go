@@ -17,16 +17,20 @@ import (
 //go:embed reserve.lua
 var reserveLua string
 
-//go:embed release.lua
-var releaseLua string
+//go:embed adjust.lua
+var adjustLua string
+
+//go:embed increase.lua
+var increaseLua string
 
 var (
-	reserveScript = redis.NewScript(reserveLua)
-	releaseScript = redis.NewScript(releaseLua)
+	reserveScript  = redis.NewScript(reserveLua)
+	adjustScript   = redis.NewScript(adjustLua)
+	increaseScript = redis.NewScript(increaseLua)
 )
 
 // ErrUnexpectedReply means the script answered something the engine can't read.
-var ErrUnexpectedReply = errors.New("unexpected reply from the reserve script")
+var ErrUnexpectedReply = errors.New("unexpected reply from a velocity script")
 
 // NoLimit marks a window without a count or amount limit.
 const NoLimit = -1
@@ -93,9 +97,14 @@ func (l *Limiter) Reserve(ctx context.Context, r Reservation) (Result, error) {
 
 	keys, args := scriptInput(r)
 
-	reply, err := reserveScript.Run(ctx, l.rdb, keys, args...).Int64Slice()
+	return run(ctx, l.rdb, reserveScript, keys, args)
+}
+
+// run reads the {ok, window, count, spent} reply shared by reserve and increase.
+func run(ctx context.Context, rdb redis.Scripter, script *redis.Script, keys []string, args []any) (Result, error) {
+	reply, err := script.Run(ctx, rdb, keys, args...).Int64Slice()
 	if err != nil {
-		return Result{}, fmt.Errorf("reserve: %w", err)
+		return Result{}, fmt.Errorf("run script: %w", err)
 	}
 
 	if len(reply) != replyLen {
@@ -125,17 +134,17 @@ func scriptInput(r Reservation) ([]string, []any) {
 	return keys, args
 }
 
-// Release implements lifecycle.Releaser. It is idempotent per event_id, and a
+// Adjust implements lifecycle.Holds. It is idempotent per event_id, and a
 // card without a hold (no rule applied when it was approved) is a no-op.
-func (l *Limiter) Release(ctx context.Context, r lifecycle.Release) error {
+func (l *Limiter) Adjust(ctx context.Context, a lifecycle.Adjust) error {
 	ctx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 
-	key := fmt.Sprintf(fmtHoldKey, r.CardID, r.AuthorizationID)
+	key := fmt.Sprintf(fmtHoldKey, a.CardID, a.AuthorizationID)
 
-	err := releaseScript.Run(ctx, l.rdb, []string{key}, r.AuthorizationID, r.EventID, r.AmountMinor).Err()
+	err := adjustScript.Run(ctx, l.rdb, []string{key}, a.AuthorizationID, a.EventID, a.DeltaMinor).Err()
 	if err != nil {
-		return fmt.Errorf("release: %w", err)
+		return fmt.Errorf("adjust: %w", err)
 	}
 
 	return nil

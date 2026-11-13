@@ -93,7 +93,7 @@ func newFixture(t *testing.T, rules string) fixture {
 	return fixture{
 		t: t, ctx: ctx, st: st, pool: pool, rdb: rdb, card: card, suffix: suffix,
 		auth:   authz.NewService(st, st, policies, pipeline.New(stages...)),
-		events: lifecycle.NewService(st, limiter),
+		events: lifecycle.NewService(st, st, limiter, st, policies),
 	}
 }
 

@@ -68,11 +68,30 @@ Expect, in order:
 1. `held_minor: 30000`, status `pending` (partial reversal).
 2. The same answer again: the event is applied once ([D-050](DECISIONS.md#d-050-lifecycle-calls-carry-an-event_id)).
 3. `event_id was already used for a different event` (409).
-4. Status `expired`, `released_minor: 50000`.
+4. Status `expired`, `held_minor: 0`.
 5. `APPROVE`: the released budget is available again.
 6. `authorization was declined, nothing is held` (409).
 
 Reversed small charges still count for card testing ([D-051](DECISIONS.md#d-051-reversal-releases-the-amount-but-keeps-the-count)).
+
+## 4c. Hotel: increment, capture, refund
+
+```bash
+auth hotel card_exec 30000 7011
+ev hotel increment '{"event_id": "i1", "amount_minor": 15000}'
+ev hotel increment '{"event_id": "i2", "amount_minor": 60000}'
+ev hotel capture '{"event_id": "c1", "amount_minor": 47000}'
+ev hotel refund '{"event_id": "f1", "amount_minor": 7000}'
+ev hotel refund '{"event_id": "f2"}'
+```
+
+Expect, in order:
+1. `APPROVE` (card_exec allows 100000 per transaction).
+2. `decision: APPROVE`, `held_minor: 45000`.
+3. `decision: DECLINE` `OVER_TRANSACTION_LIMIT`: the new total 105000 is over 100000; the hold stays at 45000.
+4. Status `captured`, `captured_minor: 47000`: a tip above the hold is accepted and counts ([D-053](DECISIONS.md#d-053-a-capture-counts-the-captured-amount)).
+5. `refunded_minor: 7000`, still `captured`.
+6. Status `refunded`, `refunded_minor: 47000`.
 
 ## 5. Publish a new policy version
 

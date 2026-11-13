@@ -637,10 +637,10 @@ Response:
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `POST` | `/v1/authorizations/{id}/increment` | Incremental auth (hotel, car rental): raise the hold |
+| `POST` | `/v1/authorizations/{id}/increment` | Incremental auth (hotel, car rental): raise the hold. Body: `{"event_id", "amount_minor"}`; answers with a `decision` (D-054) |
 | `POST` | `/v1/authorizations/{id}/reversal` | Release the hold (full or partial). Body: `{"event_id", "amount_minor"?}`; repeats of an `event_id` replay (D-050) |
-| `POST` | `/v1/authorizations/{id}/capture` | Mark as captured (final amount may differ) |
-| `POST` | `/v1/authorizations/{id}/refund` | Refund after capture, restores budget |
+| `POST` | `/v1/authorizations/{id}/capture` | Mark as captured; the final amount may differ and is what budgets count (D-053). Body: `{"event_id", "amount_minor"}` |
+| `POST` | `/v1/authorizations/{id}/refund` | Refund after capture, restores budget. Body: `{"event_id", "amount_minor"?}` |
 | `POST` | `/v1/authorizations/{id}/expire` | Release the hold on expiry. Body: `{"event_id"}` |
 | `PUT` | `/v1/companies/{id}/policy` | Publish a new policy version (validated) |
 | `GET` | `/v1/authorizations/{id}` | Full audit record, including the explanation once ready |

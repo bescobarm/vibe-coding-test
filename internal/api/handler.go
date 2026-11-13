@@ -77,7 +77,7 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-// LifecycleApplier applies a reversal or expiry; the bool reports an idempotent replay.
+// LifecycleApplier applies a lifecycle event; the bool reports an idempotent replay.
 type LifecycleApplier interface {
 	Apply(ctx context.Context, ev lifecycle.Event) (lifecycle.Result, bool, error)
 }
@@ -106,6 +106,9 @@ func NewHandler(d Deps, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /v1/authorizations/{id}", h.getAuthorization)
 	mux.HandleFunc("POST /v1/authorizations/{id}/reversal", h.lifecycleEvent(lifecycle.TypeReversal))
 	mux.HandleFunc("POST /v1/authorizations/{id}/expire", h.lifecycleEvent(lifecycle.TypeExpiry))
+	mux.HandleFunc("POST /v1/authorizations/{id}/increment", h.lifecycleEvent(lifecycle.TypeIncrement))
+	mux.HandleFunc("POST /v1/authorizations/{id}/capture", h.lifecycleEvent(lifecycle.TypeCapture))
+	mux.HandleFunc("POST /v1/authorizations/{id}/refund", h.lifecycleEvent(lifecycle.TypeRefund))
 	mux.HandleFunc("PUT /v1/companies/{id}/policy", h.publishPolicy)
 	mux.HandleFunc("GET /healthz", h.health)
 
