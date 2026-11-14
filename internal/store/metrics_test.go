@@ -66,3 +66,40 @@ func TestMetricsCountTheExplanations(t *testing.T) {
 	c.NoError(err)
 	c.Equal(domain.ExplainerMetrics{Explained: 3, FallbackUsed: 1, Failed: 1}, metrics.Explainer)
 }
+
+func TestMetricsSeriesGroupsDecisionsIntoBuckets(t *testing.T) {
+	c := require.New(t)
+	harness := newFixtureWith(t, riskPolicy)
+	since := time.Now().Add(-time.Minute)
+	harness.authorize("ok1", 4500)
+	harness.authorize("ok2", 4600)
+	harness.authorize("too-big", 60000)
+	_, err := harness.pool.Exec(harness.ctx, `UPDATE authorizations SET created_at = created_at - interval '2 hours' WHERE authorization_id = $1`,
+		harness.buildID("ok1"))
+	c.NoError(err)
+
+	series, err := harness.st.GetMetricsSeries(harness.ctx, since.Add(-3*time.Hour), time.Hour)
+
+	c.NoError(err)
+	c.Equal(3600, series.BucketSeconds)
+	c.Len(series.Buckets, 2)
+	older, newer := series.Buckets[0], series.Buckets[1]
+	c.Equal(newer.Start.Add(-2*time.Hour), older.Start)
+	c.Equal(newer.Start.Truncate(time.Hour), newer.Start)
+	c.Equal(1, older.Approved)
+	c.Zero(older.Declined)
+	c.Equal(1, newer.Approved)
+	c.Equal(1, newer.Declined)
+	c.Positive(newer.LatencyMS.P99)
+	c.GreaterOrEqual(newer.LatencyMS.P99, newer.LatencyMS.P50)
+}
+
+func TestMetricsSeriesWithNoDecisionsHasNoBuckets(t *testing.T) {
+	c := require.New(t)
+	harness := newFixtureWith(t, budgetAndRisk)
+
+	series, err := harness.st.GetMetricsSeries(harness.ctx, time.Now().Add(time.Hour), time.Minute)
+
+	c.NoError(err)
+	c.Empty(series.Buckets)
+}

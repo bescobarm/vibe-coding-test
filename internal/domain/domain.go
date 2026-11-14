@@ -128,6 +128,24 @@ type Metrics struct {
 	Explainer      ExplainerMetrics   `json:"explainer"`
 }
 
+// MetricsSeries are the decisions since a moment, cut into buckets of equal
+// length (GET /v1/metrics/series). Buckets with no decisions are left out.
+type MetricsSeries struct {
+	Since         time.Time       `json:"since"`
+	BucketSeconds int             `json:"bucket_seconds"`
+	Buckets       []MetricsBucket `json:"buckets"`
+}
+
+// MetricsBucket counts the decisions made in [Start, Start + bucket) and
+// their latency. Approved includes the flagged ones, as in Metrics.
+type MetricsBucket struct {
+	Start     time.Time          `json:"start"`
+	Approved  int                `json:"approved"`
+	Flagged   int                `json:"flagged"`
+	Declined  int                `json:"declined"`
+	LatencyMS LatencyPercentiles `json:"latency_ms"`
+}
+
 // ExplainerMetrics count the explanations written for the decisions in the
 // window: by the model, by the template after a rejected answer, or failed.
 type ExplainerMetrics struct {
