@@ -98,7 +98,7 @@ func newFixtureWith(t *testing.T, fields string) fixture {
 	c.NoError(err)
 
 	limiter := velocity.NewLimiter(rdb, time.Second)
-	stages := append(controls.ListHardControls(), velocity.NewStage(limiter), scoring.Stage{})
+	stages := append(controls.ListHardControls(), velocity.NewStage(limiter), scoring.NewStage(scoring.GetDefaultWeights()))
 
 	return fixture{
 		t: t, ctx: ctx, st: st, pool: pool, rdb: rdb, card: card, suffix: suffix,

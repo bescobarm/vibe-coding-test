@@ -22,7 +22,14 @@ const (
 
 // Stage adds the points of every feature that fires, caps the score at 100,
 // and maps it to approve, approve + flag, or decline (FR4, FR5).
-type Stage struct{}
+type Stage struct {
+	weights Weights
+}
+
+// NewStage returns the score stage. Validate the weights first.
+func NewStage(w Weights) Stage {
+	return Stage{weights: w}
+}
 
 // GetName implements pipeline.Stage.
 func (Stage) GetName() string {
@@ -31,10 +38,10 @@ func (Stage) GetName() string {
 
 // Evaluate implements pipeline.Stage. Fired features are reasons on a flag or
 // a decline; a decline undoes the velocity reservation (D-023).
-func (Stage) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
+func (s Stage) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	score := 0
 
-	for _, feature := range ListFeatures() {
+	for _, feature := range ListFeatures(s.weights) {
 		fired, msg := feature.Check(e)
 		if fired {
 			score += feature.Points

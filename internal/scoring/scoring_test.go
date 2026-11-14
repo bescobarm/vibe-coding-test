@@ -39,7 +39,7 @@ func newEvaluation(t *testing.T, amount int64, sig domain.Signals) *pipeline.Eva
 }
 
 func runScore(c *require.Assertions, e *pipeline.Evaluation) {
-	c.NoError(Stage{}.Evaluate(context.Background(), e))
+	c.NoError(NewStage(GetDefaultWeights()).Evaluate(context.Background(), e))
 }
 
 func listCodes(e *pipeline.Evaluation) []string {
@@ -286,7 +286,7 @@ func TestDefaultThresholdsApplyWithoutARiskSection(t *testing.T) {
 func TestStageName(t *testing.T) {
 	c := require.New(t)
 
-	c.Equal("score", Stage{}.GetName())
+	c.Equal("score", NewStage(GetDefaultWeights()).GetName())
 }
 
 func TestQueryUsesTheEngineClockAndTheCompanyDay(t *testing.T) {
@@ -304,4 +304,44 @@ func TestQueryUsesTheEngineClockAndTheCompanyDay(t *testing.T) {
 		DayStart:      time.Date(2026, 11, 13, 0, 0, 0, 0, mexico),
 		SmallMaxMinor: 500,
 	}, query)
+}
+
+// D-065: a weight from the environment changes what a feature adds.
+func TestAChangedWeightChangesTheScore(t *testing.T) {
+	c := require.New(t)
+	weights := GetDefaultWeights()
+	weights.RoundAmount = 45
+	sig := regular
+	sig.MCCMeanMinor = 20000
+	evaluation := newEvaluation(t, 20000, sig)
+
+	c.NoError(NewStage(weights).Evaluate(context.Background(), evaluation))
+
+	c.Equal(45, evaluation.RiskScore)
+	c.True(evaluation.Flagged, "45 is over flag_at 40")
+}
+
+func TestTheDefaultWeightsAreValid(t *testing.T) {
+	c := require.New(t)
+
+	c.NoError(GetDefaultWeights().Validate())
+}
+
+func TestAWeightOver100IsInvalid(t *testing.T) {
+	c := require.New(t)
+	weights := GetDefaultWeights()
+	weights.SplitPurchase = 101
+
+	err := weights.Validate()
+
+	c.ErrorIs(err, ErrInvalidWeight)
+	c.ErrorContains(err, "SPLIT_TRANSACTION_PATTERN = 101")
+}
+
+func TestANegativeWeightIsInvalid(t *testing.T) {
+	c := require.New(t)
+	weights := GetDefaultWeights()
+	weights.NewCountry = -1
+
+	c.ErrorIs(weights.Validate(), ErrInvalidWeight)
 }

@@ -94,7 +94,12 @@ func run(log *slog.Logger) error {
 	rebuildCounters(ctx, log, velocity.NewRebuilder(st, policies, rdb, countersMarkerKey))
 
 	limiter := velocity.NewLimiter(rdb, redisTimeout)
-	stages := append(controls.ListHardControls(), velocity.NewStage(limiter), scoring.Stage{})
+	weights, err := loadWeights()
+	if err != nil {
+		return err
+	}
+
+	stages := append(controls.ListHardControls(), velocity.NewStage(limiter), scoring.NewStage(weights))
 	pl := pipeline.New(stages...)
 	svc := authz.NewService(st, st, policies, pl).WithSignals(st)
 	events := lifecycle.NewService(st, st, limiter, st, policies)
@@ -161,4 +166,32 @@ func rebuildCounters(ctx context.Context, log *slog.Logger, r *velocity.Rebuilde
 	}
 
 	log.Info("velocity counters ready", "rebuilt_authorizations", restored)
+}
+
+// loadWeights reads each feature's score weight from its env var, with the
+// defaults in code (D-057, D-065). An invalid value stops the engine.
+func loadWeights() (scoring.Weights, error) {
+	weights := scoring.GetDefaultWeights()
+	fields := []struct {
+		key    string
+		target *int
+	}{
+		{"SCORE_WEIGHT_CARD_TESTING", &weights.CardTesting},
+		{"SCORE_WEIGHT_SPLIT_PURCHASE", &weights.SplitPurchase},
+		{"SCORE_WEIGHT_NEW_COUNTRY", &weights.NewCountry},
+		{"SCORE_WEIGHT_NEW_MERCHANT_CNP", &weights.NewMerchantCNP},
+		{"SCORE_WEIGHT_AMOUNT_ANOMALY", &weights.AmountAnomaly},
+		{"SCORE_WEIGHT_ROUND_AMOUNT", &weights.RoundAmount},
+	}
+
+	for _, field := range fields {
+		value, err := strconv.Atoi(getEnv(field.key, strconv.Itoa(*field.target)))
+		if err != nil {
+			return scoring.Weights{}, fmt.Errorf("%s: %w", field.key, err)
+		}
+
+		*field.target = value
+	}
+
+	return weights, weights.Validate()
 }

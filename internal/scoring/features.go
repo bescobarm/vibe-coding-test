@@ -3,6 +3,7 @@
 package scoring
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -10,12 +11,49 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 )
 
-// Weights (D-057): defaults in code, tuned against the SP06 simulator.
+// Default weights (D-057): high, medium and low. Each feature's weight can be
+// overridden with an env var to tune against the SP06 simulator (D-065).
 const (
 	WeightHigh   = 40
 	WeightMedium = 25
 	WeightLow    = 10
 )
+
+// Weights are the points each feature adds when it fires.
+type Weights struct {
+	CardTesting    int
+	SplitPurchase  int
+	NewCountry     int
+	NewMerchantCNP int
+	AmountAnomaly  int
+	RoundAmount    int
+}
+
+// ErrInvalidWeight means a weight is outside 0–100.
+var ErrInvalidWeight = errors.New("score weight must be between 0 and 100")
+
+// GetDefaultWeights returns the weights in code (D-057).
+func GetDefaultWeights() Weights {
+	return Weights{
+		CardTesting:    WeightHigh,
+		SplitPurchase:  WeightHigh,
+		NewCountry:     WeightMedium,
+		NewMerchantCNP: WeightMedium,
+		AmountAnomaly:  WeightMedium,
+		RoundAmount:    WeightLow,
+	}
+}
+
+// Validate reports the first weight outside 0–100.
+func (w Weights) Validate() error {
+	for _, feature := range ListFeatures(w) {
+		if feature.Points < 0 || feature.Points > maxScore {
+			return fmt.Errorf("%w: %s = %d", ErrInvalidWeight, feature.Code, feature.Points)
+		}
+	}
+
+	return nil
+}
 
 // Feature parameters.
 const (
@@ -48,15 +86,16 @@ type Feature struct {
 	Check  func(e *pipeline.Evaluation) (fired bool, message string)
 }
 
-// ListFeatures returns the six features in the order their reasons are reported.
-func ListFeatures() []Feature {
+// ListFeatures returns the six features with their weights, in the order their
+// reasons are reported.
+func ListFeatures(w Weights) []Feature {
 	return []Feature{
-		{Code: domain.ReasonCardTestingPattern, Points: WeightHigh, Check: detectCardTesting},
-		{Code: domain.ReasonSplitTransaction, Points: WeightHigh, Check: detectSplitPurchase},
-		{Code: domain.ReasonNewCountry, Points: WeightMedium, Check: detectNewCountry},
-		{Code: domain.ReasonNewMerchantCNP, Points: WeightMedium, Check: detectNewMerchantCNP},
-		{Code: domain.ReasonAmountAnomaly, Points: WeightMedium, Check: detectAmountAnomaly},
-		{Code: domain.ReasonRoundAmount, Points: WeightLow, Check: detectRoundAmount},
+		{Code: domain.ReasonCardTestingPattern, Points: w.CardTesting, Check: detectCardTesting},
+		{Code: domain.ReasonSplitTransaction, Points: w.SplitPurchase, Check: detectSplitPurchase},
+		{Code: domain.ReasonNewCountry, Points: w.NewCountry, Check: detectNewCountry},
+		{Code: domain.ReasonNewMerchantCNP, Points: w.NewMerchantCNP, Check: detectNewMerchantCNP},
+		{Code: domain.ReasonAmountAnomaly, Points: w.AmountAnomaly, Check: detectAmountAnomaly},
+		{Code: domain.ReasonRoundAmount, Points: w.RoundAmount, Check: detectRoundAmount},
 	}
 }
 
