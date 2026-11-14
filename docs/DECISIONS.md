@@ -89,13 +89,13 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-063](#d-063-contents-of-the-default-policy) | Contents of the default policy | 🟢 Accepted | Risk | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-064](#d-064-the-engine-answers-at-the-deadline-even-if-a-stage-does-not) | The engine answers at the deadline, even if a stage does not | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-065](#d-065-score-weights-can-be-overridden-with-env-vars) | Score weights can be overridden with env vars | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
-| [D-066](#d-066-the-simulator-creates-its-own-cards-in-postgres) | The simulator creates its own cards in Postgres | 🟡 Proposed (implemented) | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
-| [D-067](#d-067-the-simulator-runs-in-real-time) | The simulator runs in real time | 🟡 Proposed (implemented) | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-066](#d-066-the-simulator-creates-its-own-cards-in-postgres) | The simulator creates its own cards in Postgres | 🟢 Accepted | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-067](#d-067-the-simulator-runs-in-real-time) | The simulator runs in real time | 🟢 Accepted | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-068](#d-068-the-report-has-no-target-rates) | The report has no target rates | 🟢 Accepted | Product | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-069](#d-069-load-is-tested-by-the-go-simulator) | Load is tested by the Go simulator | 🟢 Accepted | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-070](#d-070-metrics-are-read-from-the-audit-log) | Metrics are read from the audit log | 🟢 Accepted | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
-| [D-071](#d-071-the-engine-keeps-32-postgres-connections) | The engine keeps 32 Postgres connections | 🟡 Proposed (implemented) | Performance | [06](../briefs/06-simulator-and-report-brief.md) |
-| [D-072](#d-072-how-the-explainer-worker-drains-the-outbox) | How the explainer worker drains the outbox | 🟡 Proposed (implemented) | Architecture | [07](../briefs/07-mock-llm-explainer-brief.md) |
+| [D-071](#d-071-the-engine-keeps-32-postgres-connections) | The engine keeps 32 Postgres connections | 🟢 Accepted | Performance | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-072](#d-072-how-the-explainer-worker-drains-the-outbox) | How the explainer worker drains the outbox | 🟢 Accepted | Architecture | [07](../briefs/07-mock-llm-explainer-brief.md) |
 
 ---
 
@@ -666,34 +666,40 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** A. `GET /v1/metrics?since=` (default: the last 24 hours).
 - **Why:** 📝
 
-## Proposed (waiting for my decision)
+### D-066: The simulator creates its own cards in Postgres
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built; with my change: random cases each run) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Context:** The API has no way to create cards, and reusing the seeded cards would mix one run's counters into the next (the brief: "each run must start clean").
+- **AI input and concerns (as built):** the simulator, a development tool, connects to Postgres to insert a fresh company's cards, and publishes that company's policy through the real API. IDs carry a random run ID; the traffic itself depends only on the seed. No admin endpoint, so no new attack surface.
+- **Alternatives not built:** a `POST /v1/cards` admin endpoint; fixed seed cards cleaned between runs.
+- **Decision:** Fresh company and cards per run, created in Postgres at execution; **each run draws new random cases** from a random seed (my change), printed in the report so any run can be replayed with `-seed`. Every scenario draws from a range that keeps its expected outcome.
+- **Why:** 📝
+
+### D-067: The simulator runs in real time
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Context:** SP06 brief Q2 suggested a `DEMO_MODE` where the request's `created_at` drives the windows, to run "a day" in seconds.
+- **AI input and concerns (as built):** no fake clock. It would reverse D-045 (windows use the engine clock). Every scenario fits in real time: card testing is 8 requests in a second, split purchase and the daily limit happen on the same day.
+- **Decision:** As built: no fake clock.
+- **Why:** 📝
 
 ### D-071: The engine keeps 32 Postgres connections
-- **Status:** 🟡 Proposed, **already implemented** in SP07. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
 - **Context:** An A/B load test at 1,000 req/s showed p99 spikes (up to 165 ms) with and without the explainer ([I-035](ISSUES.md#i-035-the-default-connection-pool-queued-requests-under-load)). The pgx default pool is `max(4, CPUs)`, 12 here, shared by 64 concurrent requests.
-- **AI recommendation (as built):** `DATABASE_MAX_CONNS`, default 32: three runs passed at p99 4.1, 3.8 and 9.9 ms with it, and stays well under Postgres's `max_connections` (100), leaving room for the simulator and tests.
-- **Decision:** _pending my review_
+- **AI input and concerns (as built):** `DATABASE_MAX_CONNS`, default 32: three runs passed at p99 4.1, 3.8 and 9.9 ms with it, and stays well under Postgres's `max_connections` (100), leaving room for the simulator and tests.
+- **Decision:** As built: 32 connections, `DATABASE_MAX_CONNS`.
+- **Why:** 📝
 
 ### D-072: How the explainer worker drains the outbox
-- **Status:** 🟡 Proposed, **already implemented** in SP07. Needs my review. · **Brief:** [07](../briefs/07-mock-llm-explainer-brief.md)
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [07](../briefs/07-mock-llm-explainer-brief.md)
 - **Context:** D-028 and D-034 put a worker in the engine, woken by a doorbell. Under load it fell behind and queried Postgres back to back ([I-034](ISSUES.md#i-034-the-explainer-worker-fell-behind-and-never-paused)).
-- **AI recommendation (as built):**
+- **AI input and concerns (as built):**
   - Approvals that need no explanation are published in **one bulk `UPDATE`** per pass; only declines and flags are listed.
   - A batch is explained **8 at a time**, so one slow model call doesn't hold up the rest.
   - Passes are at least **200 ms apart**; a ring during the gap is kept, so an explanation still arrives in well under a second (AC2).
   - Each job runs detached from the worker's context with a 3 s timeout, so shutdown lets it finish (D-033); a panic becomes a failed explanation (D-032).
-- **Decision:** _pending my review_
+- **Decision:** As built.
+- **Why:** 📝
 
-### D-066: The simulator creates its own cards in Postgres
-- **Status:** 🟡 Proposed, **already implemented** in SP06. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
-- **Context:** The API has no way to create cards, and reusing the seeded cards would mix one run's counters into the next (the brief: "each run must start clean").
-- **AI recommendation (as built):** the simulator, a development tool, connects to Postgres to insert a fresh company's cards, and publishes that company's policy through the real API. IDs carry a random run ID; the traffic itself depends only on the seed. No admin endpoint, so no new attack surface.
-- **Alternatives not built:** a `POST /v1/cards` admin endpoint; fixed seed cards cleaned between runs.
-- **Decision:** _pending my review_
+## Proposed (waiting for my decision)
 
-### D-067: The simulator runs in real time
-- **Status:** 🟡 Proposed, **already implemented** in SP06. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
-- **Context:** SP06 brief Q2 suggested a `DEMO_MODE` where the request's `created_at` drives the windows, to run "a day" in seconds.
-- **AI recommendation (as built):** no fake clock. It would reverse D-045 (windows use the engine clock). Every scenario fits in real time: card testing is 8 requests in a second, split purchase and the daily limit happen on the same day.
-- **Decision:** _pending my review_
+None right now.
 

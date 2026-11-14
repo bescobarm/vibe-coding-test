@@ -25,7 +25,7 @@ A traffic simulator sends labeled normal and fraud traffic to the engine and pri
 
 ### 4. Acceptance criteria
 - **AC1:** `make simulate` on a fresh stack prints a report with all six scenarios. ✅ 12/12 fraud cards caught, 0/160 false declines
-- **AC2:** Two runs with the same seed print the same detection numbers. ✅ two runs, same results
+- **AC2:** Two runs with the same seed print the same detection numbers. ✅ with `-seed`; without it, each run draws new cases (D-066)
 - **AC3:** `GET /v1/metrics` returns p50/p95/p99 and counts by reason. ✅
 - **AC4:** `make load` reports p99 < 100 ms (parent AC5). ✅ p99 4.3 ms at 200 req/s, 6.4 ms at 1,000 req/s
 - **AC5:** `/check-tests -cov 80` passes for the report and metrics code. ✅ simulator 98.2%, API 100%
