@@ -594,7 +594,7 @@ CREATE TABLE outbox (
 {
   "company_id": "acme-mx",
   "version": 3,
-  "timezone": "America/Mexico_City",
+  "timezone": "America/Bogota",
   "controls": {
     "blocked_mccs": ["7995", "5933"],
     "allowed_countries": ["MX", "US", "CO"],

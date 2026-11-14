@@ -4,7 +4,7 @@ INSERT INTO policies (company_id, version, document, created_by) VALUES
 ('acme-mx', 1, '{
   "company_id": "acme-mx",
   "version": 1,
-  "timezone": "America/Mexico_City",
+  "timezone": "America/Bogota",
   "controls": {
     "blocked_mccs": ["7995", "5933"],
     "allowed_countries": ["MX", "US", "CO"],

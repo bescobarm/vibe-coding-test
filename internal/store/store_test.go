@@ -133,7 +133,7 @@ func TestLatestPolicyReturnsTheSeededPolicy(t *testing.T) {
 
 	c.NoError(err)
 	c.Equal(1, doc.Version)
-	c.Equal("America/Mexico_City", doc.GetLocation().String())
+	c.Equal("America/Bogota", doc.GetLocation().String())
 	c.Equal([]string{"7995", "5933"}, doc.Controls.BlockedMCCs)
 }
 
@@ -256,7 +256,7 @@ func TestPurchaseAtNightIsDeclined(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
 	req := newRequest("auth_night", "card_123")
-	req.CreatedAt = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC) // 03:00 in Mexico City
+	req.CreatedAt = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC) // 04:00 in Colombia
 
 	resp, _, err := newService(st).Authorize(context.Background(), req)
 
