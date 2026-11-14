@@ -105,13 +105,7 @@ Send the same request again: you get the same decision, and the amount is counte
 | `REDIS_ADDR` | `localhost:6379` | Redis (velocity counters and holds) |
 | `REDIS_TIMEOUT_MS` | `50` | Timeout of every Redis call, so a slow Redis fails fast ([D-048](docs/DECISIONS.md#d-048-redis-calls-have-a-fixed-timeout)) |
 | `SEED_DEMO` | `true` | Insert the demo company, policy and cards on start |
-| `SCORE_WEIGHT_CARD_TESTING` | `40` | Points for `CARD_TESTING_PATTERN` (0–100). The six weights tune the score without a rebuild ([D-065](docs/DECISIONS.md#d-065-score-weights-can-be-overridden-with-env-vars)) |
-| `SCORE_WEIGHT_SPLIT_PURCHASE` | `40` | Points for `SPLIT_TRANSACTION_PATTERN` |
-| `SCORE_WEIGHT_NEW_COUNTRY` | `25` | Points for `NEW_COUNTRY` |
-| `SCORE_WEIGHT_NEW_MERCHANT_CNP` | `25` | Points for `NEW_MERCHANT_CNP` |
-| `SCORE_WEIGHT_AMOUNT_ANOMALY` | `25` | Points for `AMOUNT_ANOMALY` |
-| `SCORE_WEIGHT_ROUND_AMOUNT` | `10` | Points for `ROUND_AMOUNT` |
-| `INTERNAL_DEADLINE_MS` | `500` | Hard budget per decision. After it, the company's fallback applies |
+| `INTERNAL_DEADLINE_MS` | `500` | Hard budget per decision. After it, the company's fallback answers ([D-064](docs/DECISIONS.md#d-064-the-engine-answers-at-the-deadline-even-if-a-stage-does-not)) |
 | `EXPLAINER` | `mock` | `mock` (simulated LLM) or `template` (no LLM at all) |
 
 ### Troubleshooting
@@ -601,7 +595,7 @@ CREATE TABLE outbox (
     { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
   ],
   "risk": { "flag_at": 40, "decline_at": 70 },
-  "fallback": { "mode": "fail_open_limited", "max_amount_minor": 20000 }
+  "fallback": { "mode": "fail_open_limited", "max_amount": { "amount_minor": 20000, "currency": "USD" } }
 }
 ```
 

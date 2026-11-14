@@ -17,7 +17,7 @@ INSERT INTO policies (company_id, version, document, created_by) VALUES
     { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
   ],
   "risk": { "flag_at": 40, "decline_at": 70 },
-  "fallback": { "mode": "fail_open_limited", "max_amount_minor": 20000 }
+  "fallback": { "mode": "fail_open_limited", "max_amount": { "amount_minor": 20000, "currency": "USD" } }
 }', 'seed')
 ON CONFLICT DO NOTHING;
 

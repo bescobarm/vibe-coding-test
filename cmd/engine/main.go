@@ -33,6 +33,7 @@ const (
 	defaultPort        = "8080"
 	defaultRedisAddr   = "localhost:6379"
 	defaultRedisMS     = 50                        // D-048
+	defaultDeadlineMS  = 500                       // D-031
 	countersMarkerKey  = "velocity:counters_ready" // D-055
 	rebuildTimeout     = 30 * time.Second
 	envTrue            = "true"
@@ -101,7 +102,12 @@ func run(log *slog.Logger) error {
 
 	stages := append(controls.ListHardControls(), velocity.NewStage(limiter), scoring.NewStage(weights))
 	pl := pipeline.New(stages...)
-	svc := authz.NewService(st, st, policies, pl).WithSignals(st)
+	deadline, err := getEnvMillis("INTERNAL_DEADLINE_MS", defaultDeadlineMS)
+	if err != nil {
+		return err
+	}
+
+	svc := authz.NewService(st, st, policies, pl).WithSignals(st).WithDeadline(deadline).WithLogger(log)
 	events := lifecycle.NewService(st, st, limiter, st, policies)
 
 	srv := &http.Server{
@@ -112,26 +118,7 @@ func run(log *slog.Logger) error {
 		WriteTimeout:      writeTimeout,
 	}
 
-	errc := make(chan error, 1)
-
-	go func() {
-		errc <- srv.ListenAndServe()
-	}()
-
-	log.Info("engine listening", "addr", srv.Addr)
-
-	select {
-	case err := <-errc:
-		if !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		return srv.Shutdown(shutdownCtx)
-	}
-
-	return nil
+	return serve(ctx, log, srv, svc)
 }
 
 func getEnv(key, def string) string {
@@ -194,4 +181,36 @@ func loadWeights() (scoring.Weights, error) {
 	}
 
 	return weights, weights.Validate()
+}
+
+// serve runs the HTTP server until it fails or ctx ends, then shuts down in
+// order (D-033): stop taking requests, then let late fallbacks finish writing
+// before the deferred pool and Redis closes run.
+func serve(ctx context.Context, log *slog.Logger, srv *http.Server, svc *authz.Service) error {
+	errc := make(chan error, 1)
+
+	go func() {
+		errc <- srv.ListenAndServe()
+	}()
+
+	log.Info("engine listening", "addr", srv.Addr)
+
+	select {
+	case err := <-errc:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+
+		return nil
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		err := srv.Shutdown(shutdownCtx)
+		if err != nil {
+			return err
+		}
+
+		return svc.Wait(shutdownCtx)
+	}
 }

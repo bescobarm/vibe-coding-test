@@ -41,6 +41,8 @@ const (
 	ReasonNewMerchantCNP       = "NEW_MERCHANT_CNP"
 	ReasonAmountAnomaly        = "AMOUNT_ANOMALY"
 	ReasonRoundAmount          = "ROUND_AMOUNT"
+	ReasonDefaultPolicy        = "DEFAULT_POLICY_APPLIED"
+	ReasonFallbackApplied      = "FALLBACK_APPLIED"
 )
 
 // Reason explains a decision with a code and a human-readable message.
