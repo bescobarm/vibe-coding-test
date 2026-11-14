@@ -14,7 +14,7 @@ INSERT INTO policies (company_id, version, document, created_by) VALUES
   },
   "velocity": [
     { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 } },
-    { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount_minor": 200000 }
+    { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
   ],
   "risk": { "flag_at": 40, "decline_at": 70 },
   "fallback": { "mode": "fail_open_limited", "max_amount_minor": 20000 }

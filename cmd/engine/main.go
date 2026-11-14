@@ -4,27 +4,36 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/bescobarm/card-auth-engine/internal/api"
 	"github.com/bescobarm/card-auth-engine/internal/authz"
 	"github.com/bescobarm/card-auth-engine/internal/controls"
+	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 	"github.com/bescobarm/card-auth-engine/internal/store"
+	"github.com/bescobarm/card-auth-engine/internal/velocity"
 	"github.com/bescobarm/card-auth-engine/migrations"
 )
 
 const (
 	defaultDatabaseURL = "postgres://auth:auth@localhost:55432/auth?sslmode=disable"
 	defaultPort        = "8080"
+	defaultRedisAddr   = "localhost:6379"
+	defaultRedisMS     = 50                        // D-048
+	countersMarkerKey  = "velocity:counters_ready" // D-055
+	rebuildTimeout     = 30 * time.Second
 	envTrue            = "true"
 
 	readHeaderTimeout = 2 * time.Second
@@ -68,13 +77,31 @@ func run(log *slog.Logger) error {
 
 	policies := policy.NewCache(st)
 
-	// SP03: velocity and budget · SP04: anomaly score go after the hard controls.
-	pl := pipeline.New(controls.Hard()...)
+	redisTimeout, err := envMillis("REDIS_TIMEOUT_MS", defaultRedisMS)
+	if err != nil {
+		return err
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:         env("REDIS_ADDR", defaultRedisAddr),
+		DialTimeout:  redisTimeout,
+		ReadTimeout:  redisTimeout,
+		WriteTimeout: redisTimeout,
+	})
+	defer rdb.Close() //nolint:errcheck // nothing to do on shutdown
+
+	// SP04: the anomaly score goes after velocity.
+	rebuildCounters(ctx, log, velocity.NewRebuilder(st, policies, rdb, countersMarkerKey))
+
+	limiter := velocity.NewLimiter(rdb, redisTimeout)
+	stages := append(controls.Hard(), velocity.NewStage(limiter))
+	pl := pipeline.New(stages...)
 	svc := authz.NewService(st, st, policies, pl)
+	events := lifecycle.NewService(st, st, limiter, st, policies)
 
 	srv := &http.Server{
 		Addr:              ":" + env("PORT", defaultPort),
-		Handler:           api.NewHandler(svc, st, policies, st, log),
+		Handler:           api.NewHandler(api.Deps{Auth: svc, Audit: st, Policies: policies, Lifecycle: events, DB: st}, log),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -107,4 +134,29 @@ func env(key, def string) string {
 	}
 
 	return def
+}
+
+func envMillis(key string, def int) (time.Duration, error) {
+	ms, err := strconv.Atoi(env(key, strconv.Itoa(def)))
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+
+	return time.Duration(ms) * time.Millisecond, nil
+}
+
+// rebuildCounters restores the Redis counters from Postgres when Redis lost
+// them, before the engine serves (D-055). A failure is logged, not fatal: the
+// marker stays unset, so the next start tries again.
+func rebuildCounters(ctx context.Context, log *slog.Logger, r *velocity.Rebuilder) {
+	ctx, cancel := context.WithTimeout(ctx, rebuildTimeout)
+	defer cancel()
+
+	n, err := r.RebuildIfLost(ctx)
+	if err != nil {
+		log.Warn("velocity counters not rebuilt", "err", err)
+		return
+	}
+
+	log.Info("velocity counters ready", "rebuilt_authorizations", n)
 }

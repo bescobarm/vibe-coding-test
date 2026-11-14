@@ -26,7 +26,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 |---|---|---|---|---|
 | [D-001](#d-001-problem-real-time-card-authorization) | Problem: real-time card authorization | 🟢 Accepted | Product | [00](../briefs/00-card-auth-engine-brief.md) |
 | [D-002](#d-002-language-go) | Language: Go | 🟢 Accepted | Stack | [00](../briefs/00-card-auth-engine-brief.md) |
-| [D-003](#d-003-hot-path-state-redis-lua-postgres-as-source-of-truth) | Hot-path state: Redis and Lua, Postgres as source of truth | 🟢 Accepted | Architecture | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-003](#d-003-hot-path-state-redis-and-lua-postgres-as-source-of-truth) | Hot-path state: Redis and Lua, Postgres as source of truth | 🟢 Accepted | Architecture | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-004](#d-004-rules-as-versioned-json-policies) | Rules as versioned JSON policies | 🟢 Accepted | Architecture | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-005](#d-005-explainable-weighted-score-instead-of-ml) | Explainable weighted score instead of ML | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-006](#d-006-per-company-limited-fail-open) | Per-company limited fail-open | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
@@ -63,10 +63,22 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-037](#d-037-how-policies-are-cached) | How policies are cached | 🟢 Accepted | Performance | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-038](#d-038-is-outside-allowed-hours-a-hard-control-or-a-score-signal) | "Outside allowed hours": hard control or score signal | 🟢 Accepted | Risk | [02](../briefs/02-policy-and-hard-controls-brief.md) |
 | [D-039](#d-039-should-a-decline-report-every-failing-control-or-only-the-first) | Report every failing control or only the first | 🟢 Accepted | API | [02](../briefs/02-policy-and-hard-controls-brief.md) |
-| [D-040](#d-040-shape-of-allowed-hours-and-which-clock-it-uses) | Shape of "allowed hours" and which clock it uses | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
-| [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟡 Proposed (implemented) | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
-| [D-042](#d-042-a-company-with-no-policy) | A company with no policy | 🟡 Proposed | Risk | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-040](#d-040-shape-of-allowed-hours-and-which-clock-it-uses) | Shape of "allowed hours" and which clock it uses | 🟢 Accepted | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-041](#d-041-a-request-in-a-different-currency-than-the-transaction-limit) | Request currency differs from the transaction limit | 🟢 Accepted | Correctness | [02](../briefs/02-policy-and-hard-controls-brief.md) |
+| [D-042](#d-042-a-company-with-no-policy) | A company with no policy: embedded default policy | 🟢 Accepted | Risk | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-043](#d-043-code-style-rules-enforced-by-linters) | Code style rules enforced by linters | 🟢 Accepted | Quality | — |
+| [D-044](#d-044-velocity-limits-are-per-card-only) | Velocity limits are per card only | 🟢 Accepted | Scope | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-045](#d-045-rolling-windows-use-the-engine-clock) | Rolling windows use the engine clock | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-046](#d-046-redis-client-go-redis) | Redis client: go-redis | 🟢 Accepted | Tooling | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-047](#d-047-lua-tests-run-against-the-compose-redis) | Lua tests run against the Compose Redis | 🟢 Accepted | Testing | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-048](#d-048-redis-calls-have-a-fixed-timeout) | Redis calls have a fixed timeout | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-049](#d-049-amount-rules-have-a-currency) | Amount rules have a currency | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-050](#d-050-lifecycle-calls-carry-an-event_id) | Lifecycle calls carry an `event_id` | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-051](#d-051-reversal-releases-the-amount-but-keeps-the-count) | Reversal releases the amount but keeps the count | 🟢 Accepted | Risk | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-052](#d-052-shape-of-a-velocity-rule) | Shape of a velocity rule | 🟢 Accepted | API | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-053](#d-053-a-capture-counts-the-captured-amount) | A capture counts the captured amount | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-054](#d-054-lifecycle-details-for-increment-capture-and-refund) | Lifecycle details: increment, capture, refund | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-055](#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost) | Rebuild the Redis counters at startup when they are lost | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 
 ---
 
@@ -378,27 +390,154 @@ Entries marked 📝 need my own words before the interview (for example, what th
 
 ---
 
-## Proposed (waiting for my decision)
+### D-042: A company with no policy
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted, **not implemented yet** (start of SP05) · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Context:** Today a card whose company has no policy gets no hard controls and is approved with `policy_version: 0` (same behavior as SP01). SP05's fallback reads `fallback.mode` from the policy, so it also needs an answer when there is none.
+- **Options:**
+  - A: keep it (no policy means no restrictions).
+  - B: decline with a new `POLICY_MISSING` reason (fail-closed).
+  - C: a default policy embedded in the binary (`go:embed`), validated by a unit test. About 1 h.
+  - D: a default policy stored as a policy row under a reserved company id, seeded by a migration. About 2.5–3 h.
+- **AI input and concerns:** The AI first recommended B, then D, then C after a deeper look at the code:
+  - D gives exact replay (the audit can record which policy decided) and can be changed at runtime with the existing `PUT` endpoint. But it needs a migration, an audit column (the audit stores only a version number, unique per company), a reserved id, and B's `POLICY_MISSING` as a last resort. Every policy-schema change in SP03–SP05 would also need a new seed migration, or the stored default fails `policy.Load` at runtime.
+  - C fails at build time instead of at runtime, works when Postgres is down (a policy of last resort for SP05), and needs no schema change. Its cost: a changed default can't be replayed exactly unless a hash of it is stored, and changing it needs a deploy.
+  - A money limit in the default would decline every request in another currency (D-041).
+  - Companies without a policy query Postgres on every request, because the cache doesn't remember a miss. This is a separate fix, not part of this decision.
+- **Decision:** C. When the company has no policy, the engine applies the embedded default and adds the reason `DEFAULT_POLICY_APPLIED`; the audit keeps `policy_version: 0`.
+- **Why:** 📝
+- **Consequences:**
+  - SP05 always has a `fallback.mode` to read, even with Postgres down.
+  - A bad default fails `go test`, not production.
+  - Open: whether the default includes a money limit (see D-041). Decide before implementing.
+  - Next steps for the write-up: store a hash of the default for exact replay, or move it to a versioned row (option D).
+
+### D-044: Velocity limits are per card only
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** FR2 mentions card and company limits; the policy example only shows `"scope": "card"` (SP03 brief Q1).
+- **Options:** A: card only · B: card and company.
+- **AI input and concerns:** A. Each Lua call then touches only one card's keys. A company-wide key makes every card of the company wait on the same keys (correct, but serialized), and in Redis Cluster all those keys must share one hash slot.
+- **Decision:** A. `scope` accepts only `card`; company-wide limits go to next steps.
+- **Why:** 📝
+
+### D-045: Rolling windows use the engine clock
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** The SP03 brief says windows use server time, while D-040 uses the request's `created_at` for allowed hours.
+- **Options:** A: the request's `created_at` (consistent with D-040) · B: the engine clock.
+- **AI input and concerns:** B. A wrong or old `created_at` could move a request out of a window and bypass a money limit. Allowed hours don't count money, so they can keep `created_at`. The engine clock is injected, so tests still use a fake clock (D-036).
+- **Decision:** B. Velocity and budget windows use the engine clock; the audit keeps both times.
+- **Why:** 📝
+
+### D-046: Redis client: go-redis
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Options:** A: `redis/go-redis/v9` · B: `rueidis`.
+- **AI input and concerns:** A. The most widely used client; `redis.Script` runs EVALSHA and falls back to EVAL. rueidis is faster, which doesn't matter at this scale.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-047: Lua tests run against the Compose Redis
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Options:** A: miniredis · B: the real Redis from Compose, tests skipped when it isn't running.
+- **AI input and concerns:** B. miniredis's Lua support is partial, so a passing test could hide a script bug. The store tests already use the real Postgres the same way.
+- **Decision:** B.
+- **Why:** 📝
+
+### D-048: Redis calls have a fixed timeout
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md) · **Related:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Options:** A: no special handling until SP05 · B: a fixed timeout on every Redis call now.
+- **AI input and concerns:** B, small. A 50 ms timeout means a slow or dead Redis returns an error quickly, and SP05 only has to map that error to the fallback.
+- **Decision:** B. 50 ms (`REDIS_TIMEOUT_MS`).
+- **Why:** 📝
+
+### D-049: Amount rules have a currency
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** A daily budget like 200000 must sum amounts in one currency; FX conversion is out of scope.
+- **Options:** A: the rule has a currency and a request in another currency is declined with the rule's reason · B: the rule has a currency and other currencies are not counted · C: no currency, raw minor units are summed.
+- **AI input and concerns:** A, consistent with D-041. B lets any foreign-currency purchase bypass the budget; C counts 1000 MXN the same as 1000 USD.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-050: Lifecycle calls carry an `event_id`
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** Partial reversals and refunds can legitimately happen more than once, so "already reversed" can't detect a retry.
+- **Options:** A: every lifecycle call carries an `event_id`, stored in a `lifecycle_events` table; a repeat returns the stored result · B: only full reversal, expiry and capture are idempotent (by state); a repeated partial is applied twice.
+- **AI input and concerns:** A. Processors send an id per event, and it covers partials. About 1 hour more than B.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-051: Reversal releases the amount but keeps the count
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** A full reversal or expiry restores budget. Should the authorization also leave count-based windows ("max 5 small charges in 10 minutes")?
+- **Options:** A: release the amount, keep the count · B: remove it from both.
+- **AI input and concerns:** A. Card testers' small charges are often reversed quickly; removing them from the count would let them evade the card-testing rule.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-052: Shape of a velocity rule
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Decision:**
+  - `{id, scope, window, max_count, max_amount, filter}`. `scope` is only `card` (D-044).
+  - `window` is a Go duration (`10m`, `1h`, at most 31 days) or `calendar_day` / `calendar_month` in the policy time zone (D-026).
+  - `max_count` and/or `max_amount {amount_minor, currency}` (D-049).
+  - `filter {max_amount_minor, mccs}`: the rule only applies to matching requests.
+  - Reasons: an amount rule on `calendar_day` → `OVER_DAILY_LIMIT`, on `calendar_month` → `OVER_MONTHLY_LIMIT`; everything else → `VELOCITY_EXCEEDED`.
+  - Card overrides can't change velocity rules (next steps).
+- **AI input and concerns:** Matches the README policy example, with `max_amount` gaining a currency.
+- **Why:** 📝
+
+### D-053: A capture counts the captured amount
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** The final captured amount can differ from the hold (tips, fuel). A capture is never declined: the money is already spent.
+- **Options:** A: budgets count the captured amount · B: budgets keep counting the held amount.
+- **AI input and concerns:** A. It is the money actually spent. A capture above the hold can push a card over its budget after the fact; later requests are declined, the capture itself is not.
+- **Decision:** A.
+- **Why:** 📝
 
 ### D-040: Shape of "allowed hours" and which clock it uses
-- **Status:** 🟡 Proposed, **already implemented** in SP02. Needs my review. · **Blocks:** SP02
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
 - **Context:** D-038 made allowed hours a hard control, but the policy format didn't define it.
 - **Options:**
   - Shape: A: `"allowed_hours": {"start": "06:00", "end": "23:00"}`, one daily window, end exclusive, and a window like 22:00–06:00 crosses midnight · B: a window per weekday (more flexible, more to validate).
   - Clock: A: the request's `created_at` (the processor's timestamp), falling back to the engine clock if it is missing · B: always the engine clock.
-- **AI recommendation:** A and A. One window covers the threats in scope. The processor's timestamp makes decisions reproducible from the audit log and makes the demo deterministic. A card can override the window.
-- **Decision:** _pending my review_
+- **AI input and concerns:** A and A. One window covers the threats in scope. The processor's timestamp makes decisions reproducible from the audit log and makes the demo deterministic. A card can override the window.
+- **Decision:** A and A: one daily window `{start, end}` (end exclusive, may cross midnight), timed by the request's `created_at`, falling back to the engine clock.
+- **Why:** 📝
 
 ### D-041: A request in a different currency than the transaction limit
-- **Status:** 🟡 Proposed, **already implemented** in SP02. Needs my review. · **Blocks:** SP02
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
 - **Context:** `max_per_transaction` has a currency. Multi-currency budgets with FX conversion are out of scope (README §18).
 - **Options:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN") · B: skip the limit for that request.
-- **AI recommendation:** A. Skipping would let any purchase in another currency bypass the limit.
-- **Decision:** _pending my review_
+- **AI input and concerns:** A. Skipping would let any purchase in another currency bypass the limit.
+- **Decision:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN").
+- **Why:** 📝
 
-### D-042: A company with no policy
-- **Status:** 🟡 Proposed, **not implemented** · **Blocks:** SP05 (fallback needs a policy too)
-- **Context:** Today a card whose company has no policy gets no hard controls and is approved with `policy_version: 0` (same behavior as SP01).
-- **Options:** A: keep it (no policy means no restrictions) · B: decline with a new `POLICY_MISSING` reason (fail-closed).
-- **AI recommendation:** B. A missing policy is a setup error, and approving everything is the riskier failure.
-- **Decision:** _pending_
+### D-054: Lifecycle details for increment, capture and refund
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** D-027 fixed the shape of an increment, and D-053 how a capture counts. Building them needed smaller choices.
+- **AI input and concerns (as built):**
+  - **Increment** re-runs the card status and the per-transaction limit on the **new total**, then checks every amount rule (count rules don't change: same authorization). A declined increment keeps the hold and is stored, so a retry replays the decline. If the original authorization is outside today's window (yesterday's hotel check-in), only the increment counts today.
+  - **Capture** happens once, only on a pending authorization, and needs `amount_minor`. It's never declined (D-053).
+  - **Refund** only after a capture. Partial refunds are allowed until the captured amount is refunded; without `amount_minor` it refunds what is left.
+  - Every lifecycle answer shows the full state (`held_minor`, `captured_minor`, `refunded_minor`); only an increment has a `decision`.
+- **Alternatives not built:** multiple partial captures; increments that skip the hard controls; refunds without a capture.
+- **Decision:** As built: increments re-run card status and the per-transaction limit on the new total, then the amount windows; a declined increment is stored and keeps the hold; one capture per authorization, never declined; refunds only after a capture, partial allowed; answers show the full state.
+- **Why:** 📝
+
+### D-055: Rebuild the Redis counters at startup when they are lost
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
+- **Context:** D-003 makes Postgres the source of truth and asks for a way to rebuild Redis (AC5).
+- **AI input and concerns (as built):**
+  - **When:** at engine startup, before serving, if the marker key `velocity:counters_ready` is missing. A `FLUSHALL` or a Redis restart without persistence deletes the marker with everything else. Running before serving means no reserve can race with the rebuild.
+  - **What:** every approved authorization of the last 31 days (the longest window), with the company's **current** policy: count windows get every approved authorization, reversed ones included (D-051); amount windows get the hold while pending, captured minus refunded once captured (D-053), nothing once reversed or expired.
+  - **Failure:** logged, not fatal; the marker stays unset so the next start retries.
+- **Known limits (next steps):**
+  - Data lost **while** the engine runs isn't detected until a restart ([I-020](ISSUES.md#i-020-redis-data-lost-while-the-engine-runs-is-not-detected)).
+  - An increment counted in a later window than its authorization (yesterday's check-in) is rebuilt in the authorization's window.
+  - Windows use the authorization's `created_at` (claim time) instead of the engine clock at reserve time: a few milliseconds apart.
+- **Alternatives not built:** a separate `cmd/rebuild` command; Redis persistence (AOF) as the only protection.
+- **Decision:** As built: rebuild at startup, before serving, when the marker key is missing; failures are logged and retried on the next start.
+- **Why:** 📝
+
+## Proposed (waiting for my decision)
+
+None right now.
+

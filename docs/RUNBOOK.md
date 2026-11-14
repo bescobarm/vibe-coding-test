@@ -1,6 +1,6 @@
 # Runbook: test the current build
 
-The shortest path to see what is built so far (SP01 walking skeleton + SP02 policies and hard controls) working end to end.
+The shortest path to see what is built so far (SP01 walking skeleton, SP02 policies and hard controls, SP03 velocity and daily budget) working end to end.
 
 **Needs:** Docker running, Go 1.25+, `jq`. Optional: `golangci-lint` v2 for step 7.
 
@@ -9,6 +9,8 @@ The shortest path to see what is built so far (SP01 walking skeleton + SP02 poli
 ```bash
 make reset && make run
 ```
+
+`make reset` also empties Redis, and it is required after pulling a change to the policy format: a policy stored by an older seed fails validation ([I-011](ISSUES.md#i-011-a-policy-stored-before-a-schema-change-becomes-invalid)).
 
 Leave it running. Wait for `"msg":"engine listening"`. Everything below goes in a second terminal.
 
@@ -45,6 +47,62 @@ auth() {
 | e | `auth a4 card_123 80000 5734` | `DECLINE` `OVER_TRANSACTION_LIMIT` (limit 50000) |
 | f | `auth a5 card_exec 80000 5734` | `APPROVE` (card override raises the limit to 100000) |
 | g | `auth a6 card_123 4500 5734 2026-11-12T09:00:00Z` | `DECLINE` `OUTSIDE_ALLOWED_HOURS` (03:00 in Mexico City) |
+| h | `for i in 1 2 3 4 5 6; do auth v$i card_456 300 5734; done` | 5 × `APPROVE`, then `DECLINE` `VELOCITY_EXCEEDED` (card testing: at most 5 charges ≤ 500 in 10 min) |
+| i | `for i in 1 2 3 4; do auth b$i card_456 50000 5734; done` | 3 × `APPROVE`, then `DECLINE` `OVER_DAILY_LIMIT` (1500 + 150000 + 50000 > 200000 USD per day) |
+
+## 4b. Reversal and expiry
+
+Run after 4i (card_456 has used its daily budget).
+
+```bash
+ev() { curl -s -X POST localhost:8080/v1/authorizations/$1/$2 -d "$3" | jq -c .; }
+ev b1 reversal '{"event_id": "r1", "amount_minor": 20000}'
+ev b1 reversal '{"event_id": "r1", "amount_minor": 20000}'
+ev b1 reversal '{"event_id": "r1", "amount_minor": 5000}'
+ev b2 expire '{"event_id": "x1"}'
+auth b5 card_456 50000 5734
+ev b4 reversal '{"event_id": "r2"}'
+```
+
+Expect, in order:
+1. `held_minor: 30000`, status `pending` (partial reversal).
+2. The same answer again: the event is applied once ([D-050](DECISIONS.md#d-050-lifecycle-calls-carry-an-event_id)).
+3. `event_id was already used for a different event` (409).
+4. Status `expired`, `held_minor: 0`.
+5. `APPROVE`: the released budget is available again.
+6. `authorization was declined, nothing is held` (409).
+
+Reversed small charges still count for card testing ([D-051](DECISIONS.md#d-051-reversal-releases-the-amount-but-keeps-the-count)).
+
+## 4c. Hotel: increment, capture, refund
+
+```bash
+auth hotel card_exec 30000 7011
+ev hotel increment '{"event_id": "i1", "amount_minor": 15000}'
+ev hotel increment '{"event_id": "i2", "amount_minor": 60000}'
+ev hotel capture '{"event_id": "c1", "amount_minor": 47000}'
+ev hotel refund '{"event_id": "f1", "amount_minor": 7000}'
+ev hotel refund '{"event_id": "f2"}'
+```
+
+Expect, in order:
+1. `APPROVE` (card_exec allows 100000 per transaction).
+2. `decision: APPROVE`, `held_minor: 45000`.
+3. `decision: DECLINE` `OVER_TRANSACTION_LIMIT`: the new total 105000 is over 100000; the hold stays at 45000.
+4. Status `captured`, `captured_minor: 47000`: a tip above the hold is accepted and counts ([D-053](DECISIONS.md#d-053-a-capture-counts-the-captured-amount)).
+5. `refunded_minor: 7000`, still `captured`.
+6. Status `refunded`, `refunded_minor: 47000`.
+
+## 4d. Redis loses its data
+
+After 4i, stop the engine (Ctrl-C), then:
+
+```bash
+docker compose exec redis redis-cli flushall
+make run
+```
+
+Expect `"msg":"velocity counters ready","rebuilt_authorizations":N` in the log before `engine listening`, then `auth b9 card_456 50000 5734` is still `DECLINE` `OVER_DAILY_LIMIT`: the budget was rebuilt from Postgres ([D-055](DECISIONS.md#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost)).
 
 ## 5. Publish a new policy version
 

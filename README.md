@@ -9,6 +9,8 @@
 | Code + run instructions | This repo, starting with [How to run](#1-how-to-run) |
 | Design and research | This README, sections 4–15 |
 | Decision log (for the interview) | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| Trade-offs in short (for the interview) | [docs/TRADEOFFS.md](docs/TRADEOFFS.md) |
+| Issues found while building | [docs/ISSUES.md](docs/ISSUES.md) |
 | Problem briefs (one per sub-project) | [briefs/](briefs/) |
 | One-page write-up | `WRITEUP.md` 🚧 (Day 3) |
 | 5-minute video | Link added on submission 🚧 |
@@ -99,6 +101,8 @@ Send the same request again: you get the same decision, and the amount is counte
 | `PORT` | `8080` | HTTP port |
 | `DATABASE_URL` | `postgres://auth:auth@localhost:55432/auth?sslmode=disable` | Postgres (source of truth, audit log) |
 | `REDIS_ADDR` | `localhost:6379` | Redis (velocity counters and holds) |
+| `REDIS_TIMEOUT_MS` | `50` | Timeout of every Redis call, so a slow Redis fails fast ([D-048](docs/DECISIONS.md#d-048-redis-calls-have-a-fixed-timeout)) |
+| `SEED_DEMO` | `true` | Insert the demo company, policy and cards on start |
 | `INTERNAL_DEADLINE_MS` | `500` | Hard budget per decision. After it, the company's fallback applies |
 | `EXPLAINER` | `mock` | `mock` (simulated LLM) or `template` (no LLM at all) |
 
@@ -495,7 +499,7 @@ Two simultaneous authorizations on the same card could each see "enough budget" 
 | **Redis Lua script** (check + reserve in one atomic step) | Atomic and fast (sub-ms) | Redis becomes critical, so a durability and recovery strategy is needed |
 | Eventually consistent counters | Fastest | Limits can be exceeded (Lithic documents this edge case) |
 
-**Choice:** a Redis Lua script for the hot path, plus a Postgres audit log as the source of truth to rebuild counters if Redis is lost.
+**Choice:** a Redis Lua script for the hot path, plus a Postgres audit log as the source of truth to rebuild counters if Redis is lost. The engine rebuilds them at startup when Redis comes back empty ([D-055](docs/DECISIONS.md#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost)).
 
 ### 10.6 Where AI fits (and where it doesn't)
 
@@ -566,7 +570,7 @@ CREATE TABLE outbox (
 **Redis keys:**
 - `vel:{card_id}:{rule_id}`: sorted set of `authorization_id` → timestamp, for rolling windows.
 - `spend:{card_id}:{day|month}`: reserved + captured amount.
-- `hold:{authorization_id}`: reserved amount, released on reversal or expiry.
+- `hold:{card_id}:{authorization_id}`: reserved amount and applied `event_id`s, released on reversal or expiry.
 
 ### Example policy document
 
@@ -584,7 +588,7 @@ CREATE TABLE outbox (
   },
   "velocity": [
     { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 } },
-    { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount_minor": 200000 }
+    { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
   ],
   "risk": { "flag_at": 40, "decline_at": 70 },
   "fallback": { "mode": "fail_open_limited", "max_amount_minor": 20000 }
@@ -635,11 +639,11 @@ Response:
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `POST` | `/v1/authorizations/{id}/increment` | Incremental auth (hotel, car rental): raise the hold |
-| `POST` | `/v1/authorizations/{id}/reversal` | Release the hold (full or partial) |
-| `POST` | `/v1/authorizations/{id}/capture` | Mark as captured (final amount may differ) |
-| `POST` | `/v1/authorizations/{id}/refund` | Refund after capture, restores budget |
-| `POST` | `/v1/authorizations/{id}/expire` | Release the hold on expiry |
+| `POST` | `/v1/authorizations/{id}/increment` | Incremental auth (hotel, car rental): raise the hold. Body: `{"event_id", "amount_minor"}`; answers with a `decision` (D-054) |
+| `POST` | `/v1/authorizations/{id}/reversal` | Release the hold (full or partial). Body: `{"event_id", "amount_minor"?}`; repeats of an `event_id` replay (D-050) |
+| `POST` | `/v1/authorizations/{id}/capture` | Mark as captured; the final amount may differ and is what budgets count (D-053). Body: `{"event_id", "amount_minor"}` |
+| `POST` | `/v1/authorizations/{id}/refund` | Refund after capture, restores budget. Body: `{"event_id", "amount_minor"?}` |
+| `POST` | `/v1/authorizations/{id}/expire` | Release the hold on expiry. Body: `{"event_id"}` |
 | `PUT` | `/v1/companies/{id}/policy` | Publish a new policy version (validated) |
 | `GET` | `/v1/authorizations/{id}` | Full audit record, including the explanation once ready |
 | `GET` | `/v1/metrics` | Approval rate, decline reasons, latency percentiles |
@@ -733,7 +737,7 @@ The simulator can also make the mock misbehave on purpose (`MOCK_LLM_FAILURE_RAT
 
 ## 14. Key decisions and trade-offs
 
-The full log, including the options the AI suggested, the concerns raised and why I chose each option, is in **[docs/DECISIONS.md](docs/DECISIONS.md)**. Summary:
+The full log, including the options the AI suggested, the concerns raised and why I chose each option, is in **[docs/DECISIONS.md](docs/DECISIONS.md)**. The short version, one line per trade-off, is **[docs/TRADEOFFS.md](docs/TRADEOFFS.md)**. Summary:
 
 | Decision | Chosen | Alternatives | Why |
 |---|---|---|---|

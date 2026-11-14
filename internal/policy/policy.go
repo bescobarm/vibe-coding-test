@@ -17,13 +17,13 @@ import (
 // Document is one published version of a company policy. Version is assigned by
 // the server when the document is published; it is never updated in place.
 type Document struct {
-	CompanyID string          `json:"company_id"`
-	Version   int             `json:"version"`
-	Timezone  string          `json:"timezone,omitempty"` // D-026; empty means UTC
-	Controls  Controls        `json:"controls"`
-	Velocity  json.RawMessage `json:"velocity,omitempty"` // typed and validated in SP03
-	Risk      *Risk           `json:"risk,omitempty"`
-	Fallback  *Fallback       `json:"fallback,omitempty"`
+	CompanyID string         `json:"company_id"`
+	Version   int            `json:"version"`
+	Timezone  string         `json:"timezone,omitempty"` // D-026; empty means UTC
+	Controls  Controls       `json:"controls"`
+	Velocity  []VelocityRule `json:"velocity,omitempty"`
+	Risk      *Risk          `json:"risk,omitempty"`
+	Fallback  *Fallback      `json:"fallback,omitempty"`
 
 	loc *time.Location
 }
@@ -142,6 +142,7 @@ func (d *Document) Validate() map[string]string {
 	d.loc = loc
 
 	validateControls(&d.Controls, prefixControls, errs)
+	validateVelocity(d.Velocity, errs)
 	validateRisk(d.Risk, errs)
 	validateFallback(d.Fallback, errs)
 

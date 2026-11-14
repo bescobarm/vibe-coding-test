@@ -45,7 +45,8 @@ func TestParseAcceptsTheREADMEPolicy(t *testing.T) {
 	c.Empty(d.Validate())
 	c.Equal("acme-mx", d.CompanyID)
 	c.Equal(&Money{AmountMinor: 50000, Currency: "USD"}, d.Controls.MaxPerTransaction)
-	c.JSONEq(`[{ "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5 }]`, string(d.Velocity))
+	c.Len(d.Velocity, 1)
+	c.Equal("card-testing", d.Velocity[0].ID)
 }
 
 func TestParseRejectsUnknownFields(t *testing.T) {

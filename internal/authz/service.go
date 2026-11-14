@@ -62,6 +62,7 @@ func NewService(r Recorder, c CardReader, p PolicyReader, pl *pipeline.Pipeline)
 func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain.AuthResponse, bool, error) {
 	start := s.now()
 	e := pipeline.NewEvaluation(req)
+	e.ReceivedAt = start
 
 	card, err := s.cards.GetCard(ctx, req.CardID)
 	switch {
