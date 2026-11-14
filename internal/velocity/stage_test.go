@@ -16,9 +16,10 @@ import (
 var errRedisDown = errors.New("redis down")
 
 type fakeReserver struct {
-	result Result
-	err    error
-	got    []Reservation
+	result    Result
+	err       error
+	got       []Reservation
+	cancelled []string
 }
 
 func (f *fakeReserver) Reserve(_ context.Context, r Reservation) (Result, error) {
@@ -26,22 +27,39 @@ func (f *fakeReserver) Reserve(_ context.Context, r Reservation) (Result, error)
 	return f.result, f.err
 }
 
-// evaluation runs a policy with the given rules through Validate, so rolling
+func (f *fakeReserver) Cancel(_ context.Context, cardID, authorizationID string) error {
+	f.cancelled = append(f.cancelled, cardID+"/"+authorizationID)
+	return f.err
+}
+
+// declineStage stands for a later stage, like the score, that declines.
+type declineStage struct{}
+
+func (declineStage) GetName() string {
+	return "decline"
+}
+
+func (declineStage) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
+	e.Decline("TEST", "declined later")
+	return nil
+}
+
+// newEvaluation runs a policy with the given rules through Validate, so rolling
 // windows are resolved like a published policy.
-func evaluation(t *testing.T, rules string) *pipeline.Evaluation {
+func newEvaluation(t *testing.T, rules string) *pipeline.Evaluation {
 	t.Helper()
 	doc, err := policy.Parse([]byte(`{"company_id": "acme-mx", "timezone": "America/Mexico_City", "velocity": ` + rules + `}`))
 	require.NoError(t, err)
 	require.Empty(t, doc.Validate())
 
-	e := pipeline.NewEvaluation(domain.AuthRequest{
+	evaluation := pipeline.NewEvaluation(domain.AuthRequest{
 		AuthorizationID: "a1", CardID: "card_123", AmountMinor: 4500, Currency: "USD",
 		Merchant:  domain.Merchant{MCC: "5734"},
 		CreatedAt: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
-	e.Policy = doc
-	e.ReceivedAt = t0
-	return e
+	evaluation.Policy = doc
+	evaluation.ReceivedAt = t0
+	return evaluation
 }
 
 const (
@@ -51,26 +69,26 @@ const (
 
 func TestStageSkipsRedisWhenNoRuleApplies(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{}
-	e := evaluation(t, `[{"id": "small", "window": "10m", "max_count": 5, "filter": {"max_amount_minor": 500}}]`)
+	reserver := &fakeReserver{}
+	evaluation := newEvaluation(t, `[{"id": "small", "window": "10m", "max_count": 5, "filter": {"max_amount_minor": 500}}]`)
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.NoError(err)
-	c.Empty(f.got)
-	c.False(e.Halted())
+	c.Empty(reserver.got)
+	c.False(evaluation.IsHalted())
 }
 
 func TestStageReservesWithTheEngineClockAndPolicyTimezone(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{result: Result{Reserved: true}}
-	e := evaluation(t, `[`+countRule+`, `+dailyRule+`]`)
+	reserver := &fakeReserver{result: Result{Reserved: true}}
+	evaluation := newEvaluation(t, `[`+countRule+`, `+dailyRule+`]`)
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.NoError(err)
-	c.False(e.Halted())
-	c.Len(f.got, 1)
+	c.False(evaluation.IsHalted())
+	c.Len(reserver.got, 1)
 
 	mexico, _ := time.LoadLocation("America/Mexico_City")
 	c.Equal(Reservation{
@@ -79,80 +97,115 @@ func TestStageReservesWithTheEngineClockAndPolicyTimezone(t *testing.T) {
 			{RuleID: "card-testing", Start: t0.Add(-10 * time.Minute), MaxCount: 5, MaxAmount: NoLimit, Retention: 10 * time.Minute},
 			{RuleID: "daily-spend", Start: time.Date(2026, 11, 13, 0, 0, 0, 0, mexico), MaxCount: NoLimit, MaxAmount: 200000, Retention: 24 * time.Hour},
 		},
-	}, f.got[0])
+	}, reserver.got[0])
 }
 
 func TestStageDeclinesAnotherCurrencyWithoutCallingRedis(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{}
-	e := evaluation(t, `[`+dailyRule+`]`)
-	e.Request.Currency = "MXN"
+	reserver := &fakeReserver{}
+	evaluation := newEvaluation(t, `[`+dailyRule+`]`)
+	evaluation.Request.Currency = "MXN"
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.NoError(err)
-	c.Empty(f.got)
-	c.Equal([]domain.Reason{{Code: domain.ReasonOverDailyLimit, Message: "Rule daily-spend limit is in USD, request is in MXN"}}, e.Reasons())
+	c.Empty(reserver.got)
+	c.Equal([]domain.Reason{{Code: domain.ReasonOverDailyLimit, Message: "Rule daily-spend limit is in USD, request is in MXN"}}, evaluation.GetReasons())
 }
 
 func TestStageDeclinesAFullCountWindow(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{result: Result{Window: 0, Count: 5, SpentMinor: 2000}}
-	e := evaluation(t, `[`+countRule+`]`)
+	reserver := &fakeReserver{result: Result{Window: 0, Count: 5, SpentMinor: 2000}}
+	evaluation := newEvaluation(t, `[`+countRule+`]`)
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.NoError(err)
-	c.Equal([]domain.Reason{{Code: domain.ReasonVelocityExceeded, Message: "Rule card-testing allows 5 authorizations per 10m; 5 already approved"}}, e.Reasons())
+	c.Equal([]domain.Reason{{Code: domain.ReasonVelocityExceeded, Message: "Rule card-testing allows 5 authorizations per 10m; 5 already approved"}}, evaluation.GetReasons())
 }
 
 func TestStageDeclinesAFullDailyBudget(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{result: Result{Window: 1, Count: 3, SpentMinor: 198000}}
-	e := evaluation(t, `[`+countRule+`, `+dailyRule+`]`)
+	reserver := &fakeReserver{result: Result{Window: 1, Count: 3, SpentMinor: 198000}}
+	evaluation := newEvaluation(t, `[`+countRule+`, `+dailyRule+`]`)
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.NoError(err)
 	c.Equal([]domain.Reason{{Code: domain.ReasonOverDailyLimit,
-		Message: "Rule daily-spend: 198000 already spent plus 4500 is over the limit of 200000 USD per calendar_day"}}, e.Reasons())
+		Message: "Rule daily-spend: 198000 already spent plus 4500 is over the limit of 200000 USD per calendar_day"}}, evaluation.GetReasons())
 }
 
 func TestStageDeclinesAFullMonthlyBudget(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{result: Result{Window: 0, Count: 1, SpentMinor: 990000}}
-	e := evaluation(t, `[{"id": "monthly", "window": "calendar_month", "max_count": 100, "max_amount": {"amount_minor": 1000000, "currency": "USD"}}]`)
+	reserver := &fakeReserver{result: Result{Window: 0, Count: 1, SpentMinor: 990000}}
+	evaluation := newEvaluation(t, `[{"id": "monthly", "window": "calendar_month", "max_count": 100, "max_amount": {"amount_minor": 1000000, "currency": "USD"}}]`)
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.NoError(err)
-	c.Equal(domain.ReasonOverMonthlyLimit, e.Reasons()[0].Code)
+	c.Equal(domain.ReasonOverMonthlyLimit, evaluation.GetReasons()[0].Code)
 }
 
 func TestStageUsesVelocityExceededForARollingAmountWindow(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{result: Result{Window: 0, Count: 1, SpentMinor: 9000}}
-	e := evaluation(t, `[{"id": "hourly", "window": "1h", "max_amount": {"amount_minor": 10000, "currency": "USD"}}]`)
+	reserver := &fakeReserver{result: Result{Window: 0, Count: 1, SpentMinor: 9000}}
+	evaluation := newEvaluation(t, `[{"id": "hourly", "window": "1h", "max_amount": {"amount_minor": 10000, "currency": "USD"}}]`)
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.NoError(err)
-	c.Equal(domain.ReasonVelocityExceeded, e.Reasons()[0].Code)
+	c.Equal(domain.ReasonVelocityExceeded, evaluation.GetReasons()[0].Code)
 }
 
 func TestStageReturnsTheRedisErrorInsteadOfDeciding(t *testing.T) {
 	c := require.New(t)
-	f := &fakeReserver{err: errRedisDown}
-	e := evaluation(t, `[`+countRule+`]`)
+	reserver := &fakeReserver{err: errRedisDown}
+	evaluation := newEvaluation(t, `[`+countRule+`]`)
 
-	err := NewStage(f).Evaluate(context.Background(), e)
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
 
 	c.ErrorIs(err, errRedisDown)
-	c.False(e.Halted())
+	c.False(evaluation.IsHalted())
 }
 
 func TestStageName(t *testing.T) {
 	c := require.New(t)
 
-	c.Equal("velocity", NewStage(nil).Name())
+	c.Equal("velocity", NewStage(nil).GetName())
+}
+
+// D-023: a reservation is cancelled when a later stage declines.
+func TestAReservationIsCancelledWhenALaterStageDeclines(t *testing.T) {
+	c := require.New(t)
+	reserver := &fakeReserver{result: Result{Reserved: true}}
+	evaluation := newEvaluation(t, `[`+countRule+`]`)
+
+	err := pipeline.New(NewStage(reserver), declineStage{}).Run(context.Background(), evaluation)
+
+	c.NoError(err)
+	c.Equal([]string{"card_123/a1"}, reserver.cancelled)
+}
+
+func TestAnApprovedReservationIsKept(t *testing.T) {
+	c := require.New(t)
+	reserver := &fakeReserver{result: Result{Reserved: true}}
+	evaluation := newEvaluation(t, `[`+countRule+`]`)
+
+	err := pipeline.New(NewStage(reserver)).Run(context.Background(), evaluation)
+
+	c.NoError(err)
+	c.Empty(reserver.cancelled)
+}
+
+// D-025, D-060: the card-testing rule reports CARD_TESTING_PATTERN.
+func TestACountRuleCanNameItsReason(t *testing.T) {
+	c := require.New(t)
+	reserver := &fakeReserver{result: Result{Window: 0, Count: 5}}
+	evaluation := newEvaluation(t, `[{"id": "card-testing", "window": "10m", "max_count": 5, "reason": "CARD_TESTING_PATTERN"}]`)
+
+	err := NewStage(reserver).Evaluate(context.Background(), evaluation)
+
+	c.NoError(err)
+	c.Equal(domain.ReasonCardTestingPattern, evaluation.GetReasons()[0].Code)
 }

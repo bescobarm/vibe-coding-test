@@ -57,7 +57,7 @@ var lifecycleConflicts = []error{
 	lifecycle.ErrOverHold, lifecycle.ErrOverRefund, lifecycle.ErrEventConflict,
 }
 
-func (h *handler) lifecycleEvent(eventType string) http.HandlerFunc {
+func (h *handler) handleLifecycleEvent(eventType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req lifecycleRequest
 

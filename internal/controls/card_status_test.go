@@ -10,56 +10,56 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 )
 
-func evaluationWithCard(found bool, status domain.CardStatus) *pipeline.Evaluation {
-	e := pipeline.NewEvaluation(domain.AuthRequest{AmountMinor: 100})
-	e.CardFound = found
-	e.Card.Status = status
-	return e
+func newEvaluationWithCard(found bool, status domain.CardStatus) *pipeline.Evaluation {
+	evaluation := pipeline.NewEvaluation(domain.AuthRequest{AmountMinor: 100})
+	evaluation.CardFound = found
+	evaluation.Card.Status = status
+	return evaluation
 }
 
 func TestCardStatusLetsAnActiveCardPass(t *testing.T) {
 	c := require.New(t)
-	e := evaluationWithCard(true, domain.CardActive)
+	evaluation := newEvaluationWithCard(true, domain.CardActive)
 
-	c.NoError(CardStatus{}.Evaluate(context.Background(), e))
+	c.NoError(CardStatus{}.Evaluate(context.Background(), evaluation))
 
-	c.False(e.Halted())
-	c.Equal(domain.Approve, e.Decision())
-	c.Empty(e.Reasons())
+	c.False(evaluation.IsHalted())
+	c.Equal(domain.Approve, evaluation.GetDecision())
+	c.Empty(evaluation.GetReasons())
 }
 
 func TestCardStatusDeclinesAFrozenCard(t *testing.T) {
 	c := require.New(t)
-	e := evaluationWithCard(true, domain.CardFrozen)
+	evaluation := newEvaluationWithCard(true, domain.CardFrozen)
 
-	c.NoError(CardStatus{}.Evaluate(context.Background(), e))
+	c.NoError(CardStatus{}.Evaluate(context.Background(), evaluation))
 
-	c.Equal(domain.Decline, e.Decision())
-	c.Equal([]domain.Reason{{Code: domain.ReasonCardInactive, Message: "Card is frozen"}}, e.Reasons())
+	c.Equal(domain.Decline, evaluation.GetDecision())
+	c.Equal([]domain.Reason{{Code: domain.ReasonCardInactive, Message: "Card is frozen"}}, evaluation.GetReasons())
 }
 
 func TestCardStatusDeclinesATerminatedCard(t *testing.T) {
 	c := require.New(t)
-	e := evaluationWithCard(true, domain.CardTerminated)
+	evaluation := newEvaluationWithCard(true, domain.CardTerminated)
 
-	c.NoError(CardStatus{}.Evaluate(context.Background(), e))
+	c.NoError(CardStatus{}.Evaluate(context.Background(), evaluation))
 
-	c.Equal(domain.Decline, e.Decision())
-	c.Equal([]domain.Reason{{Code: domain.ReasonCardInactive, Message: "Card is terminated"}}, e.Reasons())
+	c.Equal(domain.Decline, evaluation.GetDecision())
+	c.Equal([]domain.Reason{{Code: domain.ReasonCardInactive, Message: "Card is terminated"}}, evaluation.GetReasons())
 }
 
 func TestCardStatusDeclinesAnUnknownCard(t *testing.T) {
 	c := require.New(t)
-	e := evaluationWithCard(false, "")
+	evaluation := newEvaluationWithCard(false, "")
 
-	c.NoError(CardStatus{}.Evaluate(context.Background(), e))
+	c.NoError(CardStatus{}.Evaluate(context.Background(), evaluation))
 
-	c.Equal(domain.Decline, e.Decision())
-	c.Equal([]domain.Reason{{Code: domain.ReasonCardInactive, Message: "Card not found"}}, e.Reasons())
+	c.Equal(domain.Decline, evaluation.GetDecision())
+	c.Equal([]domain.Reason{{Code: domain.ReasonCardInactive, Message: "Card not found"}}, evaluation.GetReasons())
 }
 
 func TestCardStatusName(t *testing.T) {
 	c := require.New(t)
 
-	c.Equal("card_status", CardStatus{}.Name())
+	c.Equal("card_status", CardStatus{}.GetName())
 }

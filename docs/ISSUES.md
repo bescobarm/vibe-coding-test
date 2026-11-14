@@ -28,6 +28,11 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-020](#i-020-redis-data-lost-while-the-engine-runs-is-not-detected) | 2026-11-13 | Reliability | ⏭️ |
 | [I-021](#i-021-a-table-driven-test-slipped-in) | 2026-11-13 | Tests | ✅ |
 | [I-022](#i-022-the-link-to-d-003-was-broken) | 2026-11-13 | Docs | ✅ |
+| [I-023](#i-023-card-testing-approvals-end-the-cold-start) | 2026-11-13 | Risk | ⏭️ |
+| [I-024](#i-024-a-test-expected-a-wrong-mean) | 2026-11-13 | Tests | ✅ |
+| [I-028](#i-028-skipped-integration-tests-looked-like-a-pass) | 2026-11-14 | Tests | ✅ |
+| [I-029](#i-029-the-cardholder-history-scanned-every-card) | 2026-11-14 | Performance | ✅ |
+| [I-030](#i-030-lifecycle-calls-have-no-deadline) | 2026-11-14 | Reliability | 🟠 |
 
 ---
 
@@ -123,4 +128,25 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-022: The link to D-003 was broken
 - **Found:** checking every link of the new trade-offs page. The decision index, the SP03 brief and the new page linked D-003 with an anchor that skipped the word "and" in its title, so the link went nowhere.
 - **Fix:** corrected in every file, and a script checked that every `DECISIONS.md#...` link in the repo matches a heading.
+
+### I-023: Card-testing approvals end the cold start
+- **Found:** SP04 live check. Five small card-testing charges were approved (flagged from the 4th); the 6th request, at a new online merchant, got `NEW_MERCHANT_CNP` +25 because the cardholder now had 5 approvals (D-056).
+- **Impact:** small. The cold start counts any approval, including suspicious ones, so an attacker's own probes can end it. The score stayed under the flag threshold here.
+- **Plan (next steps):** count only approvals that were not flagged, or require the history to span more than one day.
+
+### I-024: A test expected a wrong mean
+- **Found:** `TestSignalsReadTheCardholderHistory` failed: my expected mean (3898.6) was miscalculated; the query's 3921.4 (27450 / 7) was right.
+- **Fix:** the test now states the sum it expects (`27450.0/7`), so the number explains itself.
+
+### I-028: Skipped integration tests looked like a pass
+- **Found:** applying the PR #10 review, `go test ./...` printed `ok` for every package, but the velocity tests took 43 s instead of 3 s: Redis was down (the Docker runtime had restarted), and every Redis test was **skipped** after a 1.8 s timeout. `ok` hid that they never ran.
+- **Fix:** [`internal/testenv`](../internal/testenv/testenv.go): with `TEST_REQUIRE_SERVICES=true`, which `make test` and `make cover` set, a missing Postgres or Redis fails the test. A plain `go test` still skips, for quick local runs. Verified by stopping Redis: the test failed.
+
+### I-029: The cardholder history scanned every card
+- **Found:** SQL review of PR #10 ([SQL_REVIEW.md](SQL_REVIEW.md)). `EXPLAIN` on the signals query, which runs on every authorization, showed `Seq Scan on cards`: no index on `cards(cardholder_id)`, so the cost grows with every card issued.
+- **Fix:** migration `0003` adds the index; the plan becomes an `Index Scan` (cost 8.3 instead of 99.5 at 5,000 cards, flat as cards grow).
+
+### I-030: Lifecycle calls have no deadline
+- **Found:** SQL review. Authorizations run under the 500 ms deadline, but reversal, capture and the other lifecycle calls use the request context with no timeout. A call waiting on the row lock (`FOR UPDATE`) behind a slow transaction waits as long as that transaction does.
+- **Plan:** give lifecycle calls their own deadline (for example 2 s) in the handler, so a stuck lock answers 500 and the caller retries with the same `event_id` (D-050).
 

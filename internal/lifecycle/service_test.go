@@ -29,7 +29,9 @@ func (f fakeStore) ApplyEvent(ctx context.Context, _ Event, apply ApplyFunc) (Re
 	return res, false, err
 }
 
-func (f fakeStore) GetHold(context.Context, string) (Hold, error) { return f.hold, f.readErr }
+func (f fakeStore) GetHold(context.Context, string) (Hold, error) {
+	return f.hold, f.readErr
+}
 
 type fakeHolds struct {
 	limit     Limit
@@ -53,25 +55,31 @@ type fakeCards struct {
 	err  error
 }
 
-func (f fakeCards) GetCard(context.Context, string) (domain.Card, error) { return f.card, f.err }
+func (f fakeCards) GetCard(context.Context, string) (domain.Card, error) {
+	return f.card, f.err
+}
 
 type fakePolicies struct {
 	doc policy.Document
 	err error
 }
 
-func (f fakePolicies) Policy(context.Context, string) (policy.Document, error) { return f.doc, f.err }
+func (f fakePolicies) GetPolicy(context.Context, string) (policy.Document, error) {
+	return f.doc, f.err
+}
 
 var activeCard = domain.Card{ID: "card_123", CompanyID: "acme-mx", Status: domain.CardActive}
 
 func newTestService(h Hold, holds *fakeHolds, cards fakeCards, policies fakePolicies) *Service {
 	st := fakeStore{hold: h}
-	s := NewService(st, st, holds, cards, policies)
-	s.now = func() time.Time { return time.Date(2026, 11, 13, 18, 0, 0, 0, time.UTC) }
-	return s
+	service := NewService(st, st, holds, cards, policies)
+	service.now = func() time.Time {
+		return time.Date(2026, 11, 13, 18, 0, 0, 0, time.UTC)
+	}
+	return service
 }
 
-func limitPolicy(t *testing.T, amountMinor int64) policy.Document {
+func newLimitPolicy(t *testing.T, amountMinor int64) policy.Document {
 	t.Helper()
 	doc := policy.Document{CompanyID: "acme-mx", Controls: policy.Controls{
 		MaxPerTransaction: &policy.Money{AmountMinor: amountMinor, Currency: "USD"},
@@ -84,8 +92,8 @@ func TestApplyAdjustsTheBudgetInRedis(t *testing.T) {
 	c := require.New(t)
 	holds := &fakeHolds{}
 
-	res, _, err := newTestService(pending(400), holds, fakeCards{}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: amount(150)})
+	res, _, err := newTestService(newPendingHold(400), holds, fakeCards{}, fakePolicies{}).Apply(context.Background(),
+		Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: newAmount(150)})
 
 	c.NoError(err)
 	c.Equal(int64(250), res.HeldMinor)
@@ -96,8 +104,8 @@ func TestApplySkipsRedisWhenNothingChanges(t *testing.T) {
 	c := require.New(t)
 	holds := &fakeHolds{}
 
-	_, _, err := newTestService(pending(400), holds, fakeCards{}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", Type: TypeCapture, AmountMinor: amount(400)})
+	_, _, err := newTestService(newPendingHold(400), holds, fakeCards{}, fakePolicies{}).Apply(context.Background(),
+		Event{ID: "e1", Type: TypeCapture, AmountMinor: newAmount(400)})
 
 	c.NoError(err)
 	c.Empty(holds.adjusts)
@@ -107,8 +115,8 @@ func TestApplyDoesNotTouchRedisWhenTheTransitionIsRefused(t *testing.T) {
 	c := require.New(t)
 	holds := &fakeHolds{}
 
-	_, _, err := newTestService(pending(100), holds, fakeCards{}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", Type: TypeReversal, AmountMinor: amount(500)})
+	_, _, err := newTestService(newPendingHold(100), holds, fakeCards{}, fakePolicies{}).Apply(context.Background(),
+		Event{ID: "e1", Type: TypeReversal, AmountMinor: newAmount(500)})
 
 	c.ErrorIs(err, ErrOverHold)
 	c.Empty(holds.adjusts)
@@ -117,7 +125,7 @@ func TestApplyDoesNotTouchRedisWhenTheTransitionIsRefused(t *testing.T) {
 func TestApplyFailsWhenRedisFails(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := newTestService(pending(400), &fakeHolds{err: errRedisDown}, fakeCards{}, fakePolicies{}).Apply(context.Background(),
+	_, _, err := newTestService(newPendingHold(400), &fakeHolds{err: errRedisDown}, fakeCards{}, fakePolicies{}).Apply(context.Background(),
 		Event{ID: "e1", Type: TypeExpiry})
 
 	c.ErrorIs(err, errRedisDown)
@@ -126,10 +134,10 @@ func TestApplyFailsWhenRedisFails(t *testing.T) {
 func TestIncrementWithinTheLimitsIsApproved(t *testing.T) {
 	c := require.New(t)
 	holds := &fakeHolds{}
-	doc := limitPolicy(t, 50000)
+	doc := newLimitPolicy(t, 50000)
 
-	res, _, err := newTestService(pending(30000), holds, fakeCards{card: activeCard}, fakePolicies{doc: doc}).Apply(context.Background(),
-		Event{ID: "e1", AuthorizationID: "a1", Type: TypeIncrement, AmountMinor: amount(15000)})
+	res, _, err := newTestService(newPendingHold(30000), holds, fakeCards{card: activeCard}, fakePolicies{doc: doc}).Apply(context.Background(),
+		Event{ID: "e1", AuthorizationID: "a1", Type: TypeIncrement, AmountMinor: newAmount(15000)})
 
 	c.NoError(err)
 	c.Equal(domain.Approve, res.Decision)
@@ -143,8 +151,8 @@ func TestIncrementOverThePerTransactionLimitIsDeclined(t *testing.T) {
 	c := require.New(t)
 	holds := &fakeHolds{}
 
-	res, _, err := newTestService(pending(30000), holds, fakeCards{card: activeCard}, fakePolicies{doc: limitPolicy(t, 40000)}).Apply(
-		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(15000)})
+	res, _, err := newTestService(newPendingHold(30000), holds, fakeCards{card: activeCard}, fakePolicies{doc: newLimitPolicy(t, 40000)}).Apply(
+		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(15000)})
 
 	c.NoError(err)
 	c.Equal(domain.Decline, res.Decision)
@@ -158,8 +166,8 @@ func TestIncrementOnAFrozenCardIsDeclined(t *testing.T) {
 	frozen := activeCard
 	frozen.Status = domain.CardFrozen
 
-	res, _, err := newTestService(pending(300), &fakeHolds{}, fakeCards{card: frozen}, fakePolicies{err: domain.ErrNotFound}).Apply(
-		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+	res, _, err := newTestService(newPendingHold(300), &fakeHolds{}, fakeCards{card: frozen}, fakePolicies{err: domain.ErrNotFound}).Apply(
+		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.NoError(err)
 	c.Equal(domain.ReasonCardInactive, res.Reasons[0].Code)
@@ -169,8 +177,8 @@ func TestIncrementOverABudgetIsDeclined(t *testing.T) {
 	c := require.New(t)
 	holds := &fakeHolds{limit: Limit{Exceeded: true, Code: domain.ReasonOverDailyLimit, Message: "over"}}
 
-	res, _, err := newTestService(pending(300), holds, fakeCards{card: activeCard}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+	res, _, err := newTestService(newPendingHold(300), holds, fakeCards{card: activeCard}, fakePolicies{}).Apply(context.Background(),
+		Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.NoError(err)
 	c.Equal(domain.Decline, res.Decision)
@@ -181,8 +189,8 @@ func TestIncrementOverABudgetIsDeclined(t *testing.T) {
 func TestIncrementFailsWhenRedisFails(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := newTestService(pending(300), &fakeHolds{err: errRedisDown}, fakeCards{card: activeCard}, fakePolicies{}).Apply(
-		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+	_, _, err := newTestService(newPendingHold(300), &fakeHolds{err: errRedisDown}, fakeCards{card: activeCard}, fakePolicies{}).Apply(
+		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.ErrorIs(err, errRedisDown)
 }
@@ -192,7 +200,7 @@ func TestIncrementOnAnUnknownAuthorizationIsNotFound(t *testing.T) {
 	st := fakeStore{readErr: domain.ErrNotFound}
 
 	_, _, err := NewService(st, st, &fakeHolds{}, fakeCards{}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+		Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.ErrorIs(err, domain.ErrNotFound)
 }
@@ -200,8 +208,8 @@ func TestIncrementOnAnUnknownAuthorizationIsNotFound(t *testing.T) {
 func TestIncrementFailsWhenTheCardCannotBeLoaded(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := newTestService(pending(300), &fakeHolds{}, fakeCards{err: errDBDown}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+	_, _, err := newTestService(newPendingHold(300), &fakeHolds{}, fakeCards{err: errDBDown}, fakePolicies{}).Apply(context.Background(),
+		Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.ErrorIs(err, errDBDown)
 }
@@ -209,8 +217,8 @@ func TestIncrementFailsWhenTheCardCannotBeLoaded(t *testing.T) {
 func TestIncrementFailsWhenThePolicyCannotBeLoaded(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := newTestService(pending(300), &fakeHolds{}, fakeCards{card: activeCard}, fakePolicies{err: errDBDown}).Apply(
-		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+	_, _, err := newTestService(newPendingHold(300), &fakeHolds{}, fakeCards{card: activeCard}, fakePolicies{err: errDBDown}).Apply(
+		context.Background(), Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.ErrorIs(err, errDBDown)
 }
@@ -220,8 +228,8 @@ func TestIncrementFailsOnInvalidCardOverrides(t *testing.T) {
 	card := activeCard
 	card.Overrides = json.RawMessage(`{"blocked_mcc": ["7995"]}`)
 
-	_, _, err := newTestService(pending(300), &fakeHolds{}, fakeCards{card: card}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+	_, _, err := newTestService(newPendingHold(300), &fakeHolds{}, fakeCards{card: card}, fakePolicies{}).Apply(context.Background(),
+		Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.ErrorContains(err, "card_123")
 }
@@ -229,8 +237,8 @@ func TestIncrementFailsOnInvalidCardOverrides(t *testing.T) {
 func TestIncrementOnACapturedAuthorizationIsRefused(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := newTestService(captured(300, 0), &fakeHolds{}, fakeCards{card: activeCard}, fakePolicies{}).Apply(context.Background(),
-		Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(100)})
+	_, _, err := newTestService(newCapturedHold(300, 0), &fakeHolds{}, fakeCards{card: activeCard}, fakePolicies{}).Apply(context.Background(),
+		Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(100)})
 
 	c.ErrorIs(err, ErrNotPending)
 }

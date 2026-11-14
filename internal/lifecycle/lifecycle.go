@@ -52,15 +52,15 @@ type Event struct {
 	AmountMinor     *int64
 }
 
-// Same reports whether two events are the same call, so a stored one can be replayed.
-func (ev Event) Same(other Event) bool {
+// IsSame reports whether two events are the same call, so a stored one can be replayed.
+func (ev Event) IsSame(other Event) bool {
 	sameAmount := ev.AmountMinor == nil && other.AmountMinor == nil ||
 		ev.AmountMinor != nil && other.AmountMinor != nil && *ev.AmountMinor == *other.AmountMinor
 
 	return ev.ID == other.ID && ev.AuthorizationID == other.AuthorizationID && ev.Type == other.Type && sameAmount
 }
 
-func (ev Event) amountOr(all int64) int64 {
+func (ev Event) getAmountOr(all int64) int64 {
 	if ev.AmountMinor == nil {
 		return all
 	}
@@ -138,15 +138,15 @@ type Holds interface {
 	Increase(ctx context.Context, inc Increase) (Limit, error)
 }
 
-// Transition computes the new state and the signed change to the budgets.
+// ComputeTransition computes the new state and the signed change to the budgets.
 // An increment's limits are checked afterwards by the Service.
-func Transition(h Hold, ev Event) (Result, int64, error) {
+func ComputeTransition(h Hold, ev Event) (Result, int64, error) {
 	steps := map[string]func(Hold, Event) (Result, int64, error){
-		TypeReversal:  release,
-		TypeExpiry:    release,
-		TypeIncrement: increment,
-		TypeCapture:   capture,
-		TypeRefund:    refund,
+		TypeReversal:  releaseHold,
+		TypeExpiry:    releaseHold,
+		TypeIncrement: incrementHold,
+		TypeCapture:   captureHold,
+		TypeRefund:    refundHold,
 	}
 
 	step, ok := steps[ev.Type]
@@ -174,8 +174,8 @@ func requirePending(h Hold) error {
 	}
 }
 
-// release: a partial reversal keeps the authorization pending.
-func release(h Hold, ev Event) (Result, int64, error) {
+// releaseHold: a partial reversal keeps the authorization pending.
+func releaseHold(h Hold, ev Event) (Result, int64, error) {
 	err := requirePending(h)
 	if err != nil {
 		return Result{}, 0, err
@@ -183,7 +183,7 @@ func release(h Hold, ev Event) (Result, int64, error) {
 
 	amount := h.HeldMinor
 	if ev.Type == TypeReversal {
-		amount = ev.amountOr(h.HeldMinor)
+		amount = ev.getAmountOr(h.HeldMinor)
 	}
 
 	if amount > h.HeldMinor {
@@ -203,36 +203,36 @@ func release(h Hold, ev Event) (Result, int64, error) {
 	return Result{Status: status, HeldMinor: left}, -amount, nil
 }
 
-func increment(h Hold, ev Event) (Result, int64, error) {
+func incrementHold(h Hold, ev Event) (Result, int64, error) {
 	err := requirePending(h)
 	if err != nil {
 		return Result{}, 0, err
 	}
 
-	amount := ev.amountOr(0)
+	amount := ev.getAmountOr(0)
 
 	return Result{Decision: domain.Approve, Status: StatusPending, HeldMinor: h.HeldMinor + amount}, amount, nil
 }
 
-// capture settles the hold at the final amount, which may be larger (D-053).
-func capture(h Hold, ev Event) (Result, int64, error) {
+// captureHold settles the hold at the final amount, which may be larger (D-053).
+func captureHold(h Hold, ev Event) (Result, int64, error) {
 	err := requirePending(h)
 	if err != nil {
 		return Result{}, 0, err
 	}
 
-	captured := ev.amountOr(h.HeldMinor)
+	captured := ev.getAmountOr(h.HeldMinor)
 
 	return Result{Status: StatusCaptured, CapturedMinor: captured}, captured - h.HeldMinor, nil
 }
 
-func refund(h Hold, ev Event) (Result, int64, error) {
+func refundHold(h Hold, ev Event) (Result, int64, error) {
 	if h.Status != StatusCaptured {
 		return Result{}, 0, ErrNotCaptured
 	}
 
 	left := h.CapturedMinor - h.RefundedMinor
-	amount := ev.amountOr(left)
+	amount := ev.getAmountOr(left)
 
 	if amount > left {
 		return Result{}, 0, ErrOverRefund
@@ -246,10 +246,10 @@ func refund(h Hold, ev Event) (Result, int64, error) {
 	return Result{Status: status, CapturedMinor: h.CapturedMinor, RefundedMinor: h.RefundedMinor + amount}, -amount, nil
 }
 
-// CountedMinor is what this authorization counts toward amount budgets: the
+// GetCountedMinor is what this authorization counts toward amount budgets: the
 // hold while pending, the captured amount minus refunds once captured (D-053),
 // and nothing once reversed or expired.
-func (h Hold) CountedMinor() int64 {
+func (h Hold) GetCountedMinor() int64 {
 	switch h.Status {
 	case StatusPending:
 		return h.HeldMinor

@@ -104,6 +104,14 @@ make run
 
 Expect `"msg":"velocity counters ready","rebuilt_authorizations":N` in the log before `engine listening`, then `auth b9 card_456 50000 5734` is still `DECLINE` `OVER_DAILY_LIMIT`: the budget was rebuilt from Postgres ([D-055](DECISIONS.md#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost)).
 
+## 4e. Card testing
+
+```bash
+for i in 1 2 3 4 5 6; do auth ct$i card_123 $((50 + 50 * i)) 5734; done
+```
+
+Expect 3 × `APPROVE`, then 2 × `APPROVE` with `"flagged": true` and `CARD_TESTING_PATTERN` (the score, 40 points), then `DECLINE` `CARD_TESTING_PATTERN` (the velocity rule: 5 small charges in 10 minutes). The helper prints `decision` and `reasons`; add `flagged, risk_score` to its `jq` to see the score.
+
 ## 5. Publish a new policy version
 
 ```bash

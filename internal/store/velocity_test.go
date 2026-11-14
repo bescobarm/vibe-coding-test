@@ -20,7 +20,9 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
+	"github.com/bescobarm/card-auth-engine/internal/scoring"
 	"github.com/bescobarm/card-auth-engine/internal/store"
+	"github.com/bescobarm/card-auth-engine/internal/testenv"
 	"github.com/bescobarm/card-auth-engine/internal/velocity"
 )
 
@@ -34,10 +36,12 @@ func newTestRedis(t *testing.T) *redis.Client {
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
 	err := rdb.Ping(context.Background()).Err()
 	if err != nil {
-		t.Skipf("Redis not reachable (run `make up`): %v", err)
+		testenv.SkipOrFail(t, "Redis", err)
 	}
 
-	t.Cleanup(func() { _ = rdb.Close() })
+	t.Cleanup(func() {
+		_ = rdb.Close()
+	})
 	return rdb
 }
 
@@ -57,17 +61,23 @@ type fixture struct {
 
 func newFixture(t *testing.T, rules string) fixture {
 	t.Helper()
+	return newFixtureWith(t, `"velocity": `+rules)
+}
+
+// newFixtureWith takes the policy's fields after company_id, e.g. `"velocity": [...], "risk": {...}`.
+func newFixtureWith(t *testing.T, fields string) fixture {
+	t.Helper()
 	c := require.New(t)
 	st, pool := newTestStore(t, 8)
 	rdb := newTestRedis(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
 
-	b := make([]byte, 6)
-	_, err := rand.Read(b)
+	random := make([]byte, 6)
+	_, err := rand.Read(random)
 	c.NoError(err)
 
-	suffix := hex.EncodeToString(b)
+	suffix := hex.EncodeToString(random)
 	company, card := "velo-"+suffix, "card_velo_"+suffix
 	t.Cleanup(func() {
 		keys, _ := rdb.Keys(context.Background(), "*{"+card+"}*").Result()
@@ -79,7 +89,7 @@ func newFixture(t *testing.T, rules string) fixture {
 	_, err = pool.Exec(ctx, `INSERT INTO cards (card_id, company_id, cardholder_id, status) VALUES ($1, $2, 'ch_velo', 'active')`, card, company)
 	c.NoError(err)
 
-	doc, err := policy.Parse([]byte(`{"company_id": "` + company + `", "velocity": ` + rules + `}`))
+	doc, err := policy.Parse([]byte(`{"company_id": "` + company + `", ` + fields + `}`))
 	c.NoError(err)
 	c.Empty(doc.Validate())
 
@@ -88,21 +98,30 @@ func newFixture(t *testing.T, rules string) fixture {
 	c.NoError(err)
 
 	limiter := velocity.NewLimiter(rdb, time.Second)
-	stages := append(controls.Hard(), velocity.NewStage(limiter))
+	stages := append(controls.ListHardControls(), velocity.NewStage(limiter), scoring.NewStage(scoring.GetDefaultWeights()))
 
 	return fixture{
 		t: t, ctx: ctx, st: st, pool: pool, rdb: rdb, card: card, suffix: suffix,
-		auth:   authz.NewService(st, st, policies, pipeline.New(stages...)),
+		auth:   authz.NewService(st, st, policies, pipeline.New(stages...)).WithSignals(st),
 		events: lifecycle.NewService(st, st, limiter, st, policies),
 	}
 }
 
-func (f fixture) id(name string) string { return name + "_" + f.suffix }
+func (f fixture) buildID(name string) string {
+	return name + "_" + f.suffix
+}
 
 func (f fixture) authorize(name string, amount int64) domain.AuthResponse {
 	f.t.Helper()
-	req := request(f.id(name), f.card)
+	return f.authorizeWith(name, amount, func(*domain.AuthRequest) {})
+}
+
+// authorizeWith lets a test change the merchant, country or entry mode.
+func (f fixture) authorizeWith(name string, amount int64, change func(*domain.AuthRequest)) domain.AuthResponse {
+	f.t.Helper()
+	req := newRequest(f.buildID(name), f.card)
 	req.AmountMinor = amount
+	change(&req)
 
 	resp, _, err := f.auth.Authorize(f.ctx, req)
 	require.NoError(f.t, err)
@@ -115,24 +134,24 @@ const dailyBudget = `[{"id": "daily-spend", "window": "calendar_day", "max_amoun
 // allows exactly 10 of them. Exactly 10 are approved, and the audit agrees.
 func TestConcurrentRequestsNeverExceedTheDailyBudget(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, dailyBudget)
+	harness := newFixture(t, dailyBudget)
 
-	const n = 100
+	const parallel = 100
 	var wg sync.WaitGroup
-	results := make([]domain.AuthResponse, n)
-	errs := make([]error, n)
-	for i := range n {
+	results := make([]domain.AuthResponse, parallel)
+	errs := make([]error, parallel)
+	for i := range parallel {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], _, errs[i] = f.auth.Authorize(f.ctx, request(f.id(fmt.Sprintf("auth_%d", i)), f.card))
+			results[i], _, errs[i] = harness.auth.Authorize(harness.ctx, newRequest(harness.buildID(fmt.Sprintf("auth_%d", i)), harness.card))
 		}()
 	}
 
 	wg.Wait()
 
 	approved := 0
-	for i := range n {
+	for i := range parallel {
 		c.NoError(errs[i], "request %d", i)
 		if results[i].Decision == domain.Approve {
 			approved++
@@ -143,7 +162,7 @@ func TestConcurrentRequestsNeverExceedTheDailyBudget(t *testing.T) {
 	}
 
 	var stored int
-	err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM authorizations WHERE card_id = $1 AND decision = 'APPROVE'`, f.card).Scan(&stored)
+	err := harness.pool.QueryRow(harness.ctx, `SELECT count(*) FROM authorizations WHERE card_id = $1 AND decision = 'APPROVE'`, harness.card).Scan(&stored)
 	c.NoError(err)
 	c.Equal(10, approved)
 	c.Equal(10, stored)

@@ -18,6 +18,7 @@ type VelocityRule struct {
 	MaxCount  *int            `json:"max_count,omitempty"`
 	MaxAmount *Money          `json:"max_amount,omitempty"` // D-049: a request in another currency is declined
 	Filter    *VelocityFilter `json:"filter,omitempty"`
+	Reason    string          `json:"reason,omitempty"` // code when the count is full; VELOCITY_EXCEEDED by default (D-060)
 
 	rolling time.Duration // set by validation when Window is a duration
 }
@@ -46,9 +47,19 @@ const (
 	msgWindow         = "must be a duration up to 744h (e.g. 10m, 1h) or " + CalendarDay + " or " + CalendarMonth
 	msgNeedsLimit     = "needs max_count or max_amount"
 	fieldVelocityItem = "velocity[%d]"
+	msgReason         = "must be " + domain.ReasonVelocityExceeded + " or " + domain.ReasonCardTestingPattern
 )
 
-var ruleIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+var (
+	ruleIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+	// ruleReasons are the codes a velocity rule may report when its count is full.
+	ruleReasons = map[string]bool{
+		"":                              true,
+		domain.ReasonVelocityExceeded:   true,
+		domain.ReasonCardTestingPattern: true,
+	}
+)
 
 // Applies reports whether the rule counts a request with this amount and MCC.
 func (r VelocityRule) Applies(amountMinor int64, mcc string) bool {
@@ -63,9 +74,9 @@ func (r VelocityRule) Applies(amountMinor int64, mcc string) bool {
 	return len(r.Filter.MCCs) == 0 || slices.Contains(r.Filter.MCCs, mcc)
 }
 
-// WindowStart is the oldest instant that still counts at now. Calendar windows
+// GetWindowStart is the oldest instant that still counts at now. Calendar windows
 // start at local midnight (or the first of the month) in loc (D-026).
-func (r VelocityRule) WindowStart(now time.Time, loc *time.Location) time.Time {
+func (r VelocityRule) GetWindowStart(now time.Time, loc *time.Location) time.Time {
 	local := now.In(loc)
 	switch r.Window {
 	case CalendarDay:
@@ -77,8 +88,8 @@ func (r VelocityRule) WindowStart(now time.Time, loc *time.Location) time.Time {
 	}
 }
 
-// Retention is how long an entry can still count, so Redis can expire the keys.
-func (r VelocityRule) Retention() time.Duration {
+// GetRetention is how long an entry can still count, so Redis can expire the keys.
+func (r VelocityRule) GetRetention() time.Duration {
 	switch r.Window {
 	case CalendarDay:
 		return hoursPerDay * time.Hour
@@ -93,14 +104,14 @@ func validateVelocity(rules []VelocityRule, errs map[string]string) {
 	seen := map[string]bool{}
 	for i := range rules {
 		field := fmt.Sprintf(fieldVelocityItem, i)
-		r := &rules[i]
+		rule := &rules[i]
 
-		if seen[r.ID] {
+		if seen[rule.ID] {
 			errs[field+".id"] = msgDuplicateID
 		}
 
-		seen[r.ID] = true
-		validateRule(r, field, errs)
+		seen[rule.ID] = true
+		validateRule(rule, field, errs)
 	}
 }
 
@@ -123,6 +134,10 @@ func validateRule(r *VelocityRule, field string, errs map[string]string) {
 		errs[field+".max_count"] = domain.MsgPositive
 	}
 
+	if !ruleReasons[r.Reason] {
+		errs[field+".reason"] = msgReason
+	}
+
 	validateMoney(r.MaxAmount, field+".max_amount", errs)
 	validateFilter(r.Filter, field+".filter", errs)
 }
@@ -133,13 +148,13 @@ func validateWindow(r *VelocityRule, field string, errs map[string]string) {
 		return
 	}
 
-	d, err := time.ParseDuration(r.Window)
-	if err != nil || d <= 0 || d > maxRollingWindow {
+	duration, err := time.ParseDuration(r.Window)
+	if err != nil || duration <= 0 || duration > maxRollingWindow {
 		errs[field+".window"] = msgWindow
 		return
 	}
 
-	r.rolling = d
+	r.rolling = duration
 }
 
 func validateFilter(f *VelocityFilter, field string, errs map[string]string) {

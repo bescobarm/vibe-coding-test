@@ -51,7 +51,9 @@ func (f *fakePublisher) Publish(_ context.Context, doc policy.Document) (policy.
 
 type fakePinger struct{ err error }
 
-func (f fakePinger) Ping(context.Context) error { return f.err }
+func (f fakePinger) Ping(context.Context) error {
+	return f.err
+}
 
 const validBody = `{"authorization_id":"auth_1","card_id":"card_123","amount_minor":4500,"currency":"USD",
 "merchant":{"id":"m_1","name":"ACME","mcc":"5734","country":"US"},"entry_mode":"ecommerce"}`
@@ -60,10 +62,10 @@ func newTestHandler(auth Authorizer, audit AuditReader, db Pinger) http.Handler 
 	return NewHandler(Deps{Auth: auth, Audit: audit, Policies: &fakePublisher{}, DB: db}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
-func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
-	return w
+func doRequest(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, httptest.NewRequest(method, path, strings.NewReader(body)))
+	return recorder
 }
 
 func decodeError(c *require.Assertions, w *httptest.ResponseRecorder) apiError {
@@ -73,10 +75,10 @@ func decodeError(c *require.Assertions, w *httptest.ResponseRecorder) apiError {
 	return body
 }
 
-func decode(c *require.Assertions, w *httptest.ResponseRecorder) map[string]any {
-	var m map[string]any
-	c.NoError(json.Unmarshal(w.Body.Bytes(), &m), "body is not JSON: %q", w.Body.String())
-	return m
+func decodeBody(c *require.Assertions, w *httptest.ResponseRecorder) map[string]any {
+	var body map[string]any
+	c.NoError(json.Unmarshal(w.Body.Bytes(), &body), "body is not JSON: %q", w.Body.String())
+	return body
 }
 
 func TestAuthorizeReturnsTheDecision(t *testing.T) {
@@ -86,12 +88,12 @@ func TestAuthorizeReturnsTheDecision(t *testing.T) {
 		Reasons: []domain.Reason{{Code: domain.ReasonCardInactive, Message: "Card is frozen"}},
 	}}
 
-	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", validBody)
+	recorder := doRequest(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", validBody)
 
-	c.Equal(http.StatusOK, w.Code, w.Body.String())
-	c.Equal("application/json", w.Header().Get("Content-Type"))
-	c.Empty(w.Header().Get("Idempotent-Replay"))
-	c.Equal("DECLINE", decode(c, w)["decision"])
+	c.Equal(http.StatusOK, recorder.Code, recorder.Body.String())
+	c.Equal("application/json", recorder.Header().Get("Content-Type"))
+	c.Empty(recorder.Header().Get("Idempotent-Replay"))
+	c.Equal("DECLINE", decodeBody(c, recorder)["decision"])
 	c.Equal("card_123", auth.got.CardID)
 	c.Equal("5734", auth.got.Merchant.MCC)
 }
@@ -100,20 +102,20 @@ func TestAuthorizeMarksReplays(t *testing.T) {
 	c := require.New(t)
 	auth := &fakeAuthorizer{resp: domain.AuthResponse{Decision: domain.Approve}, replayed: true}
 
-	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", validBody)
+	recorder := doRequest(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", validBody)
 
-	c.Equal(http.StatusOK, w.Code)
-	c.Equal("true", w.Header().Get("Idempotent-Replay"))
+	c.Equal(http.StatusOK, recorder.Code)
+	c.Equal("true", recorder.Header().Get("Idempotent-Replay"))
 }
 
 func TestAuthorizeRejectsInvalidJSON(t *testing.T) {
 	c := require.New(t)
 	auth := &fakeAuthorizer{}
 
-	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", `{"authorization_id":`)
+	recorder := doRequest(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", `{"authorization_id":`)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	c.EqualError(errMalformedRequest, decodeError(c, w).Error)
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	c.EqualError(errMalformedRequest, decodeError(c, recorder).Error)
 	c.Empty(auth.got.AuthorizationID, "a rejected request must not reach the authorizer")
 }
 
@@ -122,10 +124,10 @@ func TestAuthorizeRejectsABodyThatIsTooLarge(t *testing.T) {
 	auth := &fakeAuthorizer{}
 	body := `{"pad":"` + strings.Repeat("x", maxBodyBytes) + `"}`
 
-	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", body)
+	recorder := doRequest(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", body)
 
-	c.Equal(http.StatusRequestEntityTooLarge, w.Code)
-	c.EqualError(errBodyTooLarge, decodeError(c, w).Error)
+	c.Equal(http.StatusRequestEntityTooLarge, recorder.Code)
+	c.EqualError(errBodyTooLarge, decodeError(c, recorder).Error)
 	c.Empty(auth.got.AuthorizationID, "a rejected request must not reach the authorizer")
 }
 
@@ -133,10 +135,10 @@ func TestAuthorizeRejectsARequestThatFailsValidation(t *testing.T) {
 	c := require.New(t)
 	auth := &fakeAuthorizer{}
 
-	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", `{"authorization_id":"auth_1"}`)
+	recorder := doRequest(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", `{"authorization_id":"auth_1"}`)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	body := decodeError(c, w)
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	body := decodeError(c, recorder)
 	c.EqualError(errInvalidRequest, body.Error)
 	c.Equal("required", body.Fields["card_id"])
 	c.Empty(auth.got.AuthorizationID, "a rejected request must not reach the authorizer")
@@ -146,11 +148,11 @@ func TestAuthorizeHidesInternalErrors(t *testing.T) {
 	c := require.New(t)
 	auth := &fakeAuthorizer{err: errors.New("pq: connection refused at 10.0.0.5")}
 
-	w := do(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", validBody)
+	recorder := doRequest(newTestHandler(auth, fakeAudit{}, fakePinger{}), http.MethodPost, "/v1/authorizations", validBody)
 
-	c.Equal(http.StatusInternalServerError, w.Code)
-	c.EqualError(errAuthorizeFailed, decodeError(c, w).Error)
-	c.NotContains(w.Body.String(), "10.0.0.5")
+	c.Equal(http.StatusInternalServerError, recorder.Code)
+	c.EqualError(errAuthorizeFailed, decodeError(c, recorder).Error)
+	c.NotContains(recorder.Body.String(), "10.0.0.5")
 }
 
 func TestGetAuthorizationReturnsTheAuditRecord(t *testing.T) {
@@ -160,62 +162,62 @@ func TestGetAuthorizationReturnsTheAuditRecord(t *testing.T) {
 		Request: json.RawMessage(`{}`), Response: json.RawMessage(`{}`),
 	}}
 
-	w := do(newTestHandler(&fakeAuthorizer{}, audit, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
+	recorder := doRequest(newTestHandler(&fakeAuthorizer{}, audit, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
 
-	c.Equal(http.StatusOK, w.Code)
-	c.Equal("pending", decode(c, w)["status"])
+	c.Equal(http.StatusOK, recorder.Code)
+	c.Equal("pending", decodeBody(c, recorder)["status"])
 }
 
 func TestGetAuthorizationReturns404WhenMissing(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{err: domain.ErrNotFound}, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
+	recorder := doRequest(newTestHandler(&fakeAuthorizer{}, fakeAudit{err: domain.ErrNotFound}, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
 
-	c.Equal(http.StatusNotFound, w.Code)
-	c.EqualError(errAuthorizationNotFound, decodeError(c, w).Error)
+	c.Equal(http.StatusNotFound, recorder.Code)
+	c.EqualError(errAuthorizationNotFound, decodeError(c, recorder).Error)
 }
 
 func TestGetAuthorizationReturns500OnStoreError(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{err: errors.New("boom")}, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
+	recorder := doRequest(newTestHandler(&fakeAuthorizer{}, fakeAudit{err: errors.New("boom")}, fakePinger{}), http.MethodGet, "/v1/authorizations/auth_1", "")
 
-	c.Equal(http.StatusInternalServerError, w.Code)
-	c.EqualError(errAuditUnavailable, decodeError(c, w).Error)
+	c.Equal(http.StatusInternalServerError, recorder.Code)
+	c.EqualError(errAuditUnavailable, decodeError(c, recorder).Error)
 }
 
 func TestHealthIsOKWhenTheDatabaseIsUp(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{}), http.MethodGet, "/healthz", "")
+	recorder := doRequest(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{}), http.MethodGet, "/healthz", "")
 
-	c.Equal(http.StatusOK, w.Code)
-	c.Equal("ok", decode(c, w)["status"])
+	c.Equal(http.StatusOK, recorder.Code)
+	c.Equal("ok", decodeBody(c, recorder)["status"])
 }
 
 func TestHealthIsUnavailableWhenTheDatabaseIsDown(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{errors.New("down")}), http.MethodGet, "/healthz", "")
+	recorder := doRequest(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{errors.New("down")}), http.MethodGet, "/healthz", "")
 
-	c.Equal(http.StatusServiceUnavailable, w.Code)
-	c.Equal("unavailable", decode(c, w)["status"])
+	c.Equal(http.StatusServiceUnavailable, recorder.Code)
+	c.Equal("unavailable", decodeBody(c, recorder)["status"])
 }
 
 func TestUnknownRouteReturns404(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{}), http.MethodGet, "/v1/nope", "")
+	recorder := doRequest(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{}), http.MethodGet, "/v1/nope", "")
 
-	c.Equal(http.StatusNotFound, w.Code)
+	c.Equal(http.StatusNotFound, recorder.Code)
 }
 
 func TestWrongMethodReturns405(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{}), http.MethodDelete, "/v1/authorizations", "")
+	recorder := doRequest(newTestHandler(&fakeAuthorizer{}, fakeAudit{}, fakePinger{}), http.MethodDelete, "/v1/authorizations", "")
 
-	c.Equal(http.StatusMethodNotAllowed, w.Code)
+	c.Equal(http.StatusMethodNotAllowed, recorder.Code)
 }
 
 const validPolicy = `{"timezone":"America/Mexico_City","controls":{"blocked_mccs":["7995"],"allowed_entry_modes":["chip"]}}`
@@ -228,10 +230,10 @@ func TestPublishPolicyReturnsTheNewVersion(t *testing.T) {
 	c := require.New(t)
 	pub := &fakePublisher{}
 
-	w := do(newPolicyHandler(pub), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
+	recorder := doRequest(newPolicyHandler(pub), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
 
-	c.Equal(http.StatusCreated, w.Code, w.Body.String())
-	body := decode(c, w)
+	c.Equal(http.StatusCreated, recorder.Code, recorder.Body.String())
+	body := decodeBody(c, recorder)
 	c.Equal("acme-mx", body["company_id"])
 	c.EqualValues(4, body["version"])
 	c.Equal("acme-mx", pub.got.CompanyID, "company comes from the URL")
@@ -241,29 +243,29 @@ func TestPublishPolicyReturnsTheNewVersion(t *testing.T) {
 func TestPublishPolicyRejectsInvalidJSON(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":`)
+	recorder := doRequest(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":`)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	c.EqualError(errMalformedPolicy, decodeError(c, w).Error)
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	c.EqualError(errMalformedPolicy, decodeError(c, recorder).Error)
 }
 
 func TestPublishPolicyRejectsABodyThatIsTooLarge(t *testing.T) {
 	c := require.New(t)
 	body := `{"pad":"` + strings.Repeat("x", maxBodyBytes) + `"}`
 
-	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", body)
+	recorder := doRequest(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", body)
 
-	c.Equal(http.StatusRequestEntityTooLarge, w.Code)
-	c.EqualError(errBodyTooLarge, decodeError(c, w).Error)
+	c.Equal(http.StatusRequestEntityTooLarge, recorder.Code)
+	c.EqualError(errBodyTooLarge, decodeError(c, recorder).Error)
 }
 
 func TestPublishPolicyRejectsUnknownFields(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":{"blocked_mcc":["7995"]}}`)
+	recorder := doRequest(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":{"blocked_mcc":["7995"]}}`)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	body := decodeError(c, w)
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	body := decodeError(c, recorder)
 	c.EqualError(errMalformedPolicy, body.Error)
 	c.Contains(body.Detail, "blocked_mcc")
 }
@@ -272,10 +274,10 @@ func TestPublishPolicyListsInvalidFields(t *testing.T) {
 	c := require.New(t)
 	pub := &fakePublisher{}
 
-	w := do(newPolicyHandler(pub), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":{"allowed_entry_modes":["chip","telepathy"]}}`)
+	recorder := doRequest(newPolicyHandler(pub), http.MethodPut, "/v1/companies/acme-mx/policy", `{"controls":{"allowed_entry_modes":["chip","telepathy"]}}`)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	body := decodeError(c, w)
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	body := decodeError(c, recorder)
 	c.EqualError(errInvalidPolicy, body.Error)
 	c.Equal("unknown entry mode", body.Fields["controls.allowed_entry_modes[1]"])
 	c.Empty(pub.got.CompanyID, "an invalid policy must not be published")
@@ -284,39 +286,39 @@ func TestPublishPolicyListsInvalidFields(t *testing.T) {
 func TestPublishPolicyRejectsAnotherCompanysID(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"company_id":"other"}`)
+	recorder := doRequest(newPolicyHandler(&fakePublisher{}), http.MethodPut, "/v1/companies/acme-mx/policy", `{"company_id":"other"}`)
 
-	c.Equal(http.StatusBadRequest, w.Code)
-	c.EqualError(errCompanyMismatch, decodeError(c, w).Error)
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	c.EqualError(errCompanyMismatch, decodeError(c, recorder).Error)
 }
 
 func TestPublishPolicyReturns409OnAConcurrentPublish(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newPolicyHandler(&fakePublisher{err: domain.ErrConflict}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
+	recorder := doRequest(newPolicyHandler(&fakePublisher{err: domain.ErrConflict}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
 
-	c.Equal(http.StatusConflict, w.Code)
-	c.EqualError(errPolicyConflict, decodeError(c, w).Error)
+	c.Equal(http.StatusConflict, recorder.Code)
+	c.EqualError(errPolicyConflict, decodeError(c, recorder).Error)
 }
 
 func TestPublishPolicyHidesStoreErrors(t *testing.T) {
 	c := require.New(t)
 
-	w := do(newPolicyHandler(&fakePublisher{err: errors.New("pq: disk full")}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
+	recorder := doRequest(newPolicyHandler(&fakePublisher{err: errors.New("pq: disk full")}), http.MethodPut, "/v1/companies/acme-mx/policy", validPolicy)
 
-	c.Equal(http.StatusInternalServerError, w.Code)
-	c.EqualError(errPublishFailed, decodeError(c, w).Error)
-	c.NotContains(w.Body.String(), "disk full")
+	c.Equal(http.StatusInternalServerError, recorder.Code)
+	c.EqualError(errPublishFailed, decodeError(c, recorder).Error)
+	c.NotContains(recorder.Body.String(), "disk full")
 }
 
 func TestWriteJSONLogsAValueThatCannotBeEncoded(t *testing.T) {
 	c := require.New(t)
 	var logs strings.Builder
-	h := &handler{log: slog.New(slog.NewTextHandler(&logs, nil))}
-	w := httptest.NewRecorder()
+	routes := &handler{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	recorder := httptest.NewRecorder()
 
-	h.writeJSON(w, http.StatusOK, func() {})
+	routes.writeJSON(recorder, http.StatusOK, func() {})
 
-	c.Equal(http.StatusOK, w.Code)
+	c.Equal(http.StatusOK, recorder.Code)
 	c.Contains(logs.String(), "write response failed")
 }

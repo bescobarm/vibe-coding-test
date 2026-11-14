@@ -21,6 +21,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 	"github.com/bescobarm/card-auth-engine/internal/store"
+	"github.com/bescobarm/card-auth-engine/internal/testenv"
 	"github.com/bescobarm/card-auth-engine/migrations"
 )
 
@@ -42,12 +43,12 @@ func newTestStore(t *testing.T, maxConns int32) (*store.Store, *pgxpool.Pool) {
 	err = admin.Ping(ctx)
 	if err != nil {
 		admin.Close()
-		t.Skipf("Postgres not reachable (run `make up`): %v", err)
+		testenv.SkipOrFail(t, "Postgres", err)
 	}
 
-	b := make([]byte, 6)
-	_, _ = rand.Read(b)
-	schema := "test_" + hex.EncodeToString(b)
+	random := make([]byte, 6)
+	_, _ = rand.Read(random)
+	schema := "test_" + hex.EncodeToString(random)
 	_, err = admin.Exec(ctx, "CREATE SCHEMA "+schema)
 	c.NoError(err, "create schema")
 	t.Cleanup(func() {
@@ -72,7 +73,7 @@ func newTestStore(t *testing.T, maxConns int32) (*store.Store, *pgxpool.Pool) {
 	return st, pool
 }
 
-func request(id, card string) domain.AuthRequest {
+func newRequest(id, card string) domain.AuthRequest {
 	return domain.AuthRequest{
 		AuthorizationID: id, CardID: card, AmountMinor: 4500, Currency: "USD",
 		Merchant:  domain.Merchant{ID: "m_987", Name: "ACME SOFTWARE", MCC: "5734", Country: "US"},
@@ -81,7 +82,7 @@ func request(id, card string) domain.AuthRequest {
 }
 
 func newService(st *store.Store) *authz.Service {
-	return authz.NewService(st, st, policy.NewCache(st), pipeline.New(controls.Hard()...))
+	return authz.NewService(st, st, policy.NewCache(st), pipeline.New(controls.ListHardControls()...))
 }
 
 func TestMigrateIsIdempotent(t *testing.T) {
@@ -128,11 +129,11 @@ func TestLatestPolicyReturnsTheSeededPolicy(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
 
-	doc, err := st.LatestPolicy(context.Background(), "acme-mx")
+	doc, err := st.GetLatestPolicy(context.Background(), "acme-mx")
 
 	c.NoError(err)
 	c.Equal(1, doc.Version)
-	c.Equal("America/Mexico_City", doc.Location().String())
+	c.Equal("America/Mexico_City", doc.GetLocation().String())
 	c.Equal([]string{"7995", "5933"}, doc.Controls.BlockedMCCs)
 }
 
@@ -140,7 +141,7 @@ func TestLatestPolicyIsNotFoundForAnUnknownCompany(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
 
-	_, err := st.LatestPolicy(context.Background(), "nobody")
+	_, err := st.GetLatestPolicy(context.Background(), "nobody")
 
 	c.ErrorIs(err, domain.ErrNotFound)
 }
@@ -150,12 +151,12 @@ func TestPublishPolicyStoresTheNextVersion(t *testing.T) {
 	st, _ := newTestStore(t, 0)
 	ctx := context.Background()
 
-	v, err := st.PublishPolicy(ctx, policy.Document{CompanyID: "acme-mx", Version: 99})
+	version, err := st.PublishPolicy(ctx, policy.Document{CompanyID: "acme-mx", Version: 99})
 	c.NoError(err)
-	latest, err := st.LatestPolicy(ctx, "acme-mx")
+	latest, err := st.GetLatestPolicy(ctx, "acme-mx")
 
 	c.NoError(err)
-	c.Equal(2, v, "the server assigns the version; 99 is ignored")
+	c.Equal(2, version, "the server assigns the version; 99 is ignored")
 	c.Equal(2, latest.Version, "the stored document carries its version")
 }
 
@@ -163,10 +164,10 @@ func TestPublishPolicyStartsAtVersionOne(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
 
-	v, err := st.PublishPolicy(context.Background(), policy.Document{CompanyID: "new-co"})
+	version, err := st.PublishPolicy(context.Background(), policy.Document{CompanyID: "new-co"})
 
 	c.NoError(err)
-	c.Equal(1, v)
+	c.Equal(1, version)
 }
 
 // Another transaction inserts version 2 and holds it uncommitted. PublishPolicy
@@ -198,15 +199,15 @@ func TestPublishedPolicyAppliesToNewDecisionsOnly(t *testing.T) {
 	st, pool := newTestStore(t, 0)
 	ctx := context.Background()
 	cache := policy.NewCache(st)
-	svc := authz.NewService(st, st, cache, pipeline.New(controls.Hard()...))
+	svc := authz.NewService(st, st, cache, pipeline.New(controls.ListHardControls()...))
 
-	before, _, err := svc.Authorize(ctx, request("auth_v1", "card_123"))
+	before, _, err := svc.Authorize(ctx, newRequest("auth_v1", "card_123"))
 	c.NoError(err)
 	stricter := policy.Document{CompanyID: "acme-mx", Controls: policy.Controls{BlockedMCCs: []string{"5734"}}}
 	c.Empty(stricter.Validate())
 	_, err = cache.Publish(ctx, stricter)
 	c.NoError(err)
-	after, _, err := svc.Authorize(ctx, request("auth_v2", "card_123"))
+	after, _, err := svc.Authorize(ctx, newRequest("auth_v2", "card_123"))
 	c.NoError(err)
 
 	c.Equal(domain.Approve, before.Decision)
@@ -222,7 +223,7 @@ func TestPublishedPolicyAppliesToNewDecisionsOnly(t *testing.T) {
 func TestGamblingMCCIsDeclined(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
-	req := request("auth_gambling", "card_123")
+	req := newRequest("auth_gambling", "card_123")
 	req.Merchant.MCC = "7995"
 
 	resp, _, err := newService(st).Authorize(context.Background(), req)
@@ -236,9 +237,9 @@ func TestCardOverrideRaisesTheTransactionLimit(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
 	svc := newService(st)
-	exec := request("auth_exec", "card_exec")
+	exec := newRequest("auth_exec", "card_exec")
 	exec.AmountMinor = 80000
-	regular := request("auth_regular", "card_123")
+	regular := newRequest("auth_regular", "card_123")
 	regular.AmountMinor = 80000
 
 	execResp, _, err := svc.Authorize(context.Background(), exec)
@@ -254,7 +255,7 @@ func TestCardOverrideRaisesTheTransactionLimit(t *testing.T) {
 func TestPurchaseAtNightIsDeclined(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
-	req := request("auth_night", "card_123")
+	req := newRequest("auth_night", "card_123")
 	req.CreatedAt = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC) // 03:00 in Mexico City
 
 	resp, _, err := newService(st).Authorize(context.Background(), req)
@@ -269,7 +270,7 @@ func TestAuthorizeRecordsAuditAndOutbox(t *testing.T) {
 	st, pool := newTestStore(t, 0)
 	ctx := context.Background()
 
-	resp, replayed, err := newService(st).Authorize(ctx, request("auth_1", "card_123"))
+	resp, replayed, err := newService(st).Authorize(ctx, newRequest("auth_1", "card_123"))
 
 	c.NoError(err)
 	c.False(replayed)
@@ -293,7 +294,7 @@ func TestDeclineIsStoredAsDeclined(t *testing.T) {
 	st, _ := newTestStore(t, 0)
 	ctx := context.Background()
 
-	resp, _, err := newService(st).Authorize(ctx, request("auth_frozen", "card_frozen"))
+	resp, _, err := newService(st).Authorize(ctx, newRequest("auth_frozen", "card_frozen"))
 
 	c.NoError(err)
 	c.Equal(domain.Decline, resp.Decision)
@@ -308,11 +309,11 @@ func TestReplayReturnsTheStoredResponse(t *testing.T) {
 	st, _ := newTestStore(t, 0)
 	svc := newService(st)
 	ctx := context.Background()
-	first, _, err := svc.Authorize(ctx, request("auth_2", "card_123"))
+	first, _, err := svc.Authorize(ctx, newRequest("auth_2", "card_123"))
 	c.NoError(err)
 
 	// A retry with a different body must still get the original decision (D-008).
-	second, replayed, err := svc.Authorize(ctx, request("auth_2", "card_frozen"))
+	second, replayed, err := svc.Authorize(ctx, newRequest("auth_2", "card_frozen"))
 
 	c.NoError(err)
 	c.True(replayed)
@@ -323,7 +324,7 @@ func TestDecideErrorRollsBackSoARetryCanDecide(t *testing.T) {
 	c := require.New(t)
 	st, _ := newTestStore(t, 0)
 	ctx := context.Background()
-	req := request("auth_3", "card_123")
+	req := newRequest("auth_3", "card_123")
 	boom := errors.New("boom")
 
 	_, _, err := st.Decide(ctx, req, func(context.Context) (domain.AuthResponse, error) {
@@ -350,21 +351,21 @@ func TestConcurrentDuplicatesAreDecidedOnce(t *testing.T) {
 	var evaluations atomic.Int32
 	svc := authz.NewService(st, st, policy.NewCache(st), pipeline.New(countingStage{&evaluations}, controls.CardStatus{}))
 
-	const n = 20
+	const parallel = 20
 	var wg sync.WaitGroup
-	results := make([]domain.AuthResponse, n)
-	errs := make([]error, n)
-	for i := range n {
+	results := make([]domain.AuthResponse, parallel)
+	errs := make([]error, parallel)
+	for i := range parallel {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], _, errs[i] = svc.Authorize(ctx, request("auth_dup", "card_123"))
+			results[i], _, errs[i] = svc.Authorize(ctx, newRequest("auth_dup", "card_123"))
 		}()
 	}
 
 	wg.Wait()
 
-	for i := range n {
+	for i := range parallel {
 		c.NoError(errs[i], "request %d", i)
 		c.Equal(results[0], results[i], "request %d got a different answer", i)
 	}
@@ -380,20 +381,20 @@ func TestConcurrentDistinctRequestsDoNotExhaustThePool(t *testing.T) {
 	defer cancel()
 	svc := newService(st)
 
-	const n = 40
+	const parallel = 40
 	var wg sync.WaitGroup
-	errs := make([]error, n)
-	for i := range n {
+	errs := make([]error, parallel)
+	for i := range parallel {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, errs[i] = svc.Authorize(ctx, request(fmt.Sprintf("auth_many_%d", i), "card_123"))
+			_, _, errs[i] = svc.Authorize(ctx, newRequest(fmt.Sprintf("auth_many_%d", i), "card_123"))
 		}()
 	}
 
 	wg.Wait()
 
-	for i := range n {
+	for i := range parallel {
 		c.NoError(errs[i], "request %d", i)
 	}
 }
@@ -416,7 +417,9 @@ func TestPing(t *testing.T) {
 
 type countingStage struct{ n *atomic.Int32 }
 
-func (countingStage) Name() string { return "counting" }
+func (countingStage) GetName() string {
+	return "counting"
+}
 
 func (c countingStage) Evaluate(context.Context, *pipeline.Evaluation) error {
 	c.n.Add(1)

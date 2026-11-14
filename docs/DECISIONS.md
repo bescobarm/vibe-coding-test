@@ -79,6 +79,12 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-053](#d-053-a-capture-counts-the-captured-amount) | A capture counts the captured amount | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-054](#d-054-lifecycle-details-for-increment-capture-and-refund) | Lifecycle details: increment, capture, refund | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-055](#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost) | Rebuild the Redis counters at startup when they are lost | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-056](#d-056-new-cardholders-skip-the-novelty-features) | New cardholders skip the novelty features | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-057](#d-057-score-weights-are-defaults-in-code) | Score weights are defaults in code | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-058](#d-058-split-purchases-are-read-from-postgres-before-the-claim) | Split purchases are read from Postgres before the claim | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-059](#d-059-the-cardholder-history-is-one-query-over-90-days) | The cardholder history is one query over 90 days | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-060](#d-060-scoring-details) | Scoring details | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-065](#d-065-score-weights-can-be-overridden-with-env-vars) | Score weights can be overridden with env vars | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
 
 ---
 
@@ -374,6 +380,10 @@ Entries marked 📝 need my own words before the interview (for example, what th
   4. No magic numbers or hardcoded texts: use named `const`/`var`.
   5. Doc comments are required on exported identifiers only. Unexported ones get a comment only when they need extra context.
   6. Errors are specific `errors.New` values (one per failure case), and no error is discarded with `_`.
+  7. *(added 2026-11-14, review of PR #10)* A function body is never on one line.
+  8. *(added 2026-11-14)* A map or slice literal with 3 or more items has one item per line.
+  9. *(added 2026-11-14)* No single-letter variables (`s :=`, `z :=`, `for _, r := range`). Exceptions: `c := require.New(t)` in tests (D-030) and the loop counter `i`. Parameters and method receivers keep Go's short names.
+  10. *(added 2026-11-14)* Every function name says its goal with a verb: `GetSignals`, `BuildSignalQuery`, `detectCardTesting`, not `Signals`, `Query`, `cardTesting`. Predicates read as questions (`IsSame`, `Applies`).
 - **How it is enforced (`make lint`, config in `.golangci.yml`, golangci-lint v2):**
 
   | Rule | Tool | Note |
@@ -384,6 +394,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
   | 4 | `mnd` (numbers) + `goconst` (repeated strings) | no linter bans every string literal, so messages, SQL, error codes and JSON keys were moved to constants by hand |
   | 5 | `revive`, only the `exported` rule | it can't flag a comment that isn't needed; obvious comments on unexported code were removed by hand |
   | 6 | by hand in `internal/api` | `errcheck` (on by default) already fails on an unchecked error; it allows an explicit `_ =` |
+  | 7, 8, 9 | [`tools/stylecheck`](../tools/stylecheck/main.go), run by `make lint` | no golangci-lint linter covers them; `-fix` rewrites 7 and 8; 9 is renamed with `gopls` |
+  | 10 | by hand (renamed with `gopls`) | a verb can't be checked reliably by a tool |
 
   `mnd` and `goconst` are off for `_test.go`: expected values in a test read better inline.
 - **Consequences:** `validateControls` (15) and `Migrate` (13) were split into small functions. API error bodies are typed structs instead of `map[string]string`. The API's `"error"` field is now the message of a specific error (e.g. `"policy is not valid JSON or has an unknown field"`, `"another policy version was published at the same time, retry"`) instead of a shared code like `invalid_json` or `internal`. A body over 64 KiB now gets 413 instead of 400. A response that fails to encode is logged. Validation messages shared by requests and policies live in `domain` (`domain.MsgRequired`, …). Log keys stay inline.
@@ -492,6 +504,36 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** A.
 - **Why:** 📝
 
+### D-056: New cardholders skip the novelty features
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** A first swipe is always a "new country" and a "new merchant". Two medium features already reach the flag threshold.
+- **Options:** A: always score them · B: skip `NEW_COUNTRY`, `NEW_MERCHANT_CNP` and `AMOUNT_ANOMALY` until the cardholder has N approved purchases.
+- **AI input and concerns:** B with N = 5. Otherwise every new card is flagged, and the simulator's false-decline rate measures onboarding instead of fraud.
+- **Decision:** B, N = 5.
+- **Why:** 📝
+
+### D-057: Score weights are defaults in code
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Options:** A: defaults in code (high 40, medium 25, low 10) · B: each company can override them in its policy.
+- **AI input and concerns:** A, tuned against the SP06 simulator. Per-company weights are a next step.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-058: Split purchases are read from Postgres before the claim
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** The split feature needs today's purchases on the card at the same merchant.
+- **Options:** A: a new Redis counter updated in the reserve script · B: a Postgres query loaded before the claim (D-029).
+- **AI input and concerns:** B. It is a score signal, not a hard limit: two parallel requests may miss each other, which costs one slightly low score, never money. The SP03 scripts stay untouched.
+- **Decision:** B.
+- **Why:** 📝
+
+### D-059: The cardholder history is one query over 90 days
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Options:** A: a `cardholder_profiles` table updated in the background after each approval · B: one SQL query over the cardholder's last 90 days of approvals, before the claim.
+- **AI input and concerns:** B. Always fresh and no background job (the worker arrives in SP07). A is a performance step for later.
+- **Decision:** B.
+- **Why:** 📝
+
 ### D-040: Shape of "allowed hours" and which clock it uses
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
 - **Context:** D-038 made allowed hours a hard control, but the policy format didn't define it.
@@ -537,7 +579,29 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** As built: rebuild at startup, before serving, when the marker key is missing; failures are logged and retried on the next start.
 - **Why:** 📝
 
+### D-060: Scoring details
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** D-005, D-023, D-025 and D-056 to D-059 set the approach. Building it needed smaller choices.
+- **AI input and concerns (as built):**
+  - **Feature parameters:** card testing = an amount ≤ 5.00 after ≥ 3 small attempts on the card in 10 minutes (declined attempts count); split = every purchase today at the merchant above 80% of the per-transaction limit and the total over it; amount anomaly = ≥ 3 deviations above the cardholder's mean for the MCC, with the deviation floored at 10% of the mean; round amount = a multiple of 100.00 from 100.00 up.
+  - **Thresholds:** `risk.flag_at` / `risk.decline_at` from the policy, 40 / 70 when it has none. A flagged approval answers `"flagged": true` with the fired features as reasons.
+  - **Card-testing rule reason (D-025):** a velocity rule may set `"reason": "CARD_TESTING_PATTERN"` (only that or `VELOCITY_EXCEEDED`); the demo seed does.
+  - **D-023 as built:** when the score declines, the velocity reservation is cancelled entirely, count included: the authorization was never approved, and this matches what a rebuild restores.
+- **Decision:** As built.
+- **Why:** 📝
+
+### D-065: Score weights can be overridden with env vars
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (asked in the review of PR #10; analysis by AI) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** I asked whether the weights could be env vars, to test changes easily.
+- **AI input and concerns:**
+  - **Weights: yes.** SP06 tunes them against the simulator (detection vs. false declines); env vars make that loop run without a rebuild. D-057 still holds: the defaults stay in code.
+  - **Per feature, not high/medium/low:** tuning moves one feature at a time.
+  - **Thresholds: no.** `flag_at` and `decline_at` are per company in the policy and change at runtime with `PUT`.
+  - **Feature parameters (≥ 3 small attempts, 80% split share, z ≥ 3, cold start 5): not now.** They define what a feature means; six more variables add surface for little tuning gain.
+  - A weight outside 0–100, or not a number, stops the engine at startup instead of scoring wrong. `scoring.Stage` gets a constructor, because a zero-value stage would score everything 0 silently.
+- **Decision:** `SCORE_WEIGHT_CARD_TESTING`, `SCORE_WEIGHT_SPLIT_PURCHASE`, `SCORE_WEIGHT_NEW_COUNTRY`, `SCORE_WEIGHT_NEW_MERCHANT_CNP`, `SCORE_WEIGHT_AMOUNT_ANOMALY`, `SCORE_WEIGHT_ROUND_AMOUNT`.
+- **Why:** 📝
+
 ## Proposed (waiting for my decision)
 
 None right now.
-

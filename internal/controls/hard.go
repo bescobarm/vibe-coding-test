@@ -19,9 +19,9 @@ const (
 	clockLayout         = "15:04"
 )
 
-// Hard returns every hard control in the order they run. The pipeline stops at
+// ListHardControls returns every hard control in the order they run. The pipeline stops at
 // the first decline (D-039), so this order decides which reason a request gets.
-func Hard() []pipeline.Stage {
+func ListHardControls() []pipeline.Stage {
 	return []pipeline.Stage{
 		CardStatus{},
 		EntryMode{},
@@ -35,8 +35,10 @@ func Hard() []pipeline.Stage {
 // EntryMode declines an entry mode the company does not allow (all are allowed when none are listed).
 type EntryMode struct{}
 
-// Name implements pipeline.Stage.
-func (EntryMode) Name() string { return "entry_mode" }
+// GetName implements pipeline.Stage.
+func (EntryMode) GetName() string {
+	return "entry_mode"
+}
 
 // Evaluate implements pipeline.Stage.
 func (EntryMode) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
@@ -52,8 +54,10 @@ func (EntryMode) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 // MCC declines a blocked merchant category.
 type MCC struct{}
 
-// Name implements pipeline.Stage.
-func (MCC) Name() string { return "mcc" }
+// GetName implements pipeline.Stage.
+func (MCC) GetName() string {
+	return "mcc"
+}
 
 // Evaluate implements pipeline.Stage.
 func (MCC) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
@@ -68,8 +72,10 @@ func (MCC) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 // Country declines a merchant country outside the allowed list (all are allowed when none are listed).
 type Country struct{}
 
-// Name implements pipeline.Stage.
-func (Country) Name() string { return "country" }
+// GetName implements pipeline.Stage.
+func (Country) GetName() string {
+	return "country"
+}
 
 // Evaluate implements pipeline.Stage.
 func (Country) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
@@ -87,8 +93,10 @@ func (Country) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 // the engine can't tell whether it is over the limit (D-041).
 type TransactionLimit struct{}
 
-// Name implements pipeline.Stage.
-func (TransactionLimit) Name() string { return "transaction_limit" }
+// GetName implements pipeline.Stage.
+func (TransactionLimit) GetName() string {
+	return "transaction_limit"
+}
 
 // Evaluate implements pipeline.Stage.
 func (TransactionLimit) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
@@ -111,21 +119,23 @@ func (TransactionLimit) Evaluate(_ context.Context, e *pipeline.Evaluation) erro
 // time zone (D-026, D-038).
 type AllowedHours struct{}
 
-// Name implements pipeline.Stage.
-func (AllowedHours) Name() string { return "allowed_hours" }
+// GetName implements pipeline.Stage.
+func (AllowedHours) GetName() string {
+	return "allowed_hours"
+}
 
 // Evaluate implements pipeline.Stage.
 func (AllowedHours) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
-	h := e.Controls.AllowedHours
-	if h == nil {
+	hours := e.Controls.AllowedHours
+	if hours == nil {
 		return nil
 	}
 
-	local := e.Now.In(e.Policy.Location())
-	if !h.Contains(local) {
+	local := e.Now.In(e.Policy.GetLocation())
+	if !hours.Contains(local) {
 		e.Decline(domain.ReasonOutsideAllowedHours,
 			fmt.Sprintf(fmtOutsideHours,
-				local.Format(clockLayout), h.Start, h.End, e.Policy.Location()))
+				local.Format(clockLayout), hours.Start, hours.End, e.Policy.GetLocation()))
 	}
 
 	return nil

@@ -99,20 +99,20 @@ type handler struct {
 
 // NewHandler returns the engine's HTTP routes.
 func NewHandler(d Deps, log *slog.Logger) http.Handler {
-	h := &handler{Deps: d, log: log}
+	routes := &handler{Deps: d, log: log}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/authorizations", h.authorize)
-	mux.HandleFunc("GET /v1/authorizations/{id}", h.getAuthorization)
-	mux.HandleFunc("POST /v1/authorizations/{id}/reversal", h.lifecycleEvent(lifecycle.TypeReversal))
-	mux.HandleFunc("POST /v1/authorizations/{id}/expire", h.lifecycleEvent(lifecycle.TypeExpiry))
-	mux.HandleFunc("POST /v1/authorizations/{id}/increment", h.lifecycleEvent(lifecycle.TypeIncrement))
-	mux.HandleFunc("POST /v1/authorizations/{id}/capture", h.lifecycleEvent(lifecycle.TypeCapture))
-	mux.HandleFunc("POST /v1/authorizations/{id}/refund", h.lifecycleEvent(lifecycle.TypeRefund))
-	mux.HandleFunc("PUT /v1/companies/{id}/policy", h.publishPolicy)
-	mux.HandleFunc("GET /healthz", h.health)
+	mux.HandleFunc("POST /v1/authorizations", routes.authorize)
+	mux.HandleFunc("GET /v1/authorizations/{id}", routes.getAuthorization)
+	mux.HandleFunc("POST /v1/authorizations/{id}/reversal", routes.handleLifecycleEvent(lifecycle.TypeReversal))
+	mux.HandleFunc("POST /v1/authorizations/{id}/expire", routes.handleLifecycleEvent(lifecycle.TypeExpiry))
+	mux.HandleFunc("POST /v1/authorizations/{id}/increment", routes.handleLifecycleEvent(lifecycle.TypeIncrement))
+	mux.HandleFunc("POST /v1/authorizations/{id}/capture", routes.handleLifecycleEvent(lifecycle.TypeCapture))
+	mux.HandleFunc("POST /v1/authorizations/{id}/refund", routes.handleLifecycleEvent(lifecycle.TypeRefund))
+	mux.HandleFunc("PUT /v1/companies/{id}/policy", routes.publishPolicy)
+	mux.HandleFunc("GET /healthz", routes.checkHealth)
 
-	return h.logRequests(mux)
+	return routes.logRequests(mux)
 }
 
 func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +142,7 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
 		"authorization_id", resp.AuthorizationID,
 		"card_id", req.CardID,
 		"decision", resp.Decision,
-		"reasons", reasonCodes(resp.Reasons),
+		"reasons", listReasonCodes(resp.Reasons),
 		"latency_ms", resp.LatencyMS,
 		"replayed", replayed,
 	)
@@ -208,7 +208,7 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) health(w http.ResponseWriter, r *http.Request) {
+func (h *handler) checkHealth(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.Ping(r.Context())
 	if err != nil {
 		h.writeJSON(w, http.StatusServiceUnavailable, healthStatus{Status: statusUnavailable})
@@ -265,10 +265,10 @@ func (h *handler) writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-func reasonCodes(rs []domain.Reason) []string {
+func listReasonCodes(rs []domain.Reason) []string {
 	codes := make([]string, len(rs))
-	for i, r := range rs {
-		codes[i] = r.Code
+	for i, reason := range rs {
+		codes[i] = reason.Code
 	}
 
 	return codes

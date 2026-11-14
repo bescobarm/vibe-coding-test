@@ -11,6 +11,8 @@
 | Decision log (for the interview) | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | Trade-offs in short (for the interview) | [docs/TRADEOFFS.md](docs/TRADEOFFS.md) |
 | Issues found while building | [docs/ISSUES.md](docs/ISSUES.md) |
+| Glossary (CNP, MCC, hold, outbox…) | [docs/CONCEPTS.md](docs/CONCEPTS.md) |
+| SQL review | [docs/SQL_REVIEW.md](docs/SQL_REVIEW.md) |
 | Problem briefs (one per sub-project) | [briefs/](briefs/) |
 | One-page write-up | `WRITEUP.md` 🚧 (Day 3) |
 | 5-minute video | Link added on submission 🚧 |
@@ -103,6 +105,12 @@ Send the same request again: you get the same decision, and the amount is counte
 | `REDIS_ADDR` | `localhost:6379` | Redis (velocity counters and holds) |
 | `REDIS_TIMEOUT_MS` | `50` | Timeout of every Redis call, so a slow Redis fails fast ([D-048](docs/DECISIONS.md#d-048-redis-calls-have-a-fixed-timeout)) |
 | `SEED_DEMO` | `true` | Insert the demo company, policy and cards on start |
+| `SCORE_WEIGHT_CARD_TESTING` | `40` | Points for `CARD_TESTING_PATTERN` (0–100). The six weights tune the score without a rebuild ([D-065](docs/DECISIONS.md#d-065-score-weights-can-be-overridden-with-env-vars)) |
+| `SCORE_WEIGHT_SPLIT_PURCHASE` | `40` | Points for `SPLIT_TRANSACTION_PATTERN` |
+| `SCORE_WEIGHT_NEW_COUNTRY` | `25` | Points for `NEW_COUNTRY` |
+| `SCORE_WEIGHT_NEW_MERCHANT_CNP` | `25` | Points for `NEW_MERCHANT_CNP` |
+| `SCORE_WEIGHT_AMOUNT_ANOMALY` | `25` | Points for `AMOUNT_ANOMALY` |
+| `SCORE_WEIGHT_ROUND_AMOUNT` | `10` | Points for `ROUND_AMOUNT` |
 | `INTERNAL_DEADLINE_MS` | `500` | Hard budget per decision. After it, the company's fallback applies |
 | `EXPLAINER` | `mock` | `mock` (simulated LLM) or `template` (no LLM at all) |
 
@@ -478,6 +486,8 @@ flowchart TD
 
 "Outside allowed hours" is a hard control, not a score feature ([D-038](docs/DECISIONS.md#d-038-is-outside-allowed-hours-a-hard-control-or-a-score-signal)).
 
+As built: high = 40, medium = 25, low = 10 ([D-057](docs/DECISIONS.md#d-057-score-weights-are-defaults-in-code)); a score ≥ `flag_at` (default 40) approves with `"flagged": true`, ≥ `decline_at` (default 70) declines. New cardholders skip the novelty features until 5 approved purchases ([D-056](docs/DECISIONS.md#d-056-new-cardholders-skip-the-novelty-features)). Parameters: [D-060](docs/DECISIONS.md#d-060-scoring-details).
+
 Score = weighted sum, capped at 100. Each feature that fires is returned as a reason. Default policy: `score < 40 → APPROVE`, `40–69 → APPROVE + FLAG`, `≥ 70 → DECLINE`.
 
 ### 10.4 Fail-open vs. fail-closed
@@ -587,7 +597,7 @@ CREATE TABLE outbox (
     "allowed_hours": { "start": "06:00", "end": "23:00" }
   },
   "velocity": [
-    { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 } },
+    { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 }, "reason": "CARD_TESTING_PATTERN" },
     { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
   ],
   "risk": { "flag_at": 40, "decline_at": 70 },
@@ -630,6 +640,7 @@ Response:
     { "code": "NEW_MERCHANT_CNP", "message": "First purchase at this merchant, card not present" }
   ],
   "policy_version": 3,
+  "flagged": false,
   "fallback_used": false,
   "latency_ms": 7.4
 }
@@ -760,7 +771,8 @@ The full log, including the options the AI suggested, the concerns raised and wh
 
 - **Unit tests:** each control, velocity rule and anomaly feature in isolation (table-driven tests in Go).
 - **Coverage gate:** `/check-tests -cov 80` before every commit. Every changed Go file must reach 80% line coverage.
-- **Lint gate:** `make lint` must report 0 issues: blank line after blocks, no init statement in `if`, cyclomatic complexity ≤ 10, no magic numbers or hardcoded texts, doc comments on exported code, specific errors ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)).
+- **Integration tests:** `make test` fails, instead of skipping, when Postgres or Redis is down ([I-028](docs/ISSUES.md#i-028-skipped-integration-tests-looked-like-a-pass)).
+- **Lint gate:** `make lint` must report 0 issues: blank line after blocks, no init statement in `if`, cyclomatic complexity ≤ 10, no magic numbers or hardcoded texts, doc comments on exported code, specific errors, no one-line bodies, one item per line in literals of 3+, no single-letter variables, function names with a verb ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)).
 - **Concurrency test:** 100 parallel authorizations on one card with a limit that only allows 10. Exactly 10 must be approved.
 - **Idempotency test:** the same request sent twice returns the same decision and counts once.
 - **Failure tests:** Redis unavailable or a slow dependency → fallback applied within the deadline, and flagged.
