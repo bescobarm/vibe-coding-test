@@ -56,7 +56,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, env("DATABASE_URL", defaultDatabaseURL))
+	pool, err := pgxpool.New(ctx, getEnv("DATABASE_URL", defaultDatabaseURL))
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func run(log *slog.Logger) error {
 	}
 
 	st := store.New(pool)
-	if env("SEED_DEMO", envTrue) == envTrue {
+	if getEnv("SEED_DEMO", envTrue) == envTrue {
 		err := st.SeedDemo(ctx)
 		if err != nil {
 			return err
@@ -78,13 +78,13 @@ func run(log *slog.Logger) error {
 
 	policies := policy.NewCache(st)
 
-	redisTimeout, err := envMillis("REDIS_TIMEOUT_MS", defaultRedisMS)
+	redisTimeout, err := getEnvMillis("REDIS_TIMEOUT_MS", defaultRedisMS)
 	if err != nil {
 		return err
 	}
 
 	rdb := redis.NewClient(&redis.Options{
-		Addr:         env("REDIS_ADDR", defaultRedisAddr),
+		Addr:         getEnv("REDIS_ADDR", defaultRedisAddr),
 		DialTimeout:  redisTimeout,
 		ReadTimeout:  redisTimeout,
 		WriteTimeout: redisTimeout,
@@ -94,13 +94,13 @@ func run(log *slog.Logger) error {
 	rebuildCounters(ctx, log, velocity.NewRebuilder(st, policies, rdb, countersMarkerKey))
 
 	limiter := velocity.NewLimiter(rdb, redisTimeout)
-	stages := append(controls.Hard(), velocity.NewStage(limiter), scoring.Stage{})
+	stages := append(controls.ListHardControls(), velocity.NewStage(limiter), scoring.Stage{})
 	pl := pipeline.New(stages...)
 	svc := authz.NewService(st, st, policies, pl).WithSignals(st)
 	events := lifecycle.NewService(st, st, limiter, st, policies)
 
 	srv := &http.Server{
-		Addr:              ":" + env("PORT", defaultPort),
+		Addr:              ":" + getEnv("PORT", defaultPort),
 		Handler:           api.NewHandler(api.Deps{Auth: svc, Audit: st, Policies: policies, Lifecycle: events, DB: st}, log),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
@@ -109,7 +109,9 @@ func run(log *slog.Logger) error {
 
 	errc := make(chan error, 1)
 
-	go func() { errc <- srv.ListenAndServe() }()
+	go func() {
+		errc <- srv.ListenAndServe()
+	}()
 
 	log.Info("engine listening", "addr", srv.Addr)
 
@@ -127,17 +129,17 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-func env(key, def string) string {
-	v := os.Getenv(key)
-	if v != "" {
-		return v
+func getEnv(key, def string) string {
+	value := os.Getenv(key)
+	if value != "" {
+		return value
 	}
 
 	return def
 }
 
-func envMillis(key string, def int) (time.Duration, error) {
-	ms, err := strconv.Atoi(env(key, strconv.Itoa(def)))
+func getEnvMillis(key string, def int) (time.Duration, error) {
+	ms, err := strconv.Atoi(getEnv(key, strconv.Itoa(def)))
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}
@@ -152,11 +154,11 @@ func rebuildCounters(ctx context.Context, log *slog.Logger, r *velocity.Rebuilde
 	ctx, cancel := context.WithTimeout(ctx, rebuildTimeout)
 	defer cancel()
 
-	n, err := r.RebuildIfLost(ctx)
+	restored, err := r.RebuildIfLost(ctx)
 	if err != nil {
 		log.Warn("velocity counters not rebuilt", "err", err)
 		return
 	}
 
-	log.Info("velocity counters ready", "rebuilt_authorizations", n)
+	log.Info("velocity counters ready", "rebuilt_authorizations", restored)
 }

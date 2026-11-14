@@ -14,9 +14,9 @@ const increaseFixedArgs = 5
 // count doesn't change, it is the same authorization (D-054).
 func (l *Limiter) Increase(ctx context.Context, inc lifecycle.Increase) (lifecycle.Limit, error) {
 	var rules []policy.VelocityRule
-	for _, r := range inc.Policy.Velocity {
-		if r.MaxAmount != nil && r.Applies(inc.TotalMinor, inc.MCC) {
-			rules = append(rules, r)
+	for _, rule := range inc.Policy.Velocity {
+		if rule.MaxAmount != nil && rule.Applies(inc.TotalMinor, inc.MCC) {
+			rules = append(rules, rule)
 		}
 	}
 
@@ -24,19 +24,19 @@ func (l *Limiter) Increase(ctx context.Context, inc lifecycle.Increase) (lifecyc
 		return lifecycle.Limit{}, nil
 	}
 
-	for _, r := range rules {
-		if r.MaxAmount.Currency != inc.Currency {
-			return lifecycle.Limit{Exceeded: true, Code: amountReason(r),
-				Message: fmt.Sprintf(fmtCurrencyMismatch, r.ID, r.MaxAmount.Currency, inc.Currency)}, nil
+	for _, rule := range rules {
+		if rule.MaxAmount.Currency != inc.Currency {
+			return lifecycle.Limit{Exceeded: true, Code: getAmountReason(rule),
+				Message: fmt.Sprintf(fmtCurrencyMismatch, rule.ID, rule.MaxAmount.Currency, inc.Currency)}, nil
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 
-	keys, args := increaseInput(inc, rules)
+	keys, args := buildIncreaseInput(inc, rules)
 
-	res, err := run(ctx, l.rdb, increaseScript, keys, args)
+	res, err := runScript(ctx, l.rdb, increaseScript, keys, args)
 	if err != nil {
 		return lifecycle.Limit{}, err
 	}
@@ -45,20 +45,20 @@ func (l *Limiter) Increase(ctx context.Context, inc lifecycle.Increase) (lifecyc
 		return lifecycle.Limit{}, nil
 	}
 
-	code, msg := limitHit(rules[res.Window], res, inc.AmountMinor)
+	code, msg := describeLimitHit(rules[res.Window], res, inc.AmountMinor)
 	return lifecycle.Limit{Exceeded: true, Code: code, Message: msg}, nil
 }
 
-func increaseInput(inc lifecycle.Increase, rules []policy.VelocityRule) ([]string, []any) {
-	loc := inc.Policy.Location()
+func buildIncreaseInput(inc lifecycle.Increase, rules []policy.VelocityRule) ([]string, []any) {
+	loc := inc.Policy.GetLocation()
 	keys := []string{fmt.Sprintf(fmtHoldKey, inc.CardID, inc.AuthorizationID)}
 	args := make([]any, 0, increaseFixedArgs+len(rules))
 	args = append(args, inc.AuthorizationID, inc.EventID, inc.AmountMinor, inc.Now.UnixMilli(), holdRetention.Milliseconds())
 
-	for _, r := range rules {
-		prefix := fmt.Sprintf(fmtWindowKeys, inc.CardID, r.ID)
+	for _, rule := range rules {
+		prefix := fmt.Sprintf(fmtWindowKeys, inc.CardID, rule.ID)
 		keys = append(keys, prefix+suffixTimes, prefix+suffixAmounts)
-		args = append(args, r.WindowStart(inc.Now, loc).UnixMilli(), r.MaxAmount.AmountMinor, r.Retention().Milliseconds())
+		args = append(args, rule.GetWindowStart(inc.Now, loc).UnixMilli(), rule.MaxAmount.AmountMinor, rule.GetRetention().Milliseconds())
 	}
 
 	return keys, args

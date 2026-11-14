@@ -10,7 +10,7 @@ import (
 // Store persists policy versions. LatestPolicy returns domain.ErrNotFound when
 // the company has no policy.
 type Store interface {
-	LatestPolicy(ctx context.Context, companyID string) (Document, error)
+	GetLatestPolicy(ctx context.Context, companyID string) (Document, error)
 	PublishPolicy(ctx context.Context, doc Document) (version int, err error)
 }
 
@@ -28,40 +28,40 @@ type Cache struct {
 
 // NewCache returns an empty cache backed by store.
 func NewCache(store Store) *Cache {
-	c := &Cache{store: store}
-	c.docs.Store(&map[string]Document{})
-	return c
+	cache := &Cache{store: store}
+	cache.docs.Store(&map[string]Document{})
+	return cache
 }
 
-// Policy returns the company's latest policy, loading it from the store on the first request.
-func (c *Cache) Policy(ctx context.Context, companyID string) (Document, error) {
+// GetPolicy returns the company's latest policy, loading it from the store on the first request.
+func (c *Cache) GetPolicy(ctx context.Context, companyID string) (Document, error) {
 	cached, ok := (*c.docs.Load())[companyID]
 	if ok {
 		return cached, nil
 	}
 
-	d, err := c.store.LatestPolicy(ctx, companyID)
+	doc, err := c.store.GetLatestPolicy(ctx, companyID)
 	if err != nil {
 		return Document{}, err
 	}
 
-	return c.put(d), nil
+	return c.storeIfNewer(doc), nil
 }
 
 // Publish stores a new version and makes it visible to the next request.
 // The caller must have validated doc.
 func (c *Cache) Publish(ctx context.Context, doc Document) (Document, error) {
-	v, err := c.store.PublishPolicy(ctx, doc)
+	version, err := c.store.PublishPolicy(ctx, doc)
 	if err != nil {
 		return Document{}, err
 	}
 
-	doc.Version = v
-	return c.put(doc), nil
+	doc.Version = version
+	return c.storeIfNewer(doc), nil
 }
 
-// put stores d unless a newer version is already cached, and returns the cached document.
-func (c *Cache) put(d Document) Document {
+// storeIfNewer stores d unless a newer version is already cached, and returns the cached document.
+func (c *Cache) storeIfNewer(d Document) Document {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

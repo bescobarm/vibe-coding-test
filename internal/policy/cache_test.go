@@ -22,14 +22,14 @@ type fakeStore struct {
 	beforeLoad func() // runs inside LatestPolicy, after the stored doc was read
 }
 
-func (f *fakeStore) LatestPolicy(_ context.Context, id string) (Document, error) {
+func (f *fakeStore) GetLatestPolicy(_ context.Context, id string) (Document, error) {
 	f.loads.Add(1)
 	if f.loadErr != nil {
 		return Document{}, f.loadErr
 	}
 
 	f.mu.Lock()
-	d, ok := f.latest[id]
+	doc, ok := f.latest[id]
 	f.mu.Unlock()
 	if f.beforeLoad != nil {
 		f.beforeLoad()
@@ -39,7 +39,7 @@ func (f *fakeStore) LatestPolicy(_ context.Context, id string) (Document, error)
 		return Document{}, domain.ErrNotFound
 	}
 
-	return d, nil
+	return doc, nil
 }
 
 func (f *fakeStore) PublishPolicy(_ context.Context, d Document) (int, error) {
@@ -56,13 +56,13 @@ func (f *fakeStore) PublishPolicy(_ context.Context, d Document) (int, error) {
 }
 
 func newFakeStore(docs ...Document) *fakeStore {
-	f := &fakeStore{latest: map[string]Document{}}
-	for _, d := range docs {
-		f.latest[d.CompanyID] = d
-		f.publishV = max(f.publishV, d.Version)
+	holdStore := &fakeStore{latest: map[string]Document{}}
+	for _, doc := range docs {
+		holdStore.latest[doc.CompanyID] = doc
+		holdStore.publishV = max(holdStore.publishV, doc.Version)
 	}
 
-	return f
+	return holdStore
 }
 
 func TestCacheLoadsAPolicyOnlyOnce(t *testing.T) {
@@ -70,9 +70,9 @@ func TestCacheLoadsAPolicyOnlyOnce(t *testing.T) {
 	store := newFakeStore(Document{CompanyID: "acme-mx", Version: 1})
 	cache := NewCache(store)
 
-	first, err := cache.Policy(context.Background(), "acme-mx")
+	first, err := cache.GetPolicy(context.Background(), "acme-mx")
 	c.NoError(err)
-	second, err := cache.Policy(context.Background(), "acme-mx")
+	second, err := cache.GetPolicy(context.Background(), "acme-mx")
 	c.NoError(err)
 
 	c.Equal(1, first.Version)
@@ -85,9 +85,9 @@ func TestCacheReturnsNotFoundWithoutCachingIt(t *testing.T) {
 	store := newFakeStore()
 	cache := NewCache(store)
 
-	_, err := cache.Policy(context.Background(), "nobody")
+	_, err := cache.GetPolicy(context.Background(), "nobody")
 	c.ErrorIs(err, domain.ErrNotFound)
-	_, err = cache.Policy(context.Background(), "nobody")
+	_, err = cache.GetPolicy(context.Background(), "nobody")
 	c.ErrorIs(err, domain.ErrNotFound)
 
 	c.Equal(int32(2), store.loads.Load())
@@ -98,7 +98,7 @@ func TestCachePropagatesStoreErrors(t *testing.T) {
 	boom := errors.New("boom")
 	cache := NewCache(&fakeStore{loadErr: boom})
 
-	_, err := cache.Policy(context.Background(), "acme-mx")
+	_, err := cache.GetPolicy(context.Background(), "acme-mx")
 
 	c.ErrorIs(err, boom)
 }
@@ -107,12 +107,12 @@ func TestPublishIsVisibleOnTheNextRequest(t *testing.T) {
 	c := require.New(t)
 	store := newFakeStore(Document{CompanyID: "acme-mx", Version: 1})
 	cache := NewCache(store)
-	_, err := cache.Policy(context.Background(), "acme-mx")
+	_, err := cache.GetPolicy(context.Background(), "acme-mx")
 	c.NoError(err)
 
 	published, err := cache.Publish(context.Background(), Document{CompanyID: "acme-mx", Controls: Controls{BlockedMCCs: []string{"7995"}}})
 	c.NoError(err)
-	got, err := cache.Policy(context.Background(), "acme-mx")
+	got, err := cache.GetPolicy(context.Background(), "acme-mx")
 
 	c.NoError(err)
 	c.Equal(2, published.Version)
@@ -142,11 +142,11 @@ func TestASlowLoadDoesNotUndoAPublish(t *testing.T) {
 		c.NoError(err)
 	}
 
-	got, err := cache.Policy(context.Background(), "acme-mx")
+	got, err := cache.GetPolicy(context.Background(), "acme-mx")
 
 	c.NoError(err)
 	c.Equal(2, got.Version)
-	again, err := cache.Policy(context.Background(), "acme-mx")
+	again, err := cache.GetPolicy(context.Background(), "acme-mx")
 	c.NoError(err)
 	c.Equal(2, again.Version)
 }
@@ -164,9 +164,9 @@ func TestConcurrentReadsAndPublishesAreRaceFree(t *testing.T) {
 			case 0:
 				_, errs[i] = cache.Publish(context.Background(), Document{CompanyID: "acme-mx"})
 			case 1:
-				_, errs[i] = cache.Policy(context.Background(), "beta-co")
+				_, errs[i] = cache.GetPolicy(context.Background(), "beta-co")
 			default:
-				_, errs[i] = cache.Policy(context.Background(), "acme-mx")
+				_, errs[i] = cache.GetPolicy(context.Background(), "acme-mx")
 			}
 		})
 	}
@@ -177,7 +177,7 @@ func TestConcurrentReadsAndPublishesAreRaceFree(t *testing.T) {
 		c.NoError(errs[i], "call %d", i)
 	}
 
-	got, err := cache.Policy(context.Background(), "acme-mx")
+	got, err := cache.GetPolicy(context.Background(), "acme-mx")
 	c.NoError(err)
 	c.Equal(11, got.Version, "v1 plus 10 publishes")
 }

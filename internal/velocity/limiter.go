@@ -99,13 +99,13 @@ func (l *Limiter) Reserve(ctx context.Context, r Reservation) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 
-	keys, args := scriptInput(r)
+	keys, args := buildReserveInput(r)
 
-	return run(ctx, l.rdb, reserveScript, keys, args)
+	return runScript(ctx, l.rdb, reserveScript, keys, args)
 }
 
-// run reads the {ok, window, count, spent} reply shared by reserve and increase.
-func run(ctx context.Context, rdb redis.Scripter, script *redis.Script, keys []string, args []any) (Result, error) {
+// runScript reads the {ok, window, count, spent} reply shared by reserve and increase.
+func runScript(ctx context.Context, rdb redis.Scripter, script *redis.Script, keys []string, args []any) (Result, error) {
 	reply, err := script.Run(ctx, rdb, keys, args...).Int64Slice()
 	if err != nil {
 		return Result{}, fmt.Errorf("run script: %w", err)
@@ -122,17 +122,17 @@ func run(ctx context.Context, rdb redis.Scripter, script *redis.Script, keys []s
 	return Result{Window: int(reply[1]) - 1, Count: reply[2], SpentMinor: reply[3]}, nil
 }
 
-func scriptInput(r Reservation) ([]string, []any) {
+func buildReserveInput(r Reservation) ([]string, []any) {
 	keys := make([]string, 0, 1+keysPerRule*len(r.Windows))
 	keys = append(keys, fmt.Sprintf(fmtHoldKey, r.CardID, r.AuthorizationID))
 
 	args := make([]any, 0, fixedArgs+argsPerRule*len(r.Windows))
 	args = append(args, r.AuthorizationID, r.AmountMinor, r.Now.UnixMilli(), holdRetention.Milliseconds())
 
-	for _, w := range r.Windows {
-		prefix := fmt.Sprintf(fmtWindowKeys, r.CardID, w.RuleID)
+	for _, window := range r.Windows {
+		prefix := fmt.Sprintf(fmtWindowKeys, r.CardID, window.RuleID)
 		keys = append(keys, prefix+suffixTimes, prefix+suffixAmounts)
-		args = append(args, w.Start.UnixMilli(), w.MaxCount, w.MaxAmount, w.Retention.Milliseconds())
+		args = append(args, window.Start.UnixMilli(), window.MaxCount, window.MaxAmount, window.Retention.Milliseconds())
 	}
 
 	return keys, args

@@ -19,7 +19,7 @@ var regular = domain.Signals{
 	MCCCount: 10, MCCMeanMinor: 4500, MCCStdDevMinor: 500,
 }
 
-func evaluation(t *testing.T, amount int64, sig domain.Signals) *pipeline.Evaluation {
+func newEvaluation(t *testing.T, amount int64, sig domain.Signals) *pipeline.Evaluation {
 	t.Helper()
 	doc, err := policy.Parse([]byte(`{"company_id": "acme-mx", "timezone": "America/Mexico_City",
 		"controls": {"max_per_transaction": {"amount_minor": 50000, "currency": "USD"}},
@@ -27,25 +27,25 @@ func evaluation(t *testing.T, amount int64, sig domain.Signals) *pipeline.Evalua
 	require.NoError(t, err)
 	require.Empty(t, doc.Validate())
 
-	e := pipeline.NewEvaluation(domain.AuthRequest{
+	evaluation := pipeline.NewEvaluation(domain.AuthRequest{
 		AuthorizationID: "a1", CardID: "card_123", AmountMinor: amount, Currency: "USD",
 		Merchant:  domain.Merchant{ID: "m_987", MCC: "5734", Country: "US"},
 		EntryMode: "ecommerce",
 	})
-	e.Policy, e.Controls, e.Signals = doc, doc.Controls, sig
-	e.Card = domain.Card{ID: "card_123", CardholderID: "ch_ana"}
-	e.ReceivedAt = time.Date(2026, 11, 14, 2, 30, 0, 0, time.UTC)
-	return e
+	evaluation.Policy, evaluation.Controls, evaluation.Signals = doc, doc.Controls, sig
+	evaluation.Card = domain.Card{ID: "card_123", CardholderID: "ch_ana"}
+	evaluation.ReceivedAt = time.Date(2026, 11, 14, 2, 30, 0, 0, time.UTC)
+	return evaluation
 }
 
-func score(c *require.Assertions, e *pipeline.Evaluation) {
+func runScore(c *require.Assertions, e *pipeline.Evaluation) {
 	c.NoError(Stage{}.Evaluate(context.Background(), e))
 }
 
-func codes(e *pipeline.Evaluation) []string {
+func listCodes(e *pipeline.Evaluation) []string {
 	var out []string
-	for _, r := range e.Reasons() {
-		out = append(out, r.Code)
+	for _, reason := range e.GetReasons() {
+		out = append(out, reason.Code)
 	}
 
 	return out
@@ -54,27 +54,27 @@ func codes(e *pipeline.Evaluation) []string {
 // AC4 of SP04: normal traffic is approved with a low score.
 func TestNormalTrafficScoresZero(t *testing.T) {
 	c := require.New(t)
-	e := evaluation(t, 4321, regular)
+	evaluation := newEvaluation(t, 4321, regular)
 
-	score(c, e)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
-	c.Empty(e.Reasons())
-	c.False(e.Flagged)
-	c.Equal(domain.Approve, e.Decision())
+	c.Zero(evaluation.RiskScore)
+	c.Empty(evaluation.GetReasons())
+	c.False(evaluation.Flagged)
+	c.Equal(domain.Approve, evaluation.GetDecision())
 }
 
 func TestCardTestingFiresOnASmallAmountAfterSmallOnes(t *testing.T) {
 	c := require.New(t)
 	sig := regular
 	sig.SmallRecent = 3
-	e := evaluation(t, 199, sig)
+	evaluation := newEvaluation(t, 199, sig)
 
-	score(c, e)
+	runScore(c, evaluation)
 
-	c.Equal([]domain.Reason{{Code: domain.ReasonCardTestingPattern, Message: "4 small authorizations on this card in the last 10 minutes"}}, e.Reasons())
-	c.Equal(WeightHigh, e.RiskScore)
-	c.True(e.Flagged)
+	c.Equal([]domain.Reason{{Code: domain.ReasonCardTestingPattern, Message: "4 small authorizations on this card in the last 10 minutes"}}, evaluation.GetReasons())
+	c.Equal(WeightHigh, evaluation.RiskScore)
+	c.True(evaluation.Flagged)
 }
 
 func TestCardTestingNeedsThreeEarlierSmallAmounts(t *testing.T) {
@@ -82,10 +82,10 @@ func TestCardTestingNeedsThreeEarlierSmallAmounts(t *testing.T) {
 	sig := regular
 	sig.SmallRecent = 2
 
-	e := evaluation(t, 199, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 199, sig)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestCardTestingIgnoresANormalAmount(t *testing.T) {
@@ -93,10 +93,10 @@ func TestCardTestingIgnoresANormalAmount(t *testing.T) {
 	sig := regular
 	sig.SmallRecent = 5
 
-	e := evaluation(t, 4321, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 4321, sig)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 // AC2 of SP04: 490 + 490 + 490 with a 500 limit.
@@ -106,12 +106,12 @@ func TestSplitPurchaseFiresWhenPartsJustUnderTheLimitAddUpOverIt(t *testing.T) {
 	sig.SameMerchantToday = []int64{49000, 49000}
 	sig.MCCMeanMinor = 49000
 
-	e := evaluation(t, 49000, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 49000, sig)
+	runScore(c, evaluation)
 
 	c.Equal([]domain.Reason{{Code: domain.ReasonSplitTransaction,
-		Message: "3 purchases today at this merchant total 147000, each above 80% of the 50000 USD limit"}}, e.Reasons())
-	c.True(e.Flagged)
+		Message: "3 purchases today at this merchant total 147000, each above 80% of the 50000 USD limit"}}, evaluation.GetReasons())
+	c.True(evaluation.Flagged)
 }
 
 func TestSplitPurchaseIgnoresASmallEarlierPurchase(t *testing.T) {
@@ -120,10 +120,10 @@ func TestSplitPurchaseIgnoresASmallEarlierPurchase(t *testing.T) {
 	sig.SameMerchantToday = []int64{1000}
 	sig.MCCMeanMinor = 49000
 
-	e := evaluation(t, 49000, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 49000, sig)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestSplitPurchaseNeedsAnEarlierPurchaseToday(t *testing.T) {
@@ -131,22 +131,22 @@ func TestSplitPurchaseNeedsAnEarlierPurchaseToday(t *testing.T) {
 	sig := regular
 	sig.MCCMeanMinor = 49000
 
-	e := evaluation(t, 49000, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 49000, sig)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestSplitPurchaseNeedsALimitInTheSameCurrency(t *testing.T) {
 	c := require.New(t)
 	sig := regular
 	sig.SameMerchantToday = []int64{49000}
-	e := evaluation(t, 49000, sig)
-	e.Controls.MaxPerTransaction = &policy.Money{AmountMinor: 50000, Currency: "MXN"}
+	evaluation := newEvaluation(t, 49000, sig)
+	evaluation.Controls.MaxPerTransaction = &policy.Money{AmountMinor: 50000, Currency: "MXN"}
 
-	score(c, e)
+	runScore(c, evaluation)
 
-	c.NotContains(codes(e), domain.ReasonSplitTransaction)
+	c.NotContains(listCodes(evaluation), domain.ReasonSplitTransaction)
 }
 
 // AC3 of SP04: a stolen card used abroad, online, at a new merchant, for much more than usual.
@@ -155,12 +155,16 @@ func TestStolenCardIsDeclinedWithEveryReason(t *testing.T) {
 	sig := regular
 	sig.CountrySeen, sig.MerchantSeen = false, false
 
-	e := evaluation(t, 30123, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 30123, sig)
+	runScore(c, evaluation)
 
-	c.Equal([]string{domain.ReasonNewCountry, domain.ReasonNewMerchantCNP, domain.ReasonAmountAnomaly}, codes(e))
-	c.Equal(75, e.RiskScore)
-	c.Equal(domain.Decline, e.Decision())
+	c.Equal([]string{
+		domain.ReasonNewCountry,
+		domain.ReasonNewMerchantCNP,
+		domain.ReasonAmountAnomaly,
+	}, listCodes(evaluation))
+	c.Equal(75, evaluation.RiskScore)
+	c.Equal(domain.Decline, evaluation.GetDecision())
 }
 
 // D-056: a new cardholder isn't punished for being new.
@@ -168,34 +172,34 @@ func TestANewCardholderSkipsTheNoveltyFeatures(t *testing.T) {
 	c := require.New(t)
 	sig := domain.Signals{Approved: ColdStart - 1}
 
-	e := evaluation(t, 30123, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 30123, sig)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestNewMerchantNeedsTheCardNotPresent(t *testing.T) {
 	c := require.New(t)
 	sig := regular
 	sig.MerchantSeen = false
-	e := evaluation(t, 4321, sig)
-	e.Request.EntryMode = "chip"
+	evaluation := newEvaluation(t, 4321, sig)
+	evaluation.Request.EntryMode = "chip"
 
-	score(c, e)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestNewMerchantFiresForAManualEntry(t *testing.T) {
 	c := require.New(t)
 	sig := regular
 	sig.MerchantSeen = false
-	e := evaluation(t, 4321, sig)
-	e.Request.EntryMode = "manual"
+	evaluation := newEvaluation(t, 4321, sig)
+	evaluation.Request.EntryMode = "manual"
 
-	score(c, e)
+	runScore(c, evaluation)
 
-	c.Equal([]domain.Reason{{Code: domain.ReasonNewMerchantCNP, Message: "First purchase at merchant m_987, card not present (manual)"}}, e.Reasons())
+	c.Equal([]domain.Reason{{Code: domain.ReasonNewMerchantCNP, Message: "First purchase at merchant m_987, card not present (manual)"}}, evaluation.GetReasons())
 }
 
 func TestAmountAnomalyNeedsHistoryInThisMCC(t *testing.T) {
@@ -203,20 +207,20 @@ func TestAmountAnomalyNeedsHistoryInThisMCC(t *testing.T) {
 	sig := regular
 	sig.MCCCount = ColdStart - 1
 
-	e := evaluation(t, 30123, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 30123, sig)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestAmountAnomalyMessageShowsTheDeviation(t *testing.T) {
 	c := require.New(t)
 
-	e := evaluation(t, 6000, regular)
-	score(c, e)
+	evaluation := newEvaluation(t, 6000, regular)
+	runScore(c, evaluation)
 
 	c.Equal([]domain.Reason{{Code: domain.ReasonAmountAnomaly,
-		Message: "Amount 6000 is 3.0 standard deviations above this cardholder's mean of 4500 for MCC 5734"}}, e.Reasons())
+		Message: "Amount 6000 is 3.0 standard deviations above this cardholder's mean of 4500 for MCC 5734"}}, evaluation.GetReasons())
 }
 
 // A cardholder who always pays exactly the same has no deviation; the 10% floor
@@ -226,10 +230,10 @@ func TestAmountAnomalyIgnoresASmallChangeFromAFixedAmount(t *testing.T) {
 	sig := regular
 	sig.MCCStdDevMinor = 0
 
-	e := evaluation(t, 4600, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 4600, sig)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestRoundAmountFiresOnWholeHundreds(t *testing.T) {
@@ -237,67 +241,67 @@ func TestRoundAmountFiresOnWholeHundreds(t *testing.T) {
 	sig := regular
 	sig.MCCMeanMinor = 20000
 
-	e := evaluation(t, 20000, sig)
-	score(c, e)
+	evaluation := newEvaluation(t, 20000, sig)
+	runScore(c, evaluation)
 
-	c.Equal([]domain.Reason{{Code: domain.ReasonRoundAmount, Message: "Round amount 20000"}}, e.Reasons())
-	c.Equal(WeightLow, e.RiskScore)
-	c.False(e.Flagged)
+	c.Equal([]domain.Reason{{Code: domain.ReasonRoundAmount, Message: "Round amount 20000"}}, evaluation.GetReasons())
+	c.Equal(WeightLow, evaluation.RiskScore)
+	c.False(evaluation.Flagged)
 }
 
 func TestRoundAmountIgnoresSmallAmounts(t *testing.T) {
 	c := require.New(t)
 
-	e := evaluation(t, 5000, regular)
-	score(c, e)
+	evaluation := newEvaluation(t, 5000, regular)
+	runScore(c, evaluation)
 
-	c.Zero(e.RiskScore)
+	c.Zero(evaluation.RiskScore)
 }
 
 func TestTheScoreIsCappedAt100(t *testing.T) {
 	c := require.New(t)
 	sig := domain.Signals{Approved: 20, MCCCount: 10, MCCMeanMinor: 100, SmallRecent: 5}
 
-	e := evaluation(t, 500, sig)
-	e.Controls.MaxPerTransaction = &policy.Money{AmountMinor: 600, Currency: "USD"}
-	e.Signals.SameMerchantToday = []int64{500}
-	score(c, e)
+	evaluation := newEvaluation(t, 500, sig)
+	evaluation.Controls.MaxPerTransaction = &policy.Money{AmountMinor: 600, Currency: "USD"}
+	evaluation.Signals.SameMerchantToday = []int64{500}
+	runScore(c, evaluation)
 
-	c.Len(e.Reasons(), 5)
-	c.Equal(100, e.RiskScore)
+	c.Len(evaluation.GetReasons(), 5)
+	c.Equal(100, evaluation.RiskScore)
 }
 
 func TestDefaultThresholdsApplyWithoutARiskSection(t *testing.T) {
 	c := require.New(t)
 	sig := regular
 	sig.CountrySeen, sig.MerchantSeen = false, false
-	e := evaluation(t, 30123, sig)
-	e.Policy.Risk = nil
+	evaluation := newEvaluation(t, 30123, sig)
+	evaluation.Policy.Risk = nil
 
-	score(c, e)
+	runScore(c, evaluation)
 
-	c.Equal(domain.Decline, e.Decision())
+	c.Equal(domain.Decline, evaluation.GetDecision())
 }
 
 func TestStageName(t *testing.T) {
 	c := require.New(t)
 
-	c.Equal("score", Stage{}.Name())
+	c.Equal("score", Stage{}.GetName())
 }
 
 func TestQueryUsesTheEngineClockAndTheCompanyDay(t *testing.T) {
 	c := require.New(t)
-	e := evaluation(t, 4321, regular)
+	evaluation := newEvaluation(t, 4321, regular)
 	mexico, err := time.LoadLocation("America/Mexico_City")
 	c.NoError(err)
 
-	q := Query(e)
+	query := BuildSignalQuery(evaluation)
 
 	c.Equal(domain.SignalQuery{
 		CardholderID: "ch_ana", CardID: "card_123", MerchantID: "m_987", Country: "US", MCC: "5734", Currency: "USD",
-		HistorySince:  e.ReceivedAt.Add(-90 * 24 * time.Hour),
-		RecentSince:   e.ReceivedAt.Add(-10 * time.Minute),
+		HistorySince:  evaluation.ReceivedAt.Add(-90 * 24 * time.Hour),
+		RecentSince:   evaluation.ReceivedAt.Add(-10 * time.Minute),
 		DayStart:      time.Date(2026, 11, 13, 0, 0, 0, 0, mexico),
 		SmallMaxMinor: 500,
-	}, q)
+	}, query)
 }

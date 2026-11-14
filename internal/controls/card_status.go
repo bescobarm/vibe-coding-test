@@ -19,8 +19,10 @@ const (
 // (for example an ex-employee's card that was terminated).
 type CardStatus struct{}
 
-// Name implements pipeline.Stage.
-func (CardStatus) Name() string { return "card_status" }
+// GetName implements pipeline.Stage.
+func (CardStatus) GetName() string {
+	return "card_status"
+}
 
 // Evaluate declines a card that is unknown or not active.
 func (CardStatus) Evaluate(_ context.Context, e *pipeline.Evaluation) error {

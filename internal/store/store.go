@@ -53,19 +53,19 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 
 // GetCard loads a card, or returns domain.ErrNotFound.
 func (s *Store) GetCard(ctx context.Context, cardID string) (domain.Card, error) {
-	var c domain.Card
+	var card domain.Card
 	err := s.pool.QueryRow(ctx,
 		`SELECT card_id, company_id, cardholder_id, status, overrides FROM cards WHERE card_id = $1`, cardID,
-	).Scan(&c.ID, &c.CompanyID, &c.CardholderID, &c.Status, &c.Overrides)
+	).Scan(&card.ID, &card.CompanyID, &card.CardholderID, &card.Status, &card.Overrides)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Card{}, domain.ErrNotFound
 	}
 
-	return c, err
+	return card, err
 }
 
-// LatestPolicy implements policy.Store.
-func (s *Store) LatestPolicy(ctx context.Context, companyID string) (policy.Document, error) {
+// GetLatestPolicy implements policy.Store.
+func (s *Store) GetLatestPolicy(ctx context.Context, companyID string) (policy.Document, error) {
 	var raw []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT document FROM policies WHERE company_id = $1 ORDER BY version DESC LIMIT 1`, companyID,
@@ -85,19 +85,19 @@ func (s *Store) LatestPolicy(ctx context.Context, companyID string) (policy.Docu
 // that version into the stored document. Two concurrent publishes for the same
 // company collide on the primary key and the loser gets ErrConflict.
 func (s *Store) PublishPolicy(ctx context.Context, doc policy.Document) (int, error) {
-	var v int
+	var version int
 	err := s.pool.QueryRow(ctx, `
 		WITH next AS (SELECT COALESCE(MAX(version), 0) + 1 AS v FROM policies WHERE company_id = $1)
 		INSERT INTO policies (company_id, version, document, created_by)
 		SELECT $1, v, $2::jsonb || jsonb_build_object('version', v), 'api' FROM next
 		RETURNING version`, doc.CompanyID, doc,
-	).Scan(&v)
+	).Scan(&version)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
 		return 0, domain.ErrConflict
 	}
 
-	return v, err
+	return version, err
 }
 
 const claimSQL = `
@@ -140,7 +140,7 @@ func (s *Store) Decide(ctx context.Context, req domain.AuthRequest, decide authz
 
 	if tag.RowsAffected() == 0 {
 		_ = tx.Rollback(ctx)
-		resp, err := s.storedResponse(ctx, req.AuthorizationID)
+		resp, err := s.getStoredResponse(ctx, req.AuthorizationID)
 		return resp, true, err
 	}
 
@@ -174,7 +174,7 @@ func (s *Store) Decide(ctx context.Context, req domain.AuthRequest, decide authz
 	return resp, false, nil
 }
 
-func (s *Store) storedResponse(ctx context.Context, id string) (domain.AuthResponse, error) {
+func (s *Store) getStoredResponse(ctx context.Context, id string) (domain.AuthResponse, error) {
 	var raw []byte
 	err := s.pool.QueryRow(ctx, storedResponseSQL, id).Scan(&raw)
 	if err != nil {
@@ -239,7 +239,7 @@ func (s *Store) ApplyEvent(ctx context.Context, ev lifecycle.Event, apply lifecy
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	h, err := scanHold(tx.QueryRow(ctx, lockHoldSQL, ev.AuthorizationID))
+	hold, err := scanHold(tx.QueryRow(ctx, lockHoldSQL, ev.AuthorizationID))
 	if err != nil {
 		return lifecycle.Result{}, false, err
 	}
@@ -251,11 +251,11 @@ func (s *Store) ApplyEvent(ctx context.Context, ev lifecycle.Event, apply lifecy
 
 	if tag.RowsAffected() == 0 {
 		_ = tx.Rollback(ctx)
-		res, err := s.storedEvent(ctx, ev)
+		res, err := s.getStoredEvent(ctx, ev)
 		return res, true, err
 	}
 
-	res, err := apply(ctx, h)
+	res, err := apply(ctx, hold)
 	if err != nil {
 		return lifecycle.Result{}, false, err
 	}
@@ -292,9 +292,9 @@ func recordEvent(ctx context.Context, tx pgx.Tx, res lifecycle.Result) error {
 	return nil
 }
 
-// storedEvent replays a known event_id, or reports ErrEventConflict when the
+// getStoredEvent replays a known event_id, or reports ErrEventConflict when the
 // same event_id was used for a different call.
-func (s *Store) storedEvent(ctx context.Context, ev lifecycle.Event) (lifecycle.Result, error) {
+func (s *Store) getStoredEvent(ctx context.Context, ev lifecycle.Event) (lifecycle.Result, error) {
 	stored := lifecycle.Event{ID: ev.ID}
 
 	var raw []byte
@@ -304,7 +304,7 @@ func (s *Store) storedEvent(ctx context.Context, ev lifecycle.Event) (lifecycle.
 		return lifecycle.Result{}, fmt.Errorf("load stored event: %w", err)
 	}
 
-	if !stored.Same(ev) {
+	if !stored.IsSame(ev) {
 		return lifecycle.Result{}, lifecycle.ErrEventConflict
 	}
 
@@ -324,9 +324,9 @@ func (s *Store) GetHold(ctx context.Context, authorizationID string) (lifecycle.
 }
 
 func scanHold(row pgx.Row) (lifecycle.Hold, error) {
-	var h lifecycle.Hold
+	var hold lifecycle.Hold
 
-	err := row.Scan(&h.AuthorizationID, &h.CardID, &h.Currency, &h.MCC, &h.Status, &h.HeldMinor, &h.CapturedMinor, &h.RefundedMinor)
+	err := row.Scan(&hold.AuthorizationID, &hold.CardID, &hold.Currency, &hold.MCC, &hold.Status, &hold.HeldMinor, &hold.CapturedMinor, &hold.RefundedMinor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lifecycle.Hold{}, domain.ErrNotFound
 	}
@@ -335,7 +335,7 @@ func scanHold(row pgx.Row) (lifecycle.Hold, error) {
 		return lifecycle.Hold{}, fmt.Errorf("read authorization: %w", err)
 	}
 
-	return h, nil
+	return hold, nil
 }
 
 const approvedSinceSQL = `
@@ -344,20 +344,20 @@ SELECT a.authorization_id, a.card_id, c.company_id, a.amount_minor, a.mcc, a.cur
 FROM authorizations a JOIN cards c ON c.card_id = a.card_id
 WHERE a.decision = 'APPROVE' AND a.created_at >= $1`
 
-// ApprovedSince implements velocity.RebuildSource.
-func (s *Store) ApprovedSince(ctx context.Context, since time.Time) ([]velocity.Authorization, error) {
+// ListApprovedSince implements velocity.RebuildSource.
+func (s *Store) ListApprovedSince(ctx context.Context, since time.Time) ([]velocity.Authorization, error) {
 	rows, err := s.pool.Query(ctx, approvedSinceSQL, since)
 	if err != nil {
 		return nil, fmt.Errorf("query approved: %w", err)
 	}
 
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (velocity.Authorization, error) {
-		var a velocity.Authorization
+		var authorization velocity.Authorization
 
-		err := row.Scan(&a.AuthorizationID, &a.CardID, &a.CompanyID, &a.AmountMinor, &a.MCC, &a.Currency, &a.Status,
-			&a.HeldMinor, &a.CapturedMinor, &a.RefundedMinor, &a.CreatedAt)
+		err := row.Scan(&authorization.AuthorizationID, &authorization.CardID, &authorization.CompanyID, &authorization.AmountMinor, &authorization.MCC, &authorization.Currency, &authorization.Status,
+			&authorization.HeldMinor, &authorization.CapturedMinor, &authorization.RefundedMinor, &authorization.CreatedAt)
 
-		return a, err
+		return authorization, err
 	})
 }
 
@@ -385,8 +385,8 @@ WITH history AS (
 SELECT approved, country_seen, merchant_seen, mcc_count, mcc_mean, mcc_stddev, small_recent, same_merchant_today
 FROM history, recent`
 
-// Signals implements authz.SignalReader.
-func (s *Store) Signals(ctx context.Context, q domain.SignalQuery) (domain.Signals, error) {
+// GetSignals implements authz.SignalReader.
+func (s *Store) GetSignals(ctx context.Context, q domain.SignalQuery) (domain.Signals, error) {
 	var sig domain.Signals
 
 	err := s.pool.QueryRow(ctx, signalsSQL,

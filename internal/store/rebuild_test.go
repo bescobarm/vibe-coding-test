@@ -17,11 +17,11 @@ import (
 const rebuildRules = `[{"id": "card-testing", "window": "10m", "max_count": 5, "filter": {"max_amount_minor": 500}},
 	{"id": "daily-spend", "window": "calendar_day", "max_amount": {"amount_minor": 2000, "currency": "USD"}}]`
 
-// counters reads every key of the fixture's card the way the budgets see it:
+// readCounters reads every key of the fixture's card the way the budgets see it:
 // members of each window, amounts, and each hold's amount and window keys.
 // Applied event_ids are left out: they only matter between a Redis change and
 // its Postgres commit, and Postgres replays committed events itself.
-func (f fixture) counters() map[string]any {
+func (f fixture) readCounters() map[string]any {
 	f.t.Helper()
 	c := require.New(f.t)
 	out := map[string]any{}
@@ -29,23 +29,23 @@ func (f fixture) counters() map[string]any {
 	keys, err := f.rdb.Keys(f.ctx, "*{"+f.card+"}*").Result()
 	c.NoError(err)
 
-	for _, k := range keys {
+	for _, key := range keys {
 		switch {
-		case strings.HasSuffix(k, ":ts"):
-			members := f.rdb.ZRange(f.ctx, k, 0, -1).Val()
+		case strings.HasSuffix(key, ":ts"):
+			members := f.rdb.ZRange(f.ctx, key, 0, -1).Val()
 			slices.Sort(members)
-			out[k] = members
-		case strings.HasSuffix(k, ":amt"):
-			out[k] = f.rdb.HGetAll(f.ctx, k).Val()
+			out[key] = members
+		case strings.HasSuffix(key, ":amt"):
+			out[key] = f.rdb.HGetAll(f.ctx, key).Val()
 		default:
-			out[k] = f.hold(k)
+			out[key] = f.readHold(key)
 		}
 	}
 
 	return out
 }
 
-func (f fixture) hold(key string) []string {
+func (f fixture) readHold(key string) []string {
 	f.t.Helper()
 	var windows []string
 	require.NoError(f.t, json.Unmarshal([]byte(f.rdb.HGet(f.ctx, key, "keys").Val()), &windows))
@@ -58,28 +58,28 @@ func (f fixture) hold(key string) []string {
 // tip and partly refunded authorizations. A declined one leaves nothing.
 func TestRebuildRestoresTheCountersAfterRedisLosesThem(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, rebuildRules)
-	f.authorize("small", 300)
-	f.authorize("reversed", 200)
-	f.event("reversed", "rev1", lifecycle.TypeReversal, nil)
-	f.authorize("hotel", 600)
-	f.event("hotel", "inc1", lifecycle.TypeIncrement, amount(200))
-	f.authorize("dinner", 400)
-	f.event("dinner", "cap1", lifecycle.TypeCapture, amount(450))
-	f.event("dinner", "ref1", lifecycle.TypeRefund, amount(100))
-	c.Equal(domain.Decline, f.authorize("too-big", 1000).Decision)
-	before := f.counters()
+	harness := newFixture(t, rebuildRules)
+	harness.authorize("small", 300)
+	harness.authorize("reversed", 200)
+	harness.applyEvent("reversed", "rev1", lifecycle.TypeReversal, nil)
+	harness.authorize("hotel", 600)
+	harness.applyEvent("hotel", "inc1", lifecycle.TypeIncrement, newAmount(200))
+	harness.authorize("dinner", 400)
+	harness.applyEvent("dinner", "cap1", lifecycle.TypeCapture, newAmount(450))
+	harness.applyEvent("dinner", "ref1", lifecycle.TypeRefund, newAmount(100))
+	c.Equal(domain.Decline, harness.authorize("too-big", 1000).Decision)
+	before := harness.readCounters()
 
-	keys, err := f.rdb.Keys(f.ctx, "*{"+f.card+"}*").Result()
+	keys, err := harness.rdb.Keys(harness.ctx, "*{"+harness.card+"}*").Result()
 	c.NoError(err)
-	c.NoError(f.rdb.Del(f.ctx, keys...).Err())
-	c.Empty(f.counters())
+	c.NoError(harness.rdb.Del(harness.ctx, keys...).Err())
+	c.Empty(harness.readCounters())
 
-	n, err := velocity.NewRebuilder(f.st, policy.NewCache(f.st), f.rdb, "unused").Rebuild(f.ctx)
+	restored, err := velocity.NewRebuilder(harness.st, policy.NewCache(harness.st), harness.rdb, "unused").Rebuild(harness.ctx)
 
 	c.NoError(err)
-	c.Equal(4, n)
-	c.Equal(before, f.counters())
-	c.Equal(domain.Decline, f.authorize("still-too-big", 1000).Decision, "300 + 800 + 350 + 1000 is still over 2000")
-	c.Equal(domain.Approve, f.authorize("fits", 550).Decision)
+	c.Equal(4, restored)
+	c.Equal(before, harness.readCounters())
+	c.Equal(domain.Decline, harness.authorize("still-too-big", 1000).Decision, "300 + 800 + 350 + 1000 is still over 2000")
+	c.Equal(domain.Approve, harness.authorize("fits", 550).Decision)
 }

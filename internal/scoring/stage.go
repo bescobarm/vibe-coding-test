@@ -24,24 +24,26 @@ const (
 // and maps it to approve, approve + flag, or decline (FR4, FR5).
 type Stage struct{}
 
-// Name implements pipeline.Stage.
-func (Stage) Name() string { return stageName }
+// GetName implements pipeline.Stage.
+func (Stage) GetName() string {
+	return stageName
+}
 
 // Evaluate implements pipeline.Stage. Fired features are reasons on a flag or
 // a decline; a decline undoes the velocity reservation (D-023).
 func (Stage) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	score := 0
 
-	for _, f := range Features() {
-		fired, msg := f.Check(e)
+	for _, feature := range ListFeatures() {
+		fired, msg := feature.Check(e)
 		if fired {
-			score += f.Points
-			e.AddReason(f.Code, msg)
+			score += feature.Points
+			e.AddReason(feature.Code, msg)
 		}
 	}
 
 	e.RiskScore = min(score, maxScore)
-	flagAt, declineAt := thresholds(e)
+	flagAt, declineAt := getThresholds(e)
 
 	switch {
 	case e.RiskScore >= declineAt:
@@ -53,20 +55,20 @@ func (Stage) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
 	return nil
 }
 
-func thresholds(e *pipeline.Evaluation) (int, int) {
-	r := e.Policy.Risk
-	if r == nil {
+func getThresholds(e *pipeline.Evaluation) (int, int) {
+	risk := e.Policy.Risk
+	if risk == nil {
 		return DefaultFlagAt, DefaultDeclineAt
 	}
 
-	return r.FlagAt, r.DeclineAt
+	return risk.FlagAt, risk.DeclineAt
 }
 
-// Query says which history the features need. Windows use the engine clock
+// BuildSignalQuery says which history the features need. Windows use the engine clock
 // (D-045) and the company's time zone for "today" (D-026).
-func Query(e *pipeline.Evaluation) domain.SignalQuery {
+func BuildSignalQuery(e *pipeline.Evaluation) domain.SignalQuery {
 	now := e.ReceivedAt
-	local := now.In(e.Policy.Location())
+	local := now.In(e.Policy.GetLocation())
 
 	return domain.SignalQuery{
 		CardholderID:  e.Card.CardholderID,

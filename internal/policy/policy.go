@@ -101,29 +101,29 @@ var (
 // typo like "blocked_mcc" fails loudly instead of silently disabling a control.
 // Call Validate afterwards.
 func Parse(data []byte) (Document, error) {
-	var d Document
-	err := decodeStrict(data, &d)
+	var doc Document
+	err := decodeStrict(data, &doc)
 	if err != nil {
 		return Document{}, err
 	}
 
-	return d, nil
+	return doc, nil
 }
 
 // Load decodes and validates a document read back from storage.
 func Load(data []byte) (Document, error) {
-	var d Document
-	err := json.Unmarshal(data, &d)
+	var doc Document
+	err := json.Unmarshal(data, &doc)
 	if err != nil {
 		return Document{}, fmt.Errorf("decode policy: %w", err)
 	}
 
-	errs := d.Validate()
+	errs := doc.Validate()
 	if len(errs) > 0 {
-		return Document{}, fmt.Errorf("stored policy %s v%d is invalid: %v", d.CompanyID, d.Version, errs)
+		return Document{}, fmt.Errorf("stored policy %s v%d is invalid: %v", doc.CompanyID, doc.Version, errs)
 	}
 
-	return d, nil
+	return doc, nil
 }
 
 // Validate returns field → problem. When it returns no errors the document is
@@ -174,8 +174,8 @@ func validateFallback(f *Fallback, errs map[string]string) {
 	}
 }
 
-// Location is the company's time zone, UTC by default.
-func (d Document) Location() *time.Location {
+// GetLocation is the company's time zone, UTC by default.
+func (d Document) GetLocation() *time.Location {
 	if d.loc == nil {
 		return time.UTC
 	}
@@ -183,45 +183,45 @@ func (d Document) Location() *time.Location {
 	return d.loc
 }
 
-// Effective merges card-level overrides into the company controls, field by
+// MergeOverrides merges card-level overrides into the company controls, field by
 // field: any field present in the overrides replaces the company value, and an
 // explicit empty list removes the restriction for that card.
-func Effective(company Controls, overrides json.RawMessage) (Controls, error) {
+func MergeOverrides(company Controls, overrides json.RawMessage) (Controls, error) {
 	if len(overrides) == 0 || string(overrides) == jsonNull {
 		return company, nil
 	}
 
-	var o Controls
-	err := decodeStrict(overrides, &o)
+	var cardControls Controls
+	err := decodeStrict(overrides, &cardControls)
 	if err != nil {
 		return Controls{}, fmt.Errorf("decode card overrides: %w", err)
 	}
 
 	errs := map[string]string{}
-	validateControls(&o, prefixOverrides, errs)
+	validateControls(&cardControls, prefixOverrides, errs)
 	if len(errs) > 0 {
 		return Controls{}, fmt.Errorf("invalid card overrides: %v", errs)
 	}
 
 	out := company
-	if o.BlockedMCCs != nil {
-		out.BlockedMCCs = o.BlockedMCCs
+	if cardControls.BlockedMCCs != nil {
+		out.BlockedMCCs = cardControls.BlockedMCCs
 	}
 
-	if o.AllowedCountries != nil {
-		out.AllowedCountries = o.AllowedCountries
+	if cardControls.AllowedCountries != nil {
+		out.AllowedCountries = cardControls.AllowedCountries
 	}
 
-	if o.MaxPerTransaction != nil {
-		out.MaxPerTransaction = o.MaxPerTransaction
+	if cardControls.MaxPerTransaction != nil {
+		out.MaxPerTransaction = cardControls.MaxPerTransaction
 	}
 
-	if o.AllowedEntryModes != nil {
-		out.AllowedEntryModes = o.AllowedEntryModes
+	if cardControls.AllowedEntryModes != nil {
+		out.AllowedEntryModes = cardControls.AllowedEntryModes
 	}
 
-	if o.AllowedHours != nil {
-		out.AllowedHours = o.AllowedHours
+	if cardControls.AllowedHours != nil {
+		out.AllowedHours = cardControls.AllowedHours
 	}
 
 	return out, nil
@@ -229,12 +229,12 @@ func Effective(company Controls, overrides json.RawMessage) (Controls, error) {
 
 // Contains reports whether t, already in the company's time zone, falls inside the window.
 func (h AllowedHours) Contains(t time.Time) bool {
-	m := t.Hour()*minutesPerHour + t.Minute()
+	minuteOfDay := t.Hour()*minutesPerHour + t.Minute()
 	if h.start < h.end {
-		return h.start <= m && m < h.end
+		return h.start <= minuteOfDay && minuteOfDay < h.end
 	}
 
-	return m >= h.start || m < h.end
+	return minuteOfDay >= h.start || minuteOfDay < h.end
 }
 
 func validateControls(c *Controls, prefix string, errs map[string]string) {
@@ -246,8 +246,8 @@ func validateControls(c *Controls, prefix string, errs map[string]string) {
 }
 
 func validateEach(list []string, field string, ok func(string) bool, msg string, errs map[string]string) {
-	for i, v := range list {
-		if !ok(v) {
+	for i, item := range list {
+		if !ok(item) {
 			errs[fmt.Sprintf("%s[%d]", field, i)] = msg
 		}
 	}
@@ -277,8 +277,8 @@ func validateHours(h *AllowedHours, field string, errs map[string]string) {
 		return
 	}
 
-	start, okStart := minutes(h.Start)
-	end, okEnd := minutes(h.End)
+	start, okStart := parseMinutes(h.Start)
+	end, okEnd := parseMinutes(h.End)
 
 	switch {
 	case !okStart:
@@ -292,14 +292,14 @@ func validateHours(h *AllowedHours, field string, errs map[string]string) {
 	}
 }
 
-func minutes(clock string) (int, bool) {
+func parseMinutes(clock string) (int, bool) {
 	if !clockRe.MatchString(clock) {
 		return 0, false
 	}
 
-	h, _ := strconv.Atoi(clock[:clockHourEnd])
-	m, _ := strconv.Atoi(clock[clockMinuteStart:])
-	return h*minutesPerHour + m, true
+	hour, _ := strconv.Atoi(clock[:clockHourEnd])
+	minute, _ := strconv.Atoi(clock[clockMinuteStart:])
+	return hour*minutesPerHour + minute, true
 }
 
 func decodeStrict(data []byte, v any) error {

@@ -35,12 +35,12 @@ type Authorization struct {
 
 // RebuildSource reads approved authorizations, the source of truth (D-003).
 type RebuildSource interface {
-	ApprovedSince(ctx context.Context, since time.Time) ([]Authorization, error)
+	ListApprovedSince(ctx context.Context, since time.Time) ([]Authorization, error)
 }
 
 // PolicyReader returns the company's latest policy, or domain.ErrNotFound.
 type PolicyReader interface {
-	Policy(ctx context.Context, companyID string) (policy.Document, error)
+	GetPolicy(ctx context.Context, companyID string) (policy.Document, error)
 }
 
 // Rebuilder restores the Redis counters from Postgres after Redis lost them.
@@ -70,7 +70,7 @@ func (r *Rebuilder) RebuildIfLost(ctx context.Context) (rebuilt int, err error) 
 		return 0, nil
 	}
 
-	n, err := r.Rebuild(ctx)
+	restored, err := r.Rebuild(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -80,7 +80,7 @@ func (r *Rebuilder) RebuildIfLost(ctx context.Context) (rebuilt int, err error) 
 		return 0, fmt.Errorf("set marker: %w", err)
 	}
 
-	return n, nil
+	return restored, nil
 }
 
 // Rebuild writes every approved authorization of the last 31 days back into
@@ -89,7 +89,7 @@ func (r *Rebuilder) RebuildIfLost(ctx context.Context) (rebuilt int, err error) 
 func (r *Rebuilder) Rebuild(ctx context.Context) (int, error) {
 	now := r.now()
 
-	auths, err := r.src.ApprovedSince(ctx, now.Add(-maxRetention))
+	auths, err := r.src.ListApprovedSince(ctx, now.Add(-maxRetention))
 	if err != nil {
 		return 0, fmt.Errorf("read authorizations: %w", err)
 	}
@@ -98,13 +98,13 @@ func (r *Rebuilder) Rebuild(ctx context.Context) (int, error) {
 	pipe := r.rdb.TxPipeline()
 	restored := 0
 
-	for _, a := range auths {
-		doc, err := r.policy(ctx, docs, a.CompanyID)
+	for _, authorization := range auths {
+		doc, err := r.getPolicy(ctx, docs, authorization.CompanyID)
 		if err != nil {
 			return 0, err
 		}
 
-		ok, err := restore(ctx, pipe, a, doc, now)
+		ok, err := restoreAuthorization(ctx, pipe, authorization, doc, now)
 		if err != nil {
 			return 0, err
 		}
@@ -122,13 +122,13 @@ func (r *Rebuilder) Rebuild(ctx context.Context) (int, error) {
 	return restored, nil
 }
 
-func (r *Rebuilder) policy(ctx context.Context, docs map[string]policy.Document, companyID string) (policy.Document, error) {
+func (r *Rebuilder) getPolicy(ctx context.Context, docs map[string]policy.Document, companyID string) (policy.Document, error) {
 	doc, ok := docs[companyID]
 	if ok {
 		return doc, nil
 	}
 
-	doc, err := r.policies.Policy(ctx, companyID)
+	doc, err := r.policies.GetPolicy(ctx, companyID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return policy.Document{}, fmt.Errorf("load policy %s: %w", companyID, err)
 	}
@@ -137,10 +137,10 @@ func (r *Rebuilder) policy(ctx context.Context, docs map[string]policy.Document,
 	return doc, nil
 }
 
-// restore queues one authorization's entries; it reports false when no rule applies.
-func restore(ctx context.Context, pipe redis.Pipeliner, a Authorization, doc policy.Document, now time.Time) (bool, error) {
-	counted := a.CountedMinor()
-	loc := doc.Location()
+// restoreAuthorization queues one authorization's entries; it reports false when no rule applies.
+func restoreAuthorization(ctx context.Context, pipe redis.Pipeliner, a Authorization, doc policy.Document, now time.Time) (bool, error) {
+	counted := a.GetCountedMinor()
+	loc := doc.GetLocation()
 
 	var held []string
 	for _, rule := range doc.Velocity {
@@ -151,16 +151,16 @@ func restore(ctx context.Context, pipe redis.Pipeliner, a Authorization, doc pol
 		prefix := fmt.Sprintf(fmtWindowKeys, a.CardID, rule.ID)
 		held = append(held, prefix+suffixAmounts)
 
-		if a.CreatedAt.Before(rule.WindowStart(now, loc)) {
+		if a.CreatedAt.Before(rule.GetWindowStart(now, loc)) {
 			continue
 		}
 
 		pipe.ZAdd(ctx, prefix+suffixTimes, redis.Z{Score: float64(a.CreatedAt.UnixMilli()), Member: a.AuthorizationID})
-		pipe.PExpire(ctx, prefix+suffixTimes, rule.Retention())
+		pipe.PExpire(ctx, prefix+suffixTimes, rule.GetRetention())
 
 		if counted > 0 {
 			pipe.HSet(ctx, prefix+suffixAmounts, a.AuthorizationID, counted)
-			pipe.PExpire(ctx, prefix+suffixAmounts, rule.Retention())
+			pipe.PExpire(ctx, prefix+suffixAmounts, rule.GetRetention())
 		}
 	}
 

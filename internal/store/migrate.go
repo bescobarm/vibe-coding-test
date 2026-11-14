@@ -81,10 +81,10 @@ func applyIfNew(ctx context.Context, conn *pgxpool.Conn, files fs.FS, name strin
 		return err
 	}
 
-	return apply(ctx, conn, name, string(sql))
+	return applyMigration(ctx, conn, name, string(sql))
 }
 
-func apply(ctx context.Context, conn *pgxpool.Conn, name, sql string) error {
+func applyMigration(ctx context.Context, conn *pgxpool.Conn, name, sql string) error {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return err

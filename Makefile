@@ -16,12 +16,12 @@ reset: ## Stop the containers and delete all data
 run: up ## Apply migrations, seed demo data and serve on :8080
 	go run ./cmd/engine
 
-test: up ## Unit + integration tests (integration tests use the compose Postgres)
-	go test -race -count=1 ./...
+test: up ## Unit + integration tests; a missing Postgres or Redis fails instead of skipping (I-028)
+	TEST_REQUIRE_SERVICES=true go test -race -count=1 ./...
 
 cover: up ## Coverage per function
 	mkdir -p $(COVER_DIR)
-	go test -count=1 -coverprofile=$(COVER_DIR)/cover.out ./...
+	TEST_REQUIRE_SERVICES=true go test -count=1 -coverprofile=$(COVER_DIR)/cover.out ./...
 	go tool cover -func=$(COVER_DIR)/cover.out
 
 vet:
@@ -29,8 +29,9 @@ vet:
 
 INIT_IN_IF := ^[[:space:]]*(if|switch) [^{]*:= [^{]*;
 
-lint: ## golangci-lint (.golangci.yml) plus a check that no if/switch has an init statement
+lint: ## golangci-lint (.golangci.yml), the style checker, and no init statement in if/switch
 	golangci-lint run ./...
+	go run ./tools/stylecheck .
 	@! grep -rnE '$(INIT_IN_IF)' --include='*.go' . || { echo "assign first, then check: no init statement in if/switch (D-043)"; false; }
 
 simulate:

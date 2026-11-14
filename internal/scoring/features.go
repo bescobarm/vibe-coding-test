@@ -48,28 +48,28 @@ type Feature struct {
 	Check  func(e *pipeline.Evaluation) (fired bool, message string)
 }
 
-// Features returns the six features in the order their reasons are reported.
-func Features() []Feature {
+// ListFeatures returns the six features in the order their reasons are reported.
+func ListFeatures() []Feature {
 	return []Feature{
-		{Code: domain.ReasonCardTestingPattern, Points: WeightHigh, Check: cardTesting},
-		{Code: domain.ReasonSplitTransaction, Points: WeightHigh, Check: splitPurchase},
-		{Code: domain.ReasonNewCountry, Points: WeightMedium, Check: newCountry},
-		{Code: domain.ReasonNewMerchantCNP, Points: WeightMedium, Check: newMerchantCNP},
-		{Code: domain.ReasonAmountAnomaly, Points: WeightMedium, Check: amountAnomaly},
-		{Code: domain.ReasonRoundAmount, Points: WeightLow, Check: roundAmount},
+		{Code: domain.ReasonCardTestingPattern, Points: WeightHigh, Check: detectCardTesting},
+		{Code: domain.ReasonSplitTransaction, Points: WeightHigh, Check: detectSplitPurchase},
+		{Code: domain.ReasonNewCountry, Points: WeightMedium, Check: detectNewCountry},
+		{Code: domain.ReasonNewMerchantCNP, Points: WeightMedium, Check: detectNewMerchantCNP},
+		{Code: domain.ReasonAmountAnomaly, Points: WeightMedium, Check: detectAmountAnomaly},
+		{Code: domain.ReasonRoundAmount, Points: WeightLow, Check: detectRoundAmount},
 	}
 }
 
-// cardTesting: a small amount after several small ones on the same card (D-025).
-func cardTesting(e *pipeline.Evaluation) (bool, string) {
+// detectCardTesting: a small amount after several small ones on the same card (D-025).
+func detectCardTesting(e *pipeline.Evaluation) (bool, string) {
 	recent := e.Signals.SmallRecent
 	fired := e.Request.AmountMinor <= smallMaxMinor && recent >= cardTestingMin
 
 	return fired, fmt.Sprintf(fmtCardTesting, recent+1)
 }
 
-// splitPurchase: one purchase split in parts that each stay just under the limit.
-func splitPurchase(e *pipeline.Evaluation) (bool, string) {
+// detectSplitPurchase: one purchase split in parts that each stay just under the limit.
+func detectSplitPurchase(e *pipeline.Evaluation) (bool, string) {
 	limit := e.Controls.MaxPerTransaction
 	if limit == nil || limit.Currency != e.Request.Currency || len(e.Signals.SameMerchantToday) == 0 {
 		return false, ""
@@ -78,12 +78,12 @@ func splitPurchase(e *pipeline.Evaluation) (bool, string) {
 	floor := limit.AmountMinor * splitSharePct / percent
 	total := e.Request.AmountMinor
 
-	for _, a := range e.Signals.SameMerchantToday {
-		if a <= floor {
+	for _, earlier := range e.Signals.SameMerchantToday {
+		if earlier <= floor {
 			return false, ""
 		}
 
-		total += a
+		total += earlier
 	}
 
 	fired := e.Request.AmountMinor > floor && total > limit.AmountMinor
@@ -92,43 +92,43 @@ func splitPurchase(e *pipeline.Evaluation) (bool, string) {
 	return fired, fmt.Sprintf(fmtSplit, parts, total, splitSharePct, limit.AmountMinor, limit.Currency)
 }
 
-func newCountry(e *pipeline.Evaluation) (bool, string) {
-	fired := known(e) && !e.Signals.CountrySeen
+func detectNewCountry(e *pipeline.Evaluation) (bool, string) {
+	fired := isKnownCardholder(e) && !e.Signals.CountrySeen
 
 	return fired, fmt.Sprintf(fmtNewCountry, e.Request.Merchant.Country)
 }
 
-func newMerchantCNP(e *pipeline.Evaluation) (bool, string) {
+func detectNewMerchantCNP(e *pipeline.Evaluation) (bool, string) {
 	mode := e.Request.EntryMode
 	notPresent := mode == entryEcommerce || mode == entryManual
-	fired := known(e) && notPresent && !e.Signals.MerchantSeen
+	fired := isKnownCardholder(e) && notPresent && !e.Signals.MerchantSeen
 
 	return fired, fmt.Sprintf(fmtNewMerchant, e.Request.Merchant.ID, mode)
 }
 
-// amountAnomaly: far above what this cardholder usually spends in this MCC.
+// detectAmountAnomaly: far above what this cardholder usually spends in this MCC.
 // The deviation has a floor so a cardholder who always pays the same amount
 // isn't flagged for a small change.
-func amountAnomaly(e *pipeline.Evaluation) (bool, string) {
-	s := e.Signals
-	if !known(e) || s.MCCCount < ColdStart {
+func detectAmountAnomaly(e *pipeline.Evaluation) (bool, string) {
+	signals := e.Signals
+	if !isKnownCardholder(e) || signals.MCCCount < ColdStart {
 		return false, ""
 	}
 
-	spread := math.Max(s.MCCStdDevMinor, s.MCCMeanMinor*minStdDevShare)
-	z := (float64(e.Request.AmountMinor) - s.MCCMeanMinor) / spread
+	spread := math.Max(signals.MCCStdDevMinor, signals.MCCMeanMinor*minStdDevShare)
+	zScore := (float64(e.Request.AmountMinor) - signals.MCCMeanMinor) / spread
 
-	return z >= anomalyZ, fmt.Sprintf(fmtAmountAnomaly, e.Request.AmountMinor, z, s.MCCMeanMinor, e.Request.Merchant.MCC)
+	return zScore >= anomalyZ, fmt.Sprintf(fmtAmountAnomaly, e.Request.AmountMinor, zScore, signals.MCCMeanMinor, e.Request.Merchant.MCC)
 }
 
-func roundAmount(e *pipeline.Evaluation) (bool, string) {
+func detectRoundAmount(e *pipeline.Evaluation) (bool, string) {
 	amount := e.Request.AmountMinor
 	fired := amount >= roundMinMinor && amount%roundUnitMinor == 0
 
 	return fired, fmt.Sprintf(fmtRoundAmount, amount)
 }
 
-// known: the cardholder has enough history for novelty to mean something (D-056).
-func known(e *pipeline.Evaluation) bool {
+// isKnownCardholder: the cardholder has enough history for novelty to mean something (D-056).
+func isKnownCardholder(e *pipeline.Evaluation) bool {
 	return e.Signals.Approved >= ColdStart
 }

@@ -15,7 +15,7 @@ import (
 // Returning an error means the stage could not decide (a dependency failed),
 // which is different from deciding to decline.
 type Stage interface {
-	Name() string
+	GetName() string
 	Evaluate(ctx context.Context, e *Evaluation) error
 }
 
@@ -68,11 +68,13 @@ func (e *Evaluation) AddReason(code, message string) {
 	e.reasons = append(e.reasons, domain.Reason{Code: code, Message: message})
 }
 
-// Halted reports whether a stage declined.
-func (e *Evaluation) Halted() bool { return e.halted }
+// IsHalted reports whether a stage declined.
+func (e *Evaluation) IsHalted() bool {
+	return e.halted
+}
 
-// Decision is APPROVE unless a stage declined.
-func (e *Evaluation) Decision() domain.Decision {
+// GetDecision is APPROVE unless a stage declined.
+func (e *Evaluation) GetDecision() domain.Decision {
 	if e.decision == "" {
 		return domain.Approve
 	}
@@ -80,14 +82,16 @@ func (e *Evaluation) Decision() domain.Decision {
 	return e.decision
 }
 
-// Reasons returns the reasons recorded so far.
-func (e *Evaluation) Reasons() []domain.Reason { return e.reasons }
+// GetReasons returns the reasons recorded so far.
+func (e *Evaluation) GetReasons() []domain.Reason {
+	return e.reasons
+}
 
-// Response builds the processor-facing answer. Latency is set by the caller.
-func (e *Evaluation) Response() domain.AuthResponse {
+// BuildResponse builds the processor-facing answer. Latency is set by the caller.
+func (e *Evaluation) BuildResponse() domain.AuthResponse {
 	resp := domain.AuthResponse{
 		AuthorizationID: e.Request.AuthorizationID,
-		Decision:        e.Decision(),
+		Decision:        e.GetDecision(),
 		RiskScore:       e.RiskScore,
 		Reasons:         e.reasons,
 		PolicyVersion:   e.PolicyVersion,
@@ -113,10 +117,10 @@ func New(stages ...Stage) *Pipeline {
 // Run evaluates the stages in order and stops at the first decline. On a
 // decline it undoes what earlier stages registered with OnDecline.
 func (p *Pipeline) Run(ctx context.Context, e *Evaluation) error {
-	for _, s := range p.stages {
-		err := s.Evaluate(ctx, e)
+	for _, stage := range p.stages {
+		err := stage.Evaluate(ctx, e)
 		if err != nil {
-			return fmt.Errorf("stage %s: %w", s.Name(), err)
+			return fmt.Errorf("stage %s: %w", stage.GetName(), err)
 		}
 
 		if e.halted {

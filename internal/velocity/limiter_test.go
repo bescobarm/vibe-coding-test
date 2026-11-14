@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
+	"github.com/bescobarm/card-auth-engine/internal/testenv"
 )
 
 const testTimeout = 2 * time.Second
@@ -31,14 +32,14 @@ func newTestLimiter(t *testing.T) (*Limiter, *redis.Client, string) {
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
 	err := rdb.Ping(context.Background()).Err()
 	if err != nil {
-		t.Skipf("Redis not reachable (run `make up`): %v", err)
+		testenv.SkipOrFail(t, "Redis", err)
 	}
 
-	b := make([]byte, 6)
-	_, err = rand.Read(b)
+	random := make([]byte, 6)
+	_, err = rand.Read(random)
 	require.NoError(t, err)
 
-	card := "card_" + hex.EncodeToString(b)
+	card := "card_" + hex.EncodeToString(random)
 	t.Cleanup(func() {
 		ctx := context.Background()
 		for _, pattern := range []string{"vel:{" + card + "}:*", "hold:{" + card + "}:*"} {
@@ -54,11 +55,11 @@ func newTestLimiter(t *testing.T) (*Limiter, *redis.Client, string) {
 	return NewLimiter(rdb, testTimeout), rdb, card
 }
 
-func window(id string, maxCount, maxAmount int64) Window {
+func newWindow(id string, maxCount, maxAmount int64) Window {
 	return Window{RuleID: id, Start: t0.Add(-time.Hour), MaxCount: maxCount, MaxAmount: maxAmount, Retention: time.Hour}
 }
 
-func reserve(c *require.Assertions, l *Limiter, card, id string, amount int64, ws ...Window) Result {
+func reserveAmount(c *require.Assertions, l *Limiter, card, id string, amount int64, ws ...Window) Result {
 	res, err := l.Reserve(context.Background(), Reservation{
 		CardID: card, AuthorizationID: id, AmountMinor: amount, Now: t0, Windows: ws,
 	})
@@ -68,10 +69,10 @@ func reserve(c *require.Assertions, l *Limiter, card, id string, amount int64, w
 
 func TestReserveRecordsTheAmountInEveryWindow(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
+	limiter, rdb, card := newTestLimiter(t)
 	ctx := context.Background()
 
-	res := reserve(c, l, card, "a1", 700, window("count", 5, NoLimit), window("daily", NoLimit, 1000))
+	res := reserveAmount(c, limiter, card, "a1", 700, newWindow("count", 5, NoLimit), newWindow("daily", NoLimit, 1000))
 
 	c.True(res.Reserved)
 	c.Equal("700", rdb.HGet(ctx, "vel:{"+card+"}:daily:amt", "a1").Val())
@@ -82,24 +83,24 @@ func TestReserveRecordsTheAmountInEveryWindow(t *testing.T) {
 
 func TestReserveDeclinesWhenTheCountIsFull(t *testing.T) {
 	c := require.New(t)
-	l, _, card := newTestLimiter(t)
-	w := window("count", 2, NoLimit)
-	reserve(c, l, card, "a1", 100, w)
-	reserve(c, l, card, "a2", 200, w)
+	limiter, _, card := newTestLimiter(t)
+	window := newWindow("count", 2, NoLimit)
+	reserveAmount(c, limiter, card, "a1", 100, window)
+	reserveAmount(c, limiter, card, "a2", 200, window)
 
-	res := reserve(c, l, card, "a3", 100, w)
+	res := reserveAmount(c, limiter, card, "a3", 100, window)
 
 	c.Equal(Result{Reserved: false, Window: 0, Count: 2, SpentMinor: 300}, res)
 }
 
 func TestReserveDeclinesWhenTheAmountWouldGoOverTheLimit(t *testing.T) {
 	c := require.New(t)
-	l, _, card := newTestLimiter(t)
-	w := window("daily", NoLimit, 1000)
-	reserve(c, l, card, "a1", 600, w)
+	limiter, _, card := newTestLimiter(t)
+	window := newWindow("daily", NoLimit, 1000)
+	reserveAmount(c, limiter, card, "a1", 600, window)
 
-	over := reserve(c, l, card, "a2", 500, w)
-	exact := reserve(c, l, card, "a3", 400, w)
+	over := reserveAmount(c, limiter, card, "a2", 500, window)
+	exact := reserveAmount(c, limiter, card, "a3", 400, window)
 
 	c.Equal(Result{Reserved: false, Window: 0, Count: 1, SpentMinor: 600}, over)
 	c.True(exact.Reserved)
@@ -107,11 +108,11 @@ func TestReserveDeclinesWhenTheAmountWouldGoOverTheLimit(t *testing.T) {
 
 func TestReserveReportsTheFirstFullWindowAndWritesNothing(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
-	roomy, full := window("roomy", 10, NoLimit), window("full", 1, NoLimit)
-	reserve(c, l, card, "a1", 100, full)
+	limiter, rdb, card := newTestLimiter(t)
+	roomy, full := newWindow("roomy", 10, NoLimit), newWindow("full", 1, NoLimit)
+	reserveAmount(c, limiter, card, "a1", 100, full)
 
-	res := reserve(c, l, card, "a2", 100, roomy, full)
+	res := reserveAmount(c, limiter, card, "a2", 100, roomy, full)
 
 	c.False(res.Reserved)
 	c.Equal(1, res.Window)
@@ -121,12 +122,12 @@ func TestReserveReportsTheFirstFullWindowAndWritesNothing(t *testing.T) {
 
 func TestReserveIsIdempotentPerAuthorizationID(t *testing.T) {
 	c := require.New(t)
-	l, _, card := newTestLimiter(t)
-	w := window("daily", NoLimit, 1000)
+	limiter, _, card := newTestLimiter(t)
+	window := newWindow("daily", NoLimit, 1000)
 
-	first := reserve(c, l, card, "a1", 600, w)
-	retry := reserve(c, l, card, "a1", 600, w)
-	other := reserve(c, l, card, "a2", 500, w)
+	first := reserveAmount(c, limiter, card, "a1", 600, window)
+	retry := reserveAmount(c, limiter, card, "a1", 600, window)
+	other := reserveAmount(c, limiter, card, "a2", 500, window)
 
 	c.True(first.Reserved)
 	c.True(retry.Reserved)
@@ -135,11 +136,11 @@ func TestReserveIsIdempotentPerAuthorizationID(t *testing.T) {
 
 func TestReserveForgetsEntriesOlderThanTheWindow(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
-	reserve(c, l, card, "a1", 100, window("count", 1, NoLimit))
+	limiter, rdb, card := newTestLimiter(t)
+	reserveAmount(c, limiter, card, "a1", 100, newWindow("count", 1, NoLimit))
 
 	later := Window{RuleID: "count", Start: t0.Add(time.Minute), MaxCount: 1, MaxAmount: NoLimit, Retention: time.Hour}
-	res, err := l.Reserve(context.Background(), Reservation{
+	res, err := limiter.Reserve(context.Background(), Reservation{
 		CardID: card, AuthorizationID: "a2", AmountMinor: 100, Now: t0.Add(11 * time.Minute), Windows: []Window{later},
 	})
 
@@ -151,19 +152,19 @@ func TestReserveForgetsEntriesOlderThanTheWindow(t *testing.T) {
 // AC1 of SP03: 100 parallel requests on a card whose limit allows 10.
 func TestConcurrentReservesNeverExceedTheLimit(t *testing.T) {
 	c := require.New(t)
-	l, _, card := newTestLimiter(t)
-	w := window("daily", NoLimit, 1000)
+	limiter, _, card := newTestLimiter(t)
+	window := newWindow("daily", NoLimit, 1000)
 
-	const n = 100
+	const parallel = 100
 	var wg sync.WaitGroup
-	results := make([]Result, n)
-	errs := make([]error, n)
-	for i := range n {
+	results := make([]Result, parallel)
+	errs := make([]error, parallel)
+	for i := range parallel {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], errs[i] = l.Reserve(context.Background(), Reservation{
-				CardID: card, AuthorizationID: hex.EncodeToString([]byte{byte(i)}), AmountMinor: 100, Now: t0, Windows: []Window{w},
+			results[i], errs[i] = limiter.Reserve(context.Background(), Reservation{
+				CardID: card, AuthorizationID: hex.EncodeToString([]byte{byte(i)}), AmountMinor: 100, Now: t0, Windows: []Window{window},
 			})
 		}()
 	}
@@ -171,7 +172,7 @@ func TestConcurrentReservesNeverExceedTheLimit(t *testing.T) {
 	wg.Wait()
 
 	reserved := 0
-	for i := range n {
+	for i := range parallel {
 		c.NoError(errs[i], "request %d", i)
 		if results[i].Reserved {
 			reserved++
@@ -184,11 +185,13 @@ func TestConcurrentReservesNeverExceedTheLimit(t *testing.T) {
 func TestReserveFailsFastWhenRedisIsUnreachable(t *testing.T) {
 	c := require.New(t)
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
-	t.Cleanup(func() { _ = rdb.Close() })
-	l := NewLimiter(rdb, 50*time.Millisecond)
+	t.Cleanup(func() {
+		_ = rdb.Close()
+	})
+	limiter := NewLimiter(rdb, 50*time.Millisecond)
 
-	_, err := l.Reserve(context.Background(), Reservation{CardID: "card_x", AuthorizationID: "a1", AmountMinor: 1, Now: t0,
-		Windows: []Window{window("count", 1, NoLimit)}})
+	_, err := limiter.Reserve(context.Background(), Reservation{CardID: "card_x", AuthorizationID: "a1", AmountMinor: 1, Now: t0,
+		Windows: []Window{newWindow("count", 1, NoLimit)}})
 
 	c.ErrorContains(err, "run script")
 }
@@ -202,73 +205,73 @@ func (shortReplyScripter) EvalSha(ctx context.Context, _ string, _ []string, _ .
 
 func TestReserveRejectsAnUnexpectedReply(t *testing.T) {
 	c := require.New(t)
-	l := NewLimiter(shortReplyScripter{}, time.Second)
+	limiter := NewLimiter(shortReplyScripter{}, time.Second)
 
-	_, err := l.Reserve(context.Background(), Reservation{CardID: "card_x", AuthorizationID: "a1", AmountMinor: 1, Now: t0,
-		Windows: []Window{window("count", 1, NoLimit)}})
+	_, err := limiter.Reserve(context.Background(), Reservation{CardID: "card_x", AuthorizationID: "a1", AmountMinor: 1, Now: t0,
+		Windows: []Window{newWindow("count", 1, NoLimit)}})
 
 	c.ErrorIs(err, ErrUnexpectedReply)
 }
 
-func release(c *require.Assertions, l *Limiter, card, id, event string, amount int64) {
+func releaseAmount(c *require.Assertions, l *Limiter, card, id, event string, amount int64) {
 	c.NoError(l.Adjust(context.Background(), lifecycle.Adjust{CardID: card, AuthorizationID: id, EventID: event, DeltaMinor: -amount}))
 }
 
 // D-051: a full release frees the budget, but the authorization still counts.
 func TestReleaseFreesTheAmountButKeepsTheCount(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
-	count, daily := window("count", 5, NoLimit), window("daily", NoLimit, 500)
-	reserve(c, l, card, "a1", 400, count, daily)
+	limiter, rdb, card := newTestLimiter(t)
+	count, daily := newWindow("count", 5, NoLimit), newWindow("daily", NoLimit, 500)
+	reserveAmount(c, limiter, card, "a1", 400, count, daily)
 
-	release(c, l, card, "a1", "e1", 400)
+	releaseAmount(c, limiter, card, "a1", "e1", 400)
 
 	c.Zero(rdb.HLen(context.Background(), "vel:{"+card+"}:daily:amt").Val())
 	c.Equal(int64(1), rdb.ZCard(context.Background(), "vel:{"+card+"}:count:ts").Val())
 	c.Equal("0", rdb.HGet(context.Background(), "hold:{"+card+"}:a1", "amount").Val())
-	c.True(reserve(c, l, card, "a2", 450, count, daily).Reserved, "AC2: the released budget is available again")
+	c.True(reserveAmount(c, limiter, card, "a2", 450, count, daily).Reserved, "AC2: the released budget is available again")
 }
 
 func TestPartialReleaseLowersTheHeldAmount(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
-	daily := window("daily", NoLimit, 500)
-	reserve(c, l, card, "a1", 400, daily)
+	limiter, rdb, card := newTestLimiter(t)
+	daily := newWindow("daily", NoLimit, 500)
+	reserveAmount(c, limiter, card, "a1", 400, daily)
 
-	release(c, l, card, "a1", "e1", 150)
+	releaseAmount(c, limiter, card, "a1", "e1", 150)
 
 	c.Equal("250", rdb.HGet(context.Background(), "vel:{"+card+"}:daily:amt", "a1").Val())
-	c.Equal(int64(250), reserve(c, l, card, "a2", 300, daily).SpentMinor)
+	c.Equal(int64(250), reserveAmount(c, limiter, card, "a2", 300, daily).SpentMinor)
 }
 
 func TestReleaseAppliesAnEventOnlyOnce(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
-	reserve(c, l, card, "a1", 400, window("daily", NoLimit, 1000))
+	limiter, rdb, card := newTestLimiter(t)
+	reserveAmount(c, limiter, card, "a1", 400, newWindow("daily", NoLimit, 1000))
 
-	release(c, l, card, "a1", "e1", 100)
-	release(c, l, card, "a1", "e1", 100)
+	releaseAmount(c, limiter, card, "a1", "e1", 100)
+	releaseAmount(c, limiter, card, "a1", "e1", 100)
 
 	c.Equal("300", rdb.HGet(context.Background(), "hold:{"+card+"}:a1", "amount").Val())
 }
 
 func TestReleaseWithoutAHoldDoesNothing(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
+	limiter, rdb, card := newTestLimiter(t)
 
-	release(c, l, card, "never-reserved", "e1", 100)
+	releaseAmount(c, limiter, card, "never-reserved", "e1", 100)
 
 	c.Zero(rdb.Exists(context.Background(), "hold:{"+card+"}:never-reserved").Val())
 }
 
 func TestReleaseDoesNotBringBackAnEntryThatLeftTheWindow(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
+	limiter, rdb, card := newTestLimiter(t)
 	ctx := context.Background()
-	reserve(c, l, card, "a1", 400, window("daily", NoLimit, 1000))
+	reserveAmount(c, limiter, card, "a1", 400, newWindow("daily", NoLimit, 1000))
 	rdb.HDel(ctx, "vel:{"+card+"}:daily:amt", "a1")
 
-	release(c, l, card, "a1", "e1", 100)
+	releaseAmount(c, limiter, card, "a1", "e1", 100)
 
 	c.False(rdb.HExists(ctx, "vel:{"+card+"}:daily:amt", "a1").Val())
 }
@@ -276,10 +279,10 @@ func TestReleaseDoesNotBringBackAnEntryThatLeftTheWindow(t *testing.T) {
 // D-053: a capture above the hold raises what the budget counts.
 func TestAdjustUpCountsACaptureAboveTheHold(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
-	reserve(c, l, card, "a1", 400, window("daily", NoLimit, 1000))
+	limiter, rdb, card := newTestLimiter(t)
+	reserveAmount(c, limiter, card, "a1", 400, newWindow("daily", NoLimit, 1000))
 
-	c.NoError(l.Adjust(context.Background(), lifecycle.Adjust{CardID: card, AuthorizationID: "a1", EventID: "cap", DeltaMinor: 60}))
+	c.NoError(limiter.Adjust(context.Background(), lifecycle.Adjust{CardID: card, AuthorizationID: "a1", EventID: "cap", DeltaMinor: 60}))
 
 	c.Equal("460", rdb.HGet(context.Background(), "vel:{"+card+"}:daily:amt", "a1").Val())
 	c.Equal("460", rdb.HGet(context.Background(), "hold:{"+card+"}:a1", "amount").Val())
@@ -287,14 +290,14 @@ func TestAdjustUpCountsACaptureAboveTheHold(t *testing.T) {
 
 func TestCancelRemovesTheReservationFromEveryWindow(t *testing.T) {
 	c := require.New(t)
-	l, rdb, card := newTestLimiter(t)
+	limiter, rdb, card := newTestLimiter(t)
 	ctx := context.Background()
-	count, daily := window("count", 5, NoLimit), window("daily", NoLimit, 1000)
-	reserve(c, l, card, "a1", 400, count, daily)
-	reserve(c, l, card, "a2", 100, count, daily)
+	count, daily := newWindow("count", 5, NoLimit), newWindow("daily", NoLimit, 1000)
+	reserveAmount(c, limiter, card, "a1", 400, count, daily)
+	reserveAmount(c, limiter, card, "a2", 100, count, daily)
 
-	c.NoError(l.Cancel(ctx, card, "a1"))
-	c.NoError(l.Cancel(ctx, card, "a1"), "cancel is safe to repeat")
+	c.NoError(limiter.Cancel(ctx, card, "a1"))
+	c.NoError(limiter.Cancel(ctx, card, "a1"), "cancel is safe to repeat")
 
 	c.Equal([]string{"a2"}, rdb.ZRange(ctx, "vel:{"+card+"}:count:ts", 0, -1).Val())
 	c.Equal(map[string]string{"a2": "100"}, rdb.HGetAll(ctx, "vel:{"+card+"}:daily:amt").Val())
@@ -304,7 +307,9 @@ func TestCancelRemovesTheReservationFromEveryWindow(t *testing.T) {
 func TestCancelFailsFastWhenRedisIsUnreachable(t *testing.T) {
 	c := require.New(t)
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
-	t.Cleanup(func() { _ = rdb.Close() })
+	t.Cleanup(func() {
+		_ = rdb.Close()
+	})
 
 	err := NewLimiter(rdb, 50*time.Millisecond).Cancel(context.Background(), "card_x", "a1")
 
@@ -314,7 +319,9 @@ func TestCancelFailsFastWhenRedisIsUnreachable(t *testing.T) {
 func TestReleaseFailsFastWhenRedisIsUnreachable(t *testing.T) {
 	c := require.New(t)
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
-	t.Cleanup(func() { _ = rdb.Close() })
+	t.Cleanup(func() {
+		_ = rdb.Close()
+	})
 
 	err := NewLimiter(rdb, 50*time.Millisecond).Adjust(context.Background(),
 		lifecycle.Adjust{CardID: "card_x", AuthorizationID: "a1", EventID: "e1", DeltaMinor: -1})

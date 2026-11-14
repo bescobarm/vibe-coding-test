@@ -6,22 +6,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func amount(v int64) *int64 { return &v }
+func newAmount(v int64) *int64 {
+	return &v
+}
 
-func pending(held int64) Hold {
+func newPendingHold(held int64) Hold {
 	return Hold{AuthorizationID: "a1", CardID: "card_123", Currency: "USD", MCC: "7011", Status: StatusPending, HeldMinor: held}
 }
 
-func captured(capturedMinor, refunded int64) Hold {
-	h := pending(0)
-	h.Status, h.CapturedMinor, h.RefundedMinor = StatusCaptured, capturedMinor, refunded
-	return h
+func newCapturedHold(capturedMinor, refunded int64) Hold {
+	hold := newPendingHold(0)
+	hold.Status, hold.CapturedMinor, hold.RefundedMinor = StatusCaptured, capturedMinor, refunded
+	return hold
 }
 
 func TestFullReversalReleasesEverything(t *testing.T) {
 	c := require.New(t)
 
-	res, delta, err := Transition(pending(400), Event{ID: "e1", Type: TypeReversal})
+	res, delta, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeReversal})
 
 	c.NoError(err)
 	c.Equal(Result{AuthorizationID: "a1", EventID: "e1", Type: TypeReversal, Status: StatusReversed}, res)
@@ -31,7 +33,7 @@ func TestFullReversalReleasesEverything(t *testing.T) {
 func TestPartialReversalKeepsTheAuthorizationPending(t *testing.T) {
 	c := require.New(t)
 
-	res, delta, err := Transition(pending(400), Event{ID: "e1", Type: TypeReversal, AmountMinor: amount(150)})
+	res, delta, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeReversal, AmountMinor: newAmount(150)})
 
 	c.NoError(err)
 	c.Equal(StatusPending, res.Status)
@@ -42,7 +44,7 @@ func TestPartialReversalKeepsTheAuthorizationPending(t *testing.T) {
 func TestPartialReversalOfTheWholeHoldReverses(t *testing.T) {
 	c := require.New(t)
 
-	res, _, err := Transition(pending(400), Event{ID: "e1", Type: TypeReversal, AmountMinor: amount(400)})
+	res, _, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeReversal, AmountMinor: newAmount(400)})
 
 	c.NoError(err)
 	c.Equal(StatusReversed, res.Status)
@@ -51,7 +53,7 @@ func TestPartialReversalOfTheWholeHoldReverses(t *testing.T) {
 func TestExpiryReleasesEverything(t *testing.T) {
 	c := require.New(t)
 
-	res, delta, err := Transition(pending(400), Event{ID: "e1", Type: TypeExpiry})
+	res, delta, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeExpiry})
 
 	c.NoError(err)
 	c.Equal(StatusExpired, res.Status)
@@ -61,27 +63,27 @@ func TestExpiryReleasesEverything(t *testing.T) {
 func TestReversalOverTheHoldIsRefused(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := Transition(pending(400), Event{ID: "e1", Type: TypeReversal, AmountMinor: amount(401)})
+	_, _, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeReversal, AmountMinor: newAmount(401)})
 
 	c.ErrorIs(err, ErrOverHold)
 }
 
 func TestADeclinedAuthorizationHasNothingToRelease(t *testing.T) {
 	c := require.New(t)
-	h := pending(0)
-	h.Status = StatusDeclined
+	hold := newPendingHold(0)
+	hold.Status = StatusDeclined
 
-	_, _, err := Transition(h, Event{ID: "e1", Type: TypeReversal})
+	_, _, err := ComputeTransition(hold, Event{ID: "e1", Type: TypeReversal})
 
 	c.ErrorIs(err, ErrDeclined)
 }
 
 func TestAReversedAuthorizationCannotChange(t *testing.T) {
 	c := require.New(t)
-	h := pending(0)
-	h.Status = StatusReversed
+	hold := newPendingHold(0)
+	hold.Status = StatusReversed
 
-	_, _, err := Transition(h, Event{ID: "e1", Type: TypeExpiry})
+	_, _, err := ComputeTransition(hold, Event{ID: "e1", Type: TypeExpiry})
 
 	c.ErrorIs(err, ErrNotPending)
 }
@@ -89,7 +91,7 @@ func TestAReversedAuthorizationCannotChange(t *testing.T) {
 func TestIncrementRaisesTheHold(t *testing.T) {
 	c := require.New(t)
 
-	res, delta, err := Transition(pending(300), Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(150)})
+	res, delta, err := ComputeTransition(newPendingHold(300), Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(150)})
 
 	c.NoError(err)
 	c.Equal("APPROVE", string(res.Decision))
@@ -100,7 +102,7 @@ func TestIncrementRaisesTheHold(t *testing.T) {
 func TestIncrementNeedsAPendingAuthorization(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := Transition(captured(300, 0), Event{ID: "e1", Type: TypeIncrement, AmountMinor: amount(150)})
+	_, _, err := ComputeTransition(newCapturedHold(300, 0), Event{ID: "e1", Type: TypeIncrement, AmountMinor: newAmount(150)})
 
 	c.ErrorIs(err, ErrNotPending)
 }
@@ -109,7 +111,7 @@ func TestIncrementNeedsAPendingAuthorization(t *testing.T) {
 func TestCaptureAboveTheHoldCountsTheCapturedAmount(t *testing.T) {
 	c := require.New(t)
 
-	res, delta, err := Transition(pending(400), Event{ID: "e1", Type: TypeCapture, AmountMinor: amount(460)})
+	res, delta, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeCapture, AmountMinor: newAmount(460)})
 
 	c.NoError(err)
 	c.Equal(StatusCaptured, res.Status)
@@ -121,7 +123,7 @@ func TestCaptureAboveTheHoldCountsTheCapturedAmount(t *testing.T) {
 func TestCaptureBelowTheHoldReleasesTheDifference(t *testing.T) {
 	c := require.New(t)
 
-	_, delta, err := Transition(pending(400), Event{ID: "e1", Type: TypeCapture, AmountMinor: amount(250)})
+	_, delta, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeCapture, AmountMinor: newAmount(250)})
 
 	c.NoError(err)
 	c.Equal(int64(-150), delta)
@@ -130,7 +132,7 @@ func TestCaptureBelowTheHoldReleasesTheDifference(t *testing.T) {
 func TestCaptureNeedsAPendingAuthorization(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := Transition(captured(300, 0), Event{ID: "e1", Type: TypeCapture, AmountMinor: amount(300)})
+	_, _, err := ComputeTransition(newCapturedHold(300, 0), Event{ID: "e1", Type: TypeCapture, AmountMinor: newAmount(300)})
 
 	c.ErrorIs(err, ErrNotPending)
 }
@@ -138,7 +140,7 @@ func TestCaptureNeedsAPendingAuthorization(t *testing.T) {
 func TestPartialRefundKeepsTheAuthorizationCaptured(t *testing.T) {
 	c := require.New(t)
 
-	res, delta, err := Transition(captured(460, 0), Event{ID: "e1", Type: TypeRefund, AmountMinor: amount(60)})
+	res, delta, err := ComputeTransition(newCapturedHold(460, 0), Event{ID: "e1", Type: TypeRefund, AmountMinor: newAmount(60)})
 
 	c.NoError(err)
 	c.Equal(StatusCaptured, res.Status)
@@ -150,7 +152,7 @@ func TestPartialRefundKeepsTheAuthorizationCaptured(t *testing.T) {
 func TestFullRefundRefundsWhatIsLeft(t *testing.T) {
 	c := require.New(t)
 
-	res, delta, err := Transition(captured(460, 60), Event{ID: "e1", Type: TypeRefund})
+	res, delta, err := ComputeTransition(newCapturedHold(460, 60), Event{ID: "e1", Type: TypeRefund})
 
 	c.NoError(err)
 	c.Equal(StatusRefunded, res.Status)
@@ -161,7 +163,7 @@ func TestFullRefundRefundsWhatIsLeft(t *testing.T) {
 func TestRefundOverWhatIsLeftIsRefused(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := Transition(captured(460, 60), Event{ID: "e1", Type: TypeRefund, AmountMinor: amount(401)})
+	_, _, err := ComputeTransition(newCapturedHold(460, 60), Event{ID: "e1", Type: TypeRefund, AmountMinor: newAmount(401)})
 
 	c.ErrorIs(err, ErrOverRefund)
 }
@@ -169,7 +171,7 @@ func TestRefundOverWhatIsLeftIsRefused(t *testing.T) {
 func TestRefundNeedsACapture(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := Transition(pending(400), Event{ID: "e1", Type: TypeRefund})
+	_, _, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: TypeRefund})
 
 	c.ErrorIs(err, ErrNotCaptured)
 }
@@ -177,47 +179,47 @@ func TestRefundNeedsACapture(t *testing.T) {
 func TestUnknownEventTypeIsRefused(t *testing.T) {
 	c := require.New(t)
 
-	_, _, err := Transition(pending(400), Event{ID: "e1", Type: "chargeback"})
+	_, _, err := ComputeTransition(newPendingHold(400), Event{ID: "e1", Type: "chargeback"})
 
 	c.ErrorIs(err, ErrUnknownType)
 }
 
 func TestSameComparesEveryField(t *testing.T) {
 	c := require.New(t)
-	ev := Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: amount(100)}
+	ev := Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: newAmount(100)}
 
-	c.True(ev.Same(Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: amount(100)}))
-	c.True(Event{ID: "e1", Type: TypeExpiry}.Same(Event{ID: "e1", Type: TypeExpiry}))
-	c.False(ev.Same(Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: amount(200)}))
-	c.False(ev.Same(Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal}))
-	c.False(ev.Same(Event{ID: "e1", AuthorizationID: "a2", Type: TypeReversal, AmountMinor: amount(100)}))
-	c.False(ev.Same(Event{ID: "e1", AuthorizationID: "a1", Type: TypeExpiry, AmountMinor: amount(100)}))
+	c.True(ev.IsSame(Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: newAmount(100)}))
+	c.True(Event{ID: "e1", Type: TypeExpiry}.IsSame(Event{ID: "e1", Type: TypeExpiry}))
+	c.False(ev.IsSame(Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal, AmountMinor: newAmount(200)}))
+	c.False(ev.IsSame(Event{ID: "e1", AuthorizationID: "a1", Type: TypeReversal}))
+	c.False(ev.IsSame(Event{ID: "e1", AuthorizationID: "a2", Type: TypeReversal, AmountMinor: newAmount(100)}))
+	c.False(ev.IsSame(Event{ID: "e1", AuthorizationID: "a1", Type: TypeExpiry, AmountMinor: newAmount(100)}))
 }
 
 func TestAPendingAuthorizationCountsItsHold(t *testing.T) {
 	c := require.New(t)
 
-	c.Equal(int64(400), pending(400).CountedMinor())
+	c.Equal(int64(400), newPendingHold(400).GetCountedMinor())
 }
 
 func TestACapturedAuthorizationCountsWhatWasNotRefunded(t *testing.T) {
 	c := require.New(t)
 
-	c.Equal(int64(400), captured(460, 60).CountedMinor())
+	c.Equal(int64(400), newCapturedHold(460, 60).GetCountedMinor())
 }
 
 func TestARefundedAuthorizationCountsNothing(t *testing.T) {
 	c := require.New(t)
-	h := captured(460, 460)
-	h.Status = StatusRefunded
+	hold := newCapturedHold(460, 460)
+	hold.Status = StatusRefunded
 
-	c.Zero(h.CountedMinor())
+	c.Zero(hold.GetCountedMinor())
 }
 
 func TestAReversedAuthorizationCountsNothing(t *testing.T) {
 	c := require.New(t)
-	h := pending(400)
-	h.Status = StatusReversed
+	hold := newPendingHold(400)
+	hold.Status = StatusReversed
 
-	c.Zero(h.CountedMinor())
+	c.Zero(hold.GetCountedMinor())
 }

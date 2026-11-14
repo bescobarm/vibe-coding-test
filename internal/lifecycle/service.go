@@ -24,7 +24,7 @@ type CardReader interface {
 
 // PolicyReader returns the company's latest policy, or domain.ErrNotFound.
 type PolicyReader interface {
-	Policy(ctx context.Context, companyID string) (policy.Document, error)
+	GetPolicy(ctx context.Context, companyID string) (policy.Document, error)
 }
 
 // Service applies lifecycle events.
@@ -64,7 +64,7 @@ func (s *Service) Apply(ctx context.Context, ev Event) (Result, bool, error) {
 	}
 
 	return s.store.ApplyEvent(ctx, ev, func(ctx context.Context, h Hold) (Result, error) {
-		res, delta, err := Transition(h, ev)
+		res, delta, err := ComputeTransition(h, ev)
 		if err != nil {
 			return Result{}, err
 		}
@@ -78,17 +78,17 @@ func (s *Service) Apply(ctx context.Context, ev Event) (Result, bool, error) {
 }
 
 func (s *Service) loadIncrementContext(ctx context.Context, authorizationID string) (incrementContext, error) {
-	h, err := s.reader.GetHold(ctx, authorizationID)
+	hold, err := s.reader.GetHold(ctx, authorizationID)
 	if err != nil {
 		return incrementContext{}, err
 	}
 
-	card, err := s.cards.GetCard(ctx, h.CardID)
+	card, err := s.cards.GetCard(ctx, hold.CardID)
 	if err != nil {
 		return incrementContext{}, fmt.Errorf("load card: %w", err)
 	}
 
-	doc, err := s.policies.Policy(ctx, card.CompanyID)
+	doc, err := s.policies.GetPolicy(ctx, card.CompanyID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return incrementContext{}, fmt.Errorf("load policy: %w", err)
 	}
@@ -100,21 +100,21 @@ func (s *Service) loadIncrementContext(ctx context.Context, authorizationID stri
 // total, then raises the hold in Redis within the amount windows (D-054).
 // A declined increment leaves the hold as it was.
 func (s *Service) checkIncrement(ctx context.Context, h Hold, ev Event, res Result, amount int64, ic incrementContext) (Result, error) {
-	ctrls, err := policy.Effective(ic.policy.Controls, ic.card.Overrides)
+	ctrls, err := policy.MergeOverrides(ic.policy.Controls, ic.card.Overrides)
 	if err != nil {
 		return Result{}, fmt.Errorf("card %s: %w", ic.card.ID, err)
 	}
 
-	e := pipeline.NewEvaluation(domain.AuthRequest{CardID: h.CardID, AmountMinor: res.HeldMinor, Currency: h.Currency})
-	e.Card, e.CardFound, e.Controls = ic.card, true, ctrls
+	evaluation := pipeline.NewEvaluation(domain.AuthRequest{CardID: h.CardID, AmountMinor: res.HeldMinor, Currency: h.Currency})
+	evaluation.Card, evaluation.CardFound, evaluation.Controls = ic.card, true, ctrls
 
-	err = pipeline.New(controls.CardStatus{}, controls.TransactionLimit{}).Run(ctx, e)
+	err = pipeline.New(controls.CardStatus{}, controls.TransactionLimit{}).Run(ctx, evaluation)
 	if err != nil {
 		return Result{}, err
 	}
 
-	if e.Halted() {
-		return declined(h, res, e.Reasons()), nil
+	if evaluation.IsHalted() {
+		return markDeclined(h, res, evaluation.GetReasons()), nil
 	}
 
 	limit, err := s.holds.Increase(ctx, Increase{
@@ -126,13 +126,13 @@ func (s *Service) checkIncrement(ctx context.Context, h Hold, ev Event, res Resu
 	}
 
 	if limit.Exceeded {
-		return declined(h, res, []domain.Reason{{Code: limit.Code, Message: limit.Message}}), nil
+		return markDeclined(h, res, []domain.Reason{{Code: limit.Code, Message: limit.Message}}), nil
 	}
 
 	return res, nil
 }
 
-func declined(h Hold, res Result, reasons []domain.Reason) Result {
+func markDeclined(h Hold, res Result, reasons []domain.Reason) Result {
 	res.Decision, res.Reasons, res.HeldMinor = domain.Decline, reasons, h.HeldMinor
 	return res
 }

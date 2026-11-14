@@ -16,82 +16,84 @@ const (
 	cardTesting = `[{"id": "card-testing", "window": "10m", "max_count": 5, "filter": {"max_amount_minor": 500}}]`
 )
 
-func amount(v int64) *int64 { return &v }
-
-func (f fixture) reverse(name, event string, amt *int64) (lifecycle.Result, bool, error) {
-	return f.events.Apply(f.ctx, lifecycle.Event{ID: f.id(event), AuthorizationID: f.id(name), Type: lifecycle.TypeReversal, AmountMinor: amt})
+func newAmount(v int64) *int64 {
+	return &v
 }
 
-func (f fixture) event(name, event, eventType string, amt *int64) lifecycle.Result {
+func (f fixture) reverse(name, event string, amt *int64) (lifecycle.Result, bool, error) {
+	return f.events.Apply(f.ctx, lifecycle.Event{ID: f.buildID(event), AuthorizationID: f.buildID(name), Type: lifecycle.TypeReversal, AmountMinor: amt})
+}
+
+func (f fixture) applyEvent(name, event, eventType string, amt *int64) lifecycle.Result {
 	f.t.Helper()
-	res, _, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.id(event), AuthorizationID: f.id(name), Type: eventType, AmountMinor: amt})
+	res, _, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.buildID(event), AuthorizationID: f.buildID(name), Type: eventType, AmountMinor: amt})
 	require.NoError(f.t, err)
 	return res
 }
 
-func (f fixture) stored(name string) (string, int64) {
+func (f fixture) readStored(name string) (string, int64) {
 	f.t.Helper()
 	var (
 		status string
 		held   int64
 	)
 
-	err := f.pool.QueryRow(f.ctx, `SELECT status, held_minor FROM authorizations WHERE authorization_id = $1`, f.id(name)).Scan(&status, &held)
+	err := f.pool.QueryRow(f.ctx, `SELECT status, held_minor FROM authorizations WHERE authorization_id = $1`, f.buildID(name)).Scan(&status, &held)
 	require.NoError(f.t, err)
 	return status, held
 }
 
-func (f fixture) redisHold(name string) string {
-	return f.rdb.HGet(f.ctx, "hold:{"+f.card+"}:"+f.id(name), "amount").Val()
+func (f fixture) readRedisHold(name string) string {
+	return f.rdb.HGet(f.ctx, "hold:{"+f.card+"}:"+f.buildID(name), "amount").Val()
 }
 
 // AC2 of SP03: a reversed hold gives its budget back.
 func TestReversalReleasesTheBudgetForTheNextRequest(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	c.Equal(domain.Approve, f.authorize("a1", 400).Decision)
-	c.Equal(domain.Decline, f.authorize("a2", 450).Decision)
+	harness := newFixture(t, budget500)
+	c.Equal(domain.Approve, harness.authorize("a1", 400).Decision)
+	c.Equal(domain.Decline, harness.authorize("a2", 450).Decision)
 
-	res, replayed, err := f.reverse("a1", "e1", nil)
+	res, replayed, err := harness.reverse("a1", "e1", nil)
 
 	c.NoError(err)
 	c.False(replayed)
-	c.Equal(lifecycle.Result{AuthorizationID: f.id("a1"), EventID: f.id("e1"), Type: lifecycle.TypeReversal,
+	c.Equal(lifecycle.Result{AuthorizationID: harness.buildID("a1"), EventID: harness.buildID("e1"), Type: lifecycle.TypeReversal,
 		Status: lifecycle.StatusReversed, HeldMinor: 0}, res)
-	c.Equal(domain.Approve, f.authorize("a3", 450).Decision)
+	c.Equal(domain.Approve, harness.authorize("a3", 450).Decision)
 }
 
 // AC4 of SP03: the same event twice releases once.
 func TestRepeatedEventReleasesOnce(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("a1", 400)
+	harness := newFixture(t, budget500)
+	harness.authorize("a1", 400)
 
-	first, _, err := f.reverse("a1", "e1", amount(100))
+	first, _, err := harness.reverse("a1", "e1", newAmount(100))
 	c.NoError(err)
-	again, replayed, err := f.reverse("a1", "e1", amount(100))
+	again, replayed, err := harness.reverse("a1", "e1", newAmount(100))
 
 	c.NoError(err)
 	c.True(replayed)
 	c.Equal(first, again)
-	status, held := f.stored("a1")
+	status, held := harness.readStored("a1")
 	c.Equal(lifecycle.StatusPending, status)
 	c.Equal(int64(300), held)
-	c.Equal("300", f.redisHold("a1"))
+	c.Equal("300", harness.readRedisHold("a1"))
 }
 
 // AC7 of SP03 (D-051): reversed card-testing charges still count.
 func TestReversedCardTestingChargesStillCount(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, cardTesting)
+	harness := newFixture(t, cardTesting)
 	for i := range 5 {
 		name := fmt.Sprintf("small%d", i)
-		c.Equal(domain.Approve, f.authorize(name, 300).Decision)
-		_, _, err := f.reverse(name, "rev"+name, nil)
+		c.Equal(domain.Approve, harness.authorize(name, 300).Decision)
+		_, _, err := harness.reverse(name, "rev"+name, nil)
 		c.NoError(err)
 	}
 
-	resp := f.authorize("small6", 300)
+	resp := harness.authorize("small6", 300)
 
 	c.Equal(domain.Decline, resp.Decision)
 	c.Equal(domain.ReasonVelocityExceeded, resp.Reasons[0].Code)
@@ -99,41 +101,41 @@ func TestReversedCardTestingChargesStillCount(t *testing.T) {
 
 func TestExpiryReleasesTheWholeHold(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("a1", 400)
+	harness := newFixture(t, budget500)
+	harness.authorize("a1", 400)
 
-	res, _, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.id("e1"), AuthorizationID: f.id("a1"), Type: lifecycle.TypeExpiry})
+	res, _, err := harness.events.Apply(harness.ctx, lifecycle.Event{ID: harness.buildID("e1"), AuthorizationID: harness.buildID("a1"), Type: lifecycle.TypeExpiry})
 
 	c.NoError(err)
 	c.Equal(lifecycle.StatusExpired, res.Status)
-	c.Equal("0", f.redisHold("a1"))
+	c.Equal("0", harness.readRedisHold("a1"))
 
 	var topics int
-	err = f.pool.QueryRow(f.ctx, `SELECT count(*) FROM outbox WHERE topic = 'authorization.lifecycle' AND payload->>'event_id' = $1`, f.id("e1")).Scan(&topics)
+	err = harness.pool.QueryRow(harness.ctx, `SELECT count(*) FROM outbox WHERE topic = 'authorization.lifecycle' AND payload->>'event_id' = $1`, harness.buildID("e1")).Scan(&topics)
 	c.NoError(err)
 	c.Equal(1, topics)
 }
 
 func TestEventIDReusedForAnotherCallIsAConflict(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("a1", 400)
-	_, _, err := f.reverse("a1", "e1", amount(100))
+	harness := newFixture(t, budget500)
+	harness.authorize("a1", 400)
+	_, _, err := harness.reverse("a1", "e1", newAmount(100))
 	c.NoError(err)
 
-	_, _, err = f.reverse("a1", "e1", amount(200))
+	_, _, err = harness.reverse("a1", "e1", newAmount(200))
 
 	c.ErrorIs(err, lifecycle.ErrEventConflict)
 }
 
 func TestARefusedEventIsNotStored(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("a1", 400)
+	harness := newFixture(t, budget500)
+	harness.authorize("a1", 400)
 
-	_, _, err := f.reverse("a1", "e1", amount(401))
+	_, _, err := harness.reverse("a1", "e1", newAmount(401))
 	c.ErrorIs(err, lifecycle.ErrOverHold)
-	_, replayed, err := f.reverse("a1", "e1", nil)
+	_, replayed, err := harness.reverse("a1", "e1", nil)
 
 	c.NoError(err)
 	c.False(replayed, "the refused call must not have stored e1")
@@ -141,19 +143,19 @@ func TestARefusedEventIsNotStored(t *testing.T) {
 
 func TestAnEventOnAnUnknownAuthorizationIsNotFound(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
+	harness := newFixture(t, budget500)
 
-	_, _, err := f.reverse("missing", "e1", nil)
+	_, _, err := harness.reverse("missing", "e1", nil)
 
 	c.ErrorIs(err, domain.ErrNotFound)
 }
 
 func TestADeclinedAuthorizationCannotBeReversed(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("a1", 600)
+	harness := newFixture(t, budget500)
+	harness.authorize("a1", 600)
 
-	_, _, err := f.reverse("a1", "e1", nil)
+	_, _, err := harness.reverse("a1", "e1", nil)
 
 	c.ErrorIs(err, lifecycle.ErrDeclined)
 }
@@ -161,24 +163,24 @@ func TestADeclinedAuthorizationCannotBeReversed(t *testing.T) {
 // Parallel partial reversals with different event_ids never release more than the hold.
 func TestConcurrentPartialReversalsNeverReleaseMoreThanTheHold(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("a1", 400)
+	harness := newFixture(t, budget500)
+	harness.authorize("a1", 400)
 
-	const n = 10
+	const parallel = 10
 	var wg sync.WaitGroup
-	errs := make([]error, n)
-	for i := range n {
+	errs := make([]error, parallel)
+	for i := range parallel {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, errs[i] = f.reverse("a1", fmt.Sprintf("e%d", i), amount(100))
+			_, _, errs[i] = harness.reverse("a1", fmt.Sprintf("e%d", i), newAmount(100))
 		}()
 	}
 
 	wg.Wait()
 
 	applied := 0
-	for i := range n {
+	for i := range parallel {
 		if errs[i] == nil {
 			applied++
 			continue
@@ -187,74 +189,74 @@ func TestConcurrentPartialReversalsNeverReleaseMoreThanTheHold(t *testing.T) {
 		c.ErrorIs(errs[i], lifecycle.ErrNotPending)
 	}
 
-	status, held := f.stored("a1")
+	status, held := harness.readStored("a1")
 	c.Equal(4, applied)
 	c.Equal(lifecycle.StatusReversed, status)
 	c.Zero(held)
-	c.Equal("0", f.redisHold("a1"))
+	c.Equal("0", harness.readRedisHold("a1"))
 }
 
 // Parallel copies of one event are applied once; the others replay it.
 func TestConcurrentCopiesOfAnEventApplyOnce(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("a1", 400)
+	harness := newFixture(t, budget500)
+	harness.authorize("a1", 400)
 
-	const n = 10
+	const parallel = 10
 	var wg sync.WaitGroup
-	replays := make([]bool, n)
-	errs := make([]error, n)
-	for i := range n {
+	replays := make([]bool, parallel)
+	errs := make([]error, parallel)
+	for i := range parallel {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, replays[i], errs[i] = f.reverse("a1", "e1", amount(100))
+			_, replays[i], errs[i] = harness.reverse("a1", "e1", newAmount(100))
 		}()
 	}
 
 	wg.Wait()
 
 	fresh := 0
-	for i := range n {
+	for i := range parallel {
 		c.NoError(errs[i], "call %d", i)
 		if !replays[i] {
 			fresh++
 		}
 	}
 
-	_, held := f.stored("a1")
+	_, held := harness.readStored("a1")
 	c.Equal(1, fresh)
 	c.Equal(int64(300), held)
-	c.Equal("300", f.redisHold("a1"))
+	c.Equal("300", harness.readRedisHold("a1"))
 }
 
 // AC3 of SP03, the hotel scenario: auth 300 with a 500 daily limit, +150
 // approved, +100 more declined OVER_DAILY_LIMIT.
 func TestHotelIncrementsStopAtTheDailyLimit(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	c.Equal(domain.Approve, f.authorize("hotel", 300).Decision)
+	harness := newFixture(t, budget500)
+	c.Equal(domain.Approve, harness.authorize("hotel", 300).Decision)
 
-	first := f.event("hotel", "inc1", lifecycle.TypeIncrement, amount(150))
-	second := f.event("hotel", "inc2", lifecycle.TypeIncrement, amount(100))
+	first := harness.applyEvent("hotel", "inc1", lifecycle.TypeIncrement, newAmount(150))
+	second := harness.applyEvent("hotel", "inc2", lifecycle.TypeIncrement, newAmount(100))
 
 	c.Equal(domain.Approve, first.Decision)
 	c.Equal(int64(450), first.HeldMinor)
 	c.Equal(domain.Decline, second.Decision)
 	c.Equal(domain.ReasonOverDailyLimit, second.Reasons[0].Code)
-	_, held := f.stored("hotel")
+	_, held := harness.readStored("hotel")
 	c.Equal(int64(450), held)
 }
 
 // A declined increment is stored: a retry replays the decline instead of re-deciding.
 func TestADeclinedIncrementIsReplayed(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("hotel", 300)
-	declined := f.event("hotel", "inc1", lifecycle.TypeIncrement, amount(300))
+	harness := newFixture(t, budget500)
+	harness.authorize("hotel", 300)
+	declined := harness.applyEvent("hotel", "inc1", lifecycle.TypeIncrement, newAmount(300))
 
-	again, replayed, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.id("inc1"), AuthorizationID: f.id("hotel"),
-		Type: lifecycle.TypeIncrement, AmountMinor: amount(300)})
+	again, replayed, err := harness.events.Apply(harness.ctx, lifecycle.Event{ID: harness.buildID("inc1"), AuthorizationID: harness.buildID("hotel"),
+		Type: lifecycle.TypeIncrement, AmountMinor: newAmount(300)})
 
 	c.NoError(err)
 	c.True(replayed)
@@ -264,48 +266,48 @@ func TestADeclinedIncrementIsReplayed(t *testing.T) {
 // D-053: a capture above the hold counts the captured amount.
 func TestCaptureAboveTheHoldUsesUpTheBudget(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("dinner", 400)
+	harness := newFixture(t, budget500)
+	harness.authorize("dinner", 400)
 
-	res := f.event("dinner", "cap1", lifecycle.TypeCapture, amount(460))
+	res := harness.applyEvent("dinner", "cap1", lifecycle.TypeCapture, newAmount(460))
 
 	c.Equal(lifecycle.StatusCaptured, res.Status)
 	c.Equal(int64(460), res.CapturedMinor)
-	c.Equal(domain.Decline, f.authorize("coffee", 50).Decision, "460 + 50 is over 500")
-	c.Equal(domain.Approve, f.authorize("water", 40).Decision)
+	c.Equal(domain.Decline, harness.authorize("coffee", 50).Decision, "460 + 50 is over 500")
+	c.Equal(domain.Approve, harness.authorize("water", 40).Decision)
 }
 
 func TestRefundGivesTheBudgetBack(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("dinner", 400)
-	f.event("dinner", "cap1", lifecycle.TypeCapture, amount(400))
+	harness := newFixture(t, budget500)
+	harness.authorize("dinner", 400)
+	harness.applyEvent("dinner", "cap1", lifecycle.TypeCapture, newAmount(400))
 
-	partial := f.event("dinner", "ref1", lifecycle.TypeRefund, amount(100))
-	full := f.event("dinner", "ref2", lifecycle.TypeRefund, nil)
+	partial := harness.applyEvent("dinner", "ref1", lifecycle.TypeRefund, newAmount(100))
+	full := harness.applyEvent("dinner", "ref2", lifecycle.TypeRefund, nil)
 
 	c.Equal(lifecycle.StatusCaptured, partial.Status)
 	c.Equal(int64(100), partial.RefundedMinor)
 	c.Equal(lifecycle.StatusRefunded, full.Status)
 	c.Equal(int64(400), full.RefundedMinor)
-	c.Equal(domain.Approve, f.authorize("next", 500).Decision)
+	c.Equal(domain.Approve, harness.authorize("next", 500).Decision)
 }
 
 func TestRefundBeforeCaptureIsRefused(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
-	f.authorize("dinner", 400)
+	harness := newFixture(t, budget500)
+	harness.authorize("dinner", 400)
 
-	_, _, err := f.events.Apply(f.ctx, lifecycle.Event{ID: f.id("ref1"), AuthorizationID: f.id("dinner"), Type: lifecycle.TypeRefund})
+	_, _, err := harness.events.Apply(harness.ctx, lifecycle.Event{ID: harness.buildID("ref1"), AuthorizationID: harness.buildID("dinner"), Type: lifecycle.TypeRefund})
 
 	c.ErrorIs(err, lifecycle.ErrNotCaptured)
 }
 
 func TestGetHoldOfAnUnknownAuthorizationIsNotFound(t *testing.T) {
 	c := require.New(t)
-	f := newFixture(t, budget500)
+	harness := newFixture(t, budget500)
 
-	_, err := f.st.GetHold(f.ctx, "missing")
+	_, err := harness.st.GetHold(harness.ctx, "missing")
 
 	c.ErrorIs(err, domain.ErrNotFound)
 }

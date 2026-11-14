@@ -11,22 +11,22 @@ import (
 
 func parseVelocity(t *testing.T, rules string) (Document, map[string]string) {
 	t.Helper()
-	d, err := Parse([]byte(`{"company_id": "acme-mx", "velocity": ` + rules + `}`))
+	doc, err := Parse([]byte(`{"company_id": "acme-mx", "velocity": ` + rules + `}`))
 	require.NoError(t, err)
-	return d, d.Validate()
+	return doc, doc.Validate()
 }
 
 func TestValidateAcceptsTheREADMEVelocityRules(t *testing.T) {
 	c := require.New(t)
 
-	d, errs := parseVelocity(t, `[
+	doc, errs := parseVelocity(t, `[
 		{"id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": {"max_amount_minor": 500}},
 		{"id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": {"amount_minor": 200000, "currency": "USD"}}
 	]`)
 
 	c.Empty(errs)
-	c.Equal(10*time.Minute, d.Velocity[0].Retention())
-	c.Equal(24*time.Hour, d.Velocity[1].Retention())
+	c.Equal(10*time.Minute, doc.Velocity[0].GetRetention())
+	c.Equal(24*time.Hour, doc.Velocity[1].GetRetention())
 }
 
 func TestValidateRejectsAnInvalidRule(t *testing.T) {
@@ -79,11 +79,11 @@ func TestRuleWithoutFilterAppliesToEveryRequest(t *testing.T) {
 
 func TestFilterMatchesAmountAndMCC(t *testing.T) {
 	c := require.New(t)
-	r := VelocityRule{Filter: &VelocityFilter{MaxAmountMinor: 500, MCCs: []string{"5814"}}}
+	rule := VelocityRule{Filter: &VelocityFilter{MaxAmountMinor: 500, MCCs: []string{"5814"}}}
 
-	c.True(r.Applies(500, "5814"))
-	c.False(r.Applies(501, "5814"))
-	c.False(r.Applies(100, "5734"))
+	c.True(rule.Applies(500, "5814"))
+	c.False(rule.Applies(501, "5814"))
+	c.False(rule.Applies(100, "5734"))
 }
 
 func TestCalendarWindowsStartAtLocalMidnight(t *testing.T) {
@@ -93,21 +93,21 @@ func TestCalendarWindowsStartAtLocalMidnight(t *testing.T) {
 	// 02:30 UTC on Nov 14 is still Nov 13 in Mexico City (UTC-6).
 	now := time.Date(2026, 11, 14, 2, 30, 0, 0, time.UTC)
 
-	day := VelocityRule{Window: CalendarDay}.WindowStart(now, mexico)
-	month := VelocityRule{Window: CalendarMonth}.WindowStart(now, mexico)
+	day := VelocityRule{Window: CalendarDay}.GetWindowStart(now, mexico)
+	month := VelocityRule{Window: CalendarMonth}.GetWindowStart(now, mexico)
 
 	c.Equal(time.Date(2026, 11, 13, 0, 0, 0, 0, mexico), day)
 	c.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, mexico), month)
-	c.Equal(31*24*time.Hour, VelocityRule{Window: CalendarMonth}.Retention())
+	c.Equal(31*24*time.Hour, VelocityRule{Window: CalendarMonth}.GetRetention())
 }
 
 func TestRollingWindowStartsADurationAgo(t *testing.T) {
 	c := require.New(t)
-	d, errs := parseVelocity(t, `[{"id": "r", "window": "90m", "max_count": 1}]`)
+	doc, errs := parseVelocity(t, `[{"id": "r", "window": "90m", "max_count": 1}]`)
 	c.Empty(errs)
 	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
 
-	c.Equal(now.Add(-90*time.Minute), d.Velocity[0].WindowStart(now, time.UTC))
+	c.Equal(now.Add(-90*time.Minute), doc.Velocity[0].GetWindowStart(now, time.UTC))
 }
 
 func TestValidateAcceptsACardTestingReason(t *testing.T) {
