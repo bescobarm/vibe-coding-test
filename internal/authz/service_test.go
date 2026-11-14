@@ -240,3 +240,49 @@ func TestAuthorizeFallsBackToTheEngineClock(t *testing.T) {
 	c.NoError(err)
 	c.Equal(time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC), got.Now)
 }
+
+type fakeSignals struct {
+	sig domain.Signals
+	err error
+	got []domain.SignalQuery
+}
+
+func (f *fakeSignals) Signals(_ context.Context, q domain.SignalQuery) (domain.Signals, error) {
+	f.got = append(f.got, q)
+	return f.sig, f.err
+}
+
+func TestAuthorizeLoadsTheSignalsBeforeTheClaim(t *testing.T) {
+	c := require.New(t)
+	var got pipeline.Evaluation
+	signals := &fakeSignals{sig: domain.Signals{Approved: 7, SmallRecent: 2}}
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New(captureStage{&got})).WithSignals(signals)
+
+	_, _, err := svc.Authorize(context.Background(), req())
+
+	c.NoError(err)
+	c.Equal(domain.Signals{Approved: 7, SmallRecent: 2}, got.Signals)
+	c.Len(signals.got, 1)
+	c.Equal(activeCard.ID, signals.got[0].CardID)
+}
+
+func TestAuthorizeSkipsTheSignalsForAnUnknownCard(t *testing.T) {
+	c := require.New(t)
+	signals := &fakeSignals{}
+	svc := NewService(&fakeRecorder{}, fakeCards{err: domain.ErrNotFound}, fakePolicies{}, pipeline.New()).WithSignals(signals)
+
+	_, _, err := svc.Authorize(context.Background(), req())
+
+	c.NoError(err)
+	c.Empty(signals.got)
+}
+
+func TestAuthorizeFailsWhenTheSignalsCannotBeLoaded(t *testing.T) {
+	c := require.New(t)
+	rec := &fakeRecorder{}
+	svc := NewService(rec, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New(failingStage{})).WithSignals(&fakeSignals{err: errBoom})
+
+	_, _, err := svc.Authorize(context.Background(), req())
+
+	c.ErrorIs(err, errBoom)
+}

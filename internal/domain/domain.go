@@ -35,6 +35,12 @@ const (
 	ReasonOverDailyLimit       = "OVER_DAILY_LIMIT"
 	ReasonOverMonthlyLimit     = "OVER_MONTHLY_LIMIT"
 	ReasonVelocityExceeded     = "VELOCITY_EXCEEDED"
+	ReasonCardTestingPattern   = "CARD_TESTING_PATTERN"
+	ReasonSplitTransaction     = "SPLIT_TRANSACTION_PATTERN"
+	ReasonNewCountry           = "NEW_COUNTRY"
+	ReasonNewMerchantCNP       = "NEW_MERCHANT_CNP"
+	ReasonAmountAnomaly        = "AMOUNT_ANOMALY"
+	ReasonRoundAmount          = "ROUND_AMOUNT"
 )
 
 // Reason explains a decision with a code and a human-readable message.
@@ -74,8 +80,35 @@ type AuthResponse struct {
 	RiskScore           int      `json:"risk_score"`
 	Reasons             []Reason `json:"reasons"`
 	PolicyVersion       int      `json:"policy_version"`
+	Flagged             bool     `json:"flagged,omitempty"` // approved, but the score passed flag_at
 	FallbackUsed        bool     `json:"fallback_used"`
 	LatencyMS           float64  `json:"latency_ms"`
+}
+
+// SignalQuery says which history to read for one request (D-058, D-059).
+type SignalQuery struct {
+	CardholderID  string
+	CardID        string
+	MerchantID    string
+	Country       string
+	MCC           string
+	Currency      string
+	HistorySince  time.Time // start of the cardholder's history window
+	RecentSince   time.Time // start of the card-testing window
+	DayStart      time.Time // local midnight in the company's time zone
+	SmallMaxMinor int64     // what counts as a small, card-testing-sized amount
+}
+
+// Signals are what the anomaly features read, loaded before the claim (D-029).
+type Signals struct {
+	Approved          int     // the cardholder's approved purchases in the history window
+	CountrySeen       bool    // the cardholder has bought in this country before
+	MerchantSeen      bool    // the cardholder has bought at this merchant before
+	MCCCount          int     // approved purchases in this MCC and currency
+	MCCMeanMinor      float64 // their mean amount
+	MCCStdDevMinor    float64 // their standard deviation
+	SmallRecent       int     // small authorizations on the card in the recent window, any decision
+	SameMerchantToday []int64 // amounts approved today on the card at this merchant, same currency
 }
 
 // CardStatus is the lifecycle state of a card; only active cards can spend.

@@ -22,6 +22,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
+	"github.com/bescobarm/card-auth-engine/internal/scoring"
 	"github.com/bescobarm/card-auth-engine/internal/store"
 	"github.com/bescobarm/card-auth-engine/internal/velocity"
 	"github.com/bescobarm/card-auth-engine/migrations"
@@ -90,13 +91,12 @@ func run(log *slog.Logger) error {
 	})
 	defer rdb.Close() //nolint:errcheck // nothing to do on shutdown
 
-	// SP04: the anomaly score goes after velocity.
 	rebuildCounters(ctx, log, velocity.NewRebuilder(st, policies, rdb, countersMarkerKey))
 
 	limiter := velocity.NewLimiter(rdb, redisTimeout)
-	stages := append(controls.Hard(), velocity.NewStage(limiter))
+	stages := append(controls.Hard(), velocity.NewStage(limiter), scoring.Stage{})
 	pl := pipeline.New(stages...)
-	svc := authz.NewService(st, st, policies, pl)
+	svc := authz.NewService(st, st, policies, pl).WithSignals(st)
 	events := lifecycle.NewService(st, st, limiter, st, policies)
 
 	srv := &http.Server{

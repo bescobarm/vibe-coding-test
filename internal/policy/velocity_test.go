@@ -109,3 +109,19 @@ func TestRollingWindowStartsADurationAgo(t *testing.T) {
 
 	c.Equal(now.Add(-90*time.Minute), d.Velocity[0].WindowStart(now, time.UTC))
 }
+
+func TestValidateAcceptsACardTestingReason(t *testing.T) {
+	c := require.New(t)
+
+	_, errs := parseVelocity(t, `[{"id": "r", "window": "10m", "max_count": 5, "reason": "CARD_TESTING_PATTERN"}]`)
+
+	c.Empty(errs)
+}
+
+func TestValidateRejectsAnUnknownReason(t *testing.T) {
+	c := require.New(t)
+
+	_, errs := parseVelocity(t, `[{"id": "r", "window": "10m", "max_count": 5, "reason": "MCC_BLOCKED"}]`)
+
+	c.Equal(map[string]string{"velocity[0].reason": msgReason}, errs)
+}

@@ -17,9 +17,11 @@ const (
 	fmtOverAmount       = "Rule %s: %d already spent plus %d is over the limit of %d %s per %s"
 )
 
-// Reserver holds an amount against a card's windows.
+// Reserver holds an amount against a card's windows, and cancels it when a
+// later stage declines.
 type Reserver interface {
 	Reserve(ctx context.Context, r Reservation) (Result, error)
+	Cancel(ctx context.Context, cardID, authorizationID string) error
 }
 
 // Stage applies the company's velocity rules after the hard controls.
@@ -59,7 +61,14 @@ func (s Stage) Evaluate(ctx context.Context, e *pipeline.Evaluation) error {
 	if !res.Reserved {
 		code, msg := limitHit(rules[res.Window], res, e.Request.AmountMinor)
 		e.Decline(code, msg)
+
+		return nil
 	}
+
+	cardID, id := e.Request.CardID, e.Request.AuthorizationID
+	e.OnDecline(func(ctx context.Context) error {
+		return s.reserver.Cancel(ctx, cardID, id)
+	})
 
 	return nil
 }
@@ -110,11 +119,20 @@ func reservation(e *pipeline.Evaluation, rules []policy.VelocityRule) Reservatio
 func limitHit(r policy.VelocityRule, res Result, amountMinor int64) (string, string) {
 	countFull := r.MaxCount != nil && res.Count >= int64(*r.MaxCount)
 	if countFull || r.MaxAmount == nil {
-		return domain.ReasonVelocityExceeded, fmt.Sprintf(fmtOverCount, r.ID, *r.MaxCount, r.Window, res.Count)
+		return countReason(r), fmt.Sprintf(fmtOverCount, r.ID, *r.MaxCount, r.Window, res.Count)
 	}
 
 	return amountReason(r), fmt.Sprintf(fmtOverAmount, r.ID, res.SpentMinor, amountMinor,
 		r.MaxAmount.AmountMinor, r.MaxAmount.Currency, r.Window)
+}
+
+// countReason lets a rule name its own reason, e.g. CARD_TESTING_PATTERN (D-025, D-060).
+func countReason(r policy.VelocityRule) string {
+	if r.Reason != "" {
+		return r.Reason
+	}
+
+	return domain.ReasonVelocityExceeded
 }
 
 // amountReason maps an amount limit to the daily or monthly code (D-052).

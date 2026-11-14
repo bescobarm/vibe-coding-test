@@ -285,6 +285,32 @@ func TestAdjustUpCountsACaptureAboveTheHold(t *testing.T) {
 	c.Equal("460", rdb.HGet(context.Background(), "hold:{"+card+"}:a1", "amount").Val())
 }
 
+func TestCancelRemovesTheReservationFromEveryWindow(t *testing.T) {
+	c := require.New(t)
+	l, rdb, card := newTestLimiter(t)
+	ctx := context.Background()
+	count, daily := window("count", 5, NoLimit), window("daily", NoLimit, 1000)
+	reserve(c, l, card, "a1", 400, count, daily)
+	reserve(c, l, card, "a2", 100, count, daily)
+
+	c.NoError(l.Cancel(ctx, card, "a1"))
+	c.NoError(l.Cancel(ctx, card, "a1"), "cancel is safe to repeat")
+
+	c.Equal([]string{"a2"}, rdb.ZRange(ctx, "vel:{"+card+"}:count:ts", 0, -1).Val())
+	c.Equal(map[string]string{"a2": "100"}, rdb.HGetAll(ctx, "vel:{"+card+"}:daily:amt").Val())
+	c.Zero(rdb.Exists(ctx, "hold:{"+card+"}:a1").Val())
+}
+
+func TestCancelFailsFastWhenRedisIsUnreachable(t *testing.T) {
+	c := require.New(t)
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	err := NewLimiter(rdb, 50*time.Millisecond).Cancel(context.Background(), "card_x", "a1")
+
+	c.ErrorContains(err, "cancel")
+}
+
 func TestReleaseFailsFastWhenRedisIsUnreachable(t *testing.T) {
 	c := require.New(t)
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})

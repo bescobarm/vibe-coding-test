@@ -16,14 +16,30 @@ import (
 var errRedisDown = errors.New("redis down")
 
 type fakeReserver struct {
-	result Result
-	err    error
-	got    []Reservation
+	result    Result
+	err       error
+	got       []Reservation
+	cancelled []string
 }
 
 func (f *fakeReserver) Reserve(_ context.Context, r Reservation) (Result, error) {
 	f.got = append(f.got, r)
 	return f.result, f.err
+}
+
+func (f *fakeReserver) Cancel(_ context.Context, cardID, authorizationID string) error {
+	f.cancelled = append(f.cancelled, cardID+"/"+authorizationID)
+	return f.err
+}
+
+// declineStage stands for a later stage, like the score, that declines.
+type declineStage struct{}
+
+func (declineStage) Name() string { return "decline" }
+
+func (declineStage) Evaluate(_ context.Context, e *pipeline.Evaluation) error {
+	e.Decline("TEST", "declined later")
+	return nil
 }
 
 // evaluation runs a policy with the given rules through Validate, so rolling
@@ -155,4 +171,39 @@ func TestStageName(t *testing.T) {
 	c := require.New(t)
 
 	c.Equal("velocity", NewStage(nil).Name())
+}
+
+// D-023: a reservation is cancelled when a later stage declines.
+func TestAReservationIsCancelledWhenALaterStageDeclines(t *testing.T) {
+	c := require.New(t)
+	f := &fakeReserver{result: Result{Reserved: true}}
+	e := evaluation(t, `[`+countRule+`]`)
+
+	err := pipeline.New(NewStage(f), declineStage{}).Run(context.Background(), e)
+
+	c.NoError(err)
+	c.Equal([]string{"card_123/a1"}, f.cancelled)
+}
+
+func TestAnApprovedReservationIsKept(t *testing.T) {
+	c := require.New(t)
+	f := &fakeReserver{result: Result{Reserved: true}}
+	e := evaluation(t, `[`+countRule+`]`)
+
+	err := pipeline.New(NewStage(f)).Run(context.Background(), e)
+
+	c.NoError(err)
+	c.Empty(f.cancelled)
+}
+
+// D-025, D-060: the card-testing rule reports CARD_TESTING_PATTERN.
+func TestACountRuleCanNameItsReason(t *testing.T) {
+	c := require.New(t)
+	f := &fakeReserver{result: Result{Window: 0, Count: 5}}
+	e := evaluation(t, `[{"id": "card-testing", "window": "10m", "max_count": 5, "reason": "CARD_TESTING_PATTERN"}]`)
+
+	err := NewStage(f).Evaluate(context.Background(), e)
+
+	c.NoError(err)
+	c.Equal(domain.ReasonCardTestingPattern, e.Reasons()[0].Code)
 }

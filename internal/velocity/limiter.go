@@ -23,10 +23,14 @@ var adjustLua string
 //go:embed increase.lua
 var increaseLua string
 
+//go:embed cancel.lua
+var cancelLua string
+
 var (
 	reserveScript  = redis.NewScript(reserveLua)
 	adjustScript   = redis.NewScript(adjustLua)
 	increaseScript = redis.NewScript(increaseLua)
+	cancelScript   = redis.NewScript(cancelLua)
 )
 
 // ErrUnexpectedReply means the script answered something the engine can't read.
@@ -145,6 +149,21 @@ func (l *Limiter) Adjust(ctx context.Context, a lifecycle.Adjust) error {
 	err := adjustScript.Run(ctx, l.rdb, []string{key}, a.AuthorizationID, a.EventID, a.DeltaMinor).Err()
 	if err != nil {
 		return fmt.Errorf("adjust: %w", err)
+	}
+
+	return nil
+}
+
+// Cancel removes a reservation that a later stage declined (D-023).
+func (l *Limiter) Cancel(ctx context.Context, cardID, authorizationID string) error {
+	ctx, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
+
+	key := fmt.Sprintf(fmtHoldKey, cardID, authorizationID)
+
+	err := cancelScript.Run(ctx, l.rdb, []string{key}, authorizationID).Err()
+	if err != nil {
+		return fmt.Errorf("cancel: %w", err)
 	}
 
 	return nil

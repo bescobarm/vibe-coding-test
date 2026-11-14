@@ -360,3 +360,43 @@ func (s *Store) ApprovedSince(ctx context.Context, since time.Time) ([]velocity.
 		return a, err
 	})
 }
+
+// signalsSQL reads what the anomaly features need in one round trip (D-058,
+// D-059). The cardholder's history counts approvals only; the card-testing
+// count includes declined attempts, because testers get declined too.
+const signalsSQL = `
+WITH history AS (
+  SELECT count(*) AS approved,
+         coalesce(bool_or(a.merchant_country = $2), false) AS country_seen,
+         coalesce(bool_or(a.merchant_id = $3), false) AS merchant_seen,
+         count(*) FILTER (WHERE a.mcc = $4 AND a.currency = $5) AS mcc_count,
+         coalesce(avg(a.amount_minor) FILTER (WHERE a.mcc = $4 AND a.currency = $5), 0)::float8 AS mcc_mean,
+         coalesce(stddev_samp(a.amount_minor) FILTER (WHERE a.mcc = $4 AND a.currency = $5), 0)::float8 AS mcc_stddev
+  FROM authorizations a JOIN cards c ON c.card_id = a.card_id
+  WHERE c.cardholder_id = $1 AND a.decision = 'APPROVE' AND a.created_at >= $6
+), recent AS (
+  SELECT count(*) FILTER (WHERE created_at >= $8 AND amount_minor <= $9 AND decision <> 'PENDING') AS small_recent,
+         coalesce(array_agg(amount_minor ORDER BY created_at)
+                  FILTER (WHERE merchant_id = $3 AND currency = $5 AND decision = 'APPROVE' AND created_at >= $10),
+                  '{}') AS same_merchant_today
+  FROM authorizations
+  WHERE card_id = $7 AND created_at >= LEAST($8, $10)
+)
+SELECT approved, country_seen, merchant_seen, mcc_count, mcc_mean, mcc_stddev, small_recent, same_merchant_today
+FROM history, recent`
+
+// Signals implements authz.SignalReader.
+func (s *Store) Signals(ctx context.Context, q domain.SignalQuery) (domain.Signals, error) {
+	var sig domain.Signals
+
+	err := s.pool.QueryRow(ctx, signalsSQL,
+		q.CardholderID, q.Country, q.MerchantID, q.MCC, q.Currency, q.HistorySince,
+		q.CardID, q.RecentSince, q.SmallMaxMinor, q.DayStart,
+	).Scan(&sig.Approved, &sig.CountrySeen, &sig.MerchantSeen, &sig.MCCCount, &sig.MCCMeanMinor,
+		&sig.MCCStdDevMinor, &sig.SmallRecent, &sig.SameMerchantToday)
+	if err != nil {
+		return domain.Signals{}, fmt.Errorf("read signals: %w", err)
+	}
+
+	return sig, nil
+}

@@ -97,3 +97,69 @@ func TestStageErrorIsWrappedWithTheStageName(t *testing.T) {
 	c.ErrorIs(err, boom)
 	c.EqualError(err, "stage velocity: redis down")
 }
+
+var errUndo = errors.New("undo failed")
+
+// registerUndo is a stage that, like velocity after a reservation, registers an undo.
+func registerUndo(name string, log *[]string, err error) Stage {
+	return stageFunc{name, func(e *Evaluation) error {
+		e.OnDecline(func(context.Context) error {
+			*log = append(*log, name)
+			return err
+		})
+
+		return nil
+	}}
+}
+
+func declineWithReasons() Stage {
+	return stageFunc{"score", func(e *Evaluation) error {
+		e.AddReason("NEW_COUNTRY", "first purchase in BR")
+		e.DeclineWithReasons()
+		return nil
+	}}
+}
+
+func TestADeclineUndoesEarlierStagesInReverseOrder(t *testing.T) {
+	c := require.New(t)
+	var undone []string
+	e := NewEvaluation(request())
+
+	err := New(registerUndo("first", &undone, nil), registerUndo("second", &undone, nil), declineWithReasons()).Run(context.Background(), e)
+
+	c.NoError(err)
+	c.Equal([]string{"second", "first"}, undone)
+	c.Equal(domain.Decline, e.Decision())
+	c.Equal([]domain.Reason{{Code: "NEW_COUNTRY", Message: "first purchase in BR"}}, e.Reasons())
+}
+
+func TestAnApprovalUndoesNothing(t *testing.T) {
+	c := require.New(t)
+	var undone []string
+
+	err := New(registerUndo("first", &undone, nil)).Run(context.Background(), NewEvaluation(request()))
+
+	c.NoError(err)
+	c.Empty(undone)
+}
+
+func TestAFailedUndoIsAnError(t *testing.T) {
+	c := require.New(t)
+	var undone []string
+
+	err := New(registerUndo("first", &undone, errUndo), declineWithReasons()).Run(context.Background(), NewEvaluation(request()))
+
+	c.ErrorIs(err, errUndo)
+}
+
+func TestAFlaggedApprovalSaysSoInTheResponse(t *testing.T) {
+	c := require.New(t)
+	e := NewEvaluation(request())
+	e.Flagged, e.RiskScore = true, 45
+
+	resp := e.Response()
+
+	c.True(resp.Flagged)
+	c.Equal(domain.Approve, resp.Decision)
+	c.Equal(45, resp.RiskScore)
+}

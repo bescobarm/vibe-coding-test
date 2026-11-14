@@ -20,6 +20,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
+	"github.com/bescobarm/card-auth-engine/internal/scoring"
 	"github.com/bescobarm/card-auth-engine/internal/store"
 	"github.com/bescobarm/card-auth-engine/internal/velocity"
 )
@@ -57,6 +58,12 @@ type fixture struct {
 
 func newFixture(t *testing.T, rules string) fixture {
 	t.Helper()
+	return newFixtureWith(t, `"velocity": `+rules)
+}
+
+// newFixtureWith takes the policy's fields after company_id, e.g. `"velocity": [...], "risk": {...}`.
+func newFixtureWith(t *testing.T, fields string) fixture {
+	t.Helper()
 	c := require.New(t)
 	st, pool := newTestStore(t, 8)
 	rdb := newTestRedis(t)
@@ -79,7 +86,7 @@ func newFixture(t *testing.T, rules string) fixture {
 	_, err = pool.Exec(ctx, `INSERT INTO cards (card_id, company_id, cardholder_id, status) VALUES ($1, $2, 'ch_velo', 'active')`, card, company)
 	c.NoError(err)
 
-	doc, err := policy.Parse([]byte(`{"company_id": "` + company + `", "velocity": ` + rules + `}`))
+	doc, err := policy.Parse([]byte(`{"company_id": "` + company + `", ` + fields + `}`))
 	c.NoError(err)
 	c.Empty(doc.Validate())
 
@@ -88,11 +95,11 @@ func newFixture(t *testing.T, rules string) fixture {
 	c.NoError(err)
 
 	limiter := velocity.NewLimiter(rdb, time.Second)
-	stages := append(controls.Hard(), velocity.NewStage(limiter))
+	stages := append(controls.Hard(), velocity.NewStage(limiter), scoring.Stage{})
 
 	return fixture{
 		t: t, ctx: ctx, st: st, pool: pool, rdb: rdb, card: card, suffix: suffix,
-		auth:   authz.NewService(st, st, policies, pipeline.New(stages...)),
+		auth:   authz.NewService(st, st, policies, pipeline.New(stages...)).WithSignals(st),
 		events: lifecycle.NewService(st, st, limiter, st, policies),
 	}
 }
@@ -101,8 +108,15 @@ func (f fixture) id(name string) string { return name + "_" + f.suffix }
 
 func (f fixture) authorize(name string, amount int64) domain.AuthResponse {
 	f.t.Helper()
+	return f.authorizeWith(name, amount, func(*domain.AuthRequest) {})
+}
+
+// authorizeWith lets a test change the merchant, country or entry mode.
+func (f fixture) authorizeWith(name string, amount int64, change func(*domain.AuthRequest)) domain.AuthResponse {
+	f.t.Helper()
 	req := request(f.id(name), f.card)
 	req.AmountMinor = amount
+	change(&req)
 
 	resp, _, err := f.auth.Authorize(f.ctx, req)
 	require.NoError(f.t, err)

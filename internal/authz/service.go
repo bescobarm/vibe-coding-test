@@ -12,6 +12,7 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/domain"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
+	"github.com/bescobarm/card-auth-engine/internal/scoring"
 )
 
 // DecideFunc produces the decision. The store calls it at most once per
@@ -34,11 +35,17 @@ type PolicyReader interface {
 	Policy(ctx context.Context, companyID string) (policy.Document, error)
 }
 
+// SignalReader loads the history the anomaly features read (D-058, D-059).
+type SignalReader interface {
+	Signals(ctx context.Context, q domain.SignalQuery) (domain.Signals, error)
+}
+
 // Service decides authorizations: it loads the card and policy, then runs the pipeline once per authorization_id.
 type Service struct {
 	recorder Recorder
 	cards    CardReader
 	policies PolicyReader
+	signals  SignalReader
 	pipeline *pipeline.Pipeline
 	now      func() time.Time
 }
@@ -52,6 +59,12 @@ func NewService(r Recorder, c CardReader, p PolicyReader, pl *pipeline.Pipeline)
 		pipeline: pl,
 		now:      time.Now,
 	}
+}
+
+// WithSignals makes the service load the anomaly signals before each claim.
+func (s *Service) WithSignals(r SignalReader) *Service {
+	s.signals = r
+	return s
 }
 
 // Authorize loads everything it needs from Postgres BEFORE the recorder opens
@@ -79,6 +92,11 @@ func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain
 
 	if e.CardFound {
 		err := s.loadPolicy(ctx, e)
+		if err != nil {
+			return domain.AuthResponse{}, false, err
+		}
+
+		err = s.loadSignals(ctx, e)
 		if err != nil {
 			return domain.AuthResponse{}, false, err
 		}
@@ -115,6 +133,20 @@ func (s *Service) loadPolicy(ctx context.Context, e *pipeline.Evaluation) error 
 	}
 
 	e.Controls = controls
+	return nil
+}
+
+func (s *Service) loadSignals(ctx context.Context, e *pipeline.Evaluation) error {
+	if s.signals == nil {
+		return nil
+	}
+
+	sig, err := s.signals.Signals(ctx, scoring.Query(e))
+	if err != nil {
+		return fmt.Errorf("load signals: %w", err)
+	}
+
+	e.Signals = sig
 	return nil
 }
 
