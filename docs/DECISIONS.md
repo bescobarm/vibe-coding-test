@@ -79,6 +79,11 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-053](#d-053-a-capture-counts-the-captured-amount) | A capture counts the captured amount | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-054](#d-054-lifecycle-details-for-increment-capture-and-refund) | Lifecycle details: increment, capture, refund | 🟢 Accepted | Correctness | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
 | [D-055](#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost) | Rebuild the Redis counters at startup when they are lost | 🟢 Accepted | Reliability | [03](../briefs/03-velocity-budget-lifecycle-brief.md) |
+| [D-056](#d-056-new-cardholders-skip-the-novelty-features) | New cardholders skip the novelty features | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-057](#d-057-score-weights-are-defaults-in-code) | Score weights are defaults in code | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-058](#d-058-split-purchases-are-read-from-postgres-before-the-claim) | Split purchases are read from Postgres before the claim | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-059](#d-059-the-cardholder-history-is-one-query-over-90-days) | The cardholder history is one query over 90 days | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-060](#d-060-scoring-details) | Scoring details | 🟡 Proposed (implemented) | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
 
 ---
 
@@ -492,6 +497,36 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** A.
 - **Why:** 📝
 
+### D-056: New cardholders skip the novelty features
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** A first swipe is always a "new country" and a "new merchant". Two medium features already reach the flag threshold.
+- **Options:** A: always score them · B: skip `NEW_COUNTRY`, `NEW_MERCHANT_CNP` and `AMOUNT_ANOMALY` until the cardholder has N approved purchases.
+- **AI input and concerns:** B with N = 5. Otherwise every new card is flagged, and the simulator's false-decline rate measures onboarding instead of fraud.
+- **Decision:** B, N = 5.
+- **Why:** 📝
+
+### D-057: Score weights are defaults in code
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Options:** A: defaults in code (high 40, medium 25, low 10) · B: each company can override them in its policy.
+- **AI input and concerns:** A, tuned against the SP06 simulator. Per-company weights are a next step.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-058: Split purchases are read from Postgres before the claim
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** The split feature needs today's purchases on the card at the same merchant.
+- **Options:** A: a new Redis counter updated in the reserve script · B: a Postgres query loaded before the claim (D-029).
+- **AI input and concerns:** B. It is a score signal, not a hard limit: two parallel requests may miss each other, which costs one slightly low score, never money. The SP03 scripts stay untouched.
+- **Decision:** B.
+- **Why:** 📝
+
+### D-059: The cardholder history is one query over 90 days
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Options:** A: a `cardholder_profiles` table updated in the background after each approval · B: one SQL query over the cardholder's last 90 days of approvals, before the claim.
+- **AI input and concerns:** B. Always fresh and no background job (the worker arrives in SP07). A is a performance step for later.
+- **Decision:** B.
+- **Why:** 📝
+
 ### D-040: Shape of "allowed hours" and which clock it uses
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
 - **Context:** D-038 made allowed hours a hard control, but the policy format didn't define it.
@@ -539,5 +574,14 @@ Entries marked 📝 need my own words before the interview (for example, what th
 
 ## Proposed (waiting for my decision)
 
-None right now.
+### D-060: Scoring details
+- **Status:** 🟡 Proposed, **already implemented** in SP04. Needs my review. · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** D-005, D-023, D-025 and D-056 to D-059 set the approach. Building it needed smaller choices.
+- **AI recommendation (as built):**
+  - **Feature parameters:** card testing = an amount ≤ 5.00 after ≥ 3 small attempts on the card in 10 minutes (declined attempts count); split = every purchase today at the merchant above 80% of the per-transaction limit and the total over it; amount anomaly = ≥ 3 deviations above the cardholder's mean for the MCC, with the deviation floored at 10% of the mean; round amount = a multiple of 100.00 from 100.00 up.
+  - **Thresholds:** `risk.flag_at` / `risk.decline_at` from the policy, 40 / 70 when it has none. A flagged approval answers `"flagged": true` with the fired features as reasons.
+  - **Card-testing rule reason (D-025):** a velocity rule may set `"reason": "CARD_TESTING_PATTERN"` (only that or `VELOCITY_EXCEEDED`); the demo seed does.
+  - **D-023 as built:** when the score declines, the velocity reservation is cancelled entirely, count included: the authorization was never approved, and this matches what a rebuild restores.
+- **Decision:** _pending my review_
+
 

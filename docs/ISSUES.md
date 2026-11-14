@@ -28,6 +28,8 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-020](#i-020-redis-data-lost-while-the-engine-runs-is-not-detected) | 2026-11-13 | Reliability | ⏭️ |
 | [I-021](#i-021-a-table-driven-test-slipped-in) | 2026-11-13 | Tests | ✅ |
 | [I-022](#i-022-the-link-to-d-003-was-broken) | 2026-11-13 | Docs | ✅ |
+| [I-023](#i-023-card-testing-approvals-end-the-cold-start) | 2026-11-13 | Risk | ⏭️ |
+| [I-024](#i-024-a-test-expected-a-wrong-mean) | 2026-11-13 | Tests | ✅ |
 
 ---
 
@@ -123,4 +125,13 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-022: The link to D-003 was broken
 - **Found:** checking every link of the new trade-offs page. The decision index, the SP03 brief and the new page linked D-003 with an anchor that skipped the word "and" in its title, so the link went nowhere.
 - **Fix:** corrected in every file, and a script checked that every `DECISIONS.md#...` link in the repo matches a heading.
+
+### I-023: Card-testing approvals end the cold start
+- **Found:** SP04 live check. Five small card-testing charges were approved (flagged from the 4th); the 6th request, at a new online merchant, got `NEW_MERCHANT_CNP` +25 because the cardholder now had 5 approvals (D-056).
+- **Impact:** small. The cold start counts any approval, including suspicious ones, so an attacker's own probes can end it. The score stayed under the flag threshold here.
+- **Plan (next steps):** count only approvals that were not flagged, or require the history to span more than one day.
+
+### I-024: A test expected a wrong mean
+- **Found:** `TestSignalsReadTheCardholderHistory` failed: my expected mean (3898.6) was miscalculated; the query's 3921.4 (27450 / 7) was right.
+- **Fix:** the test now states the sum it expects (`27450.0/7`), so the number explains itself.
 

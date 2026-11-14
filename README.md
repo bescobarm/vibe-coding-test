@@ -478,6 +478,8 @@ flowchart TD
 
 "Outside allowed hours" is a hard control, not a score feature ([D-038](docs/DECISIONS.md#d-038-is-outside-allowed-hours-a-hard-control-or-a-score-signal)).
 
+As built: high = 40, medium = 25, low = 10 ([D-057](docs/DECISIONS.md#d-057-score-weights-are-defaults-in-code)); a score ≥ `flag_at` (default 40) approves with `"flagged": true`, ≥ `decline_at` (default 70) declines. New cardholders skip the novelty features until 5 approved purchases ([D-056](docs/DECISIONS.md#d-056-new-cardholders-skip-the-novelty-features)). Parameters: [D-060](docs/DECISIONS.md#d-060-scoring-details).
+
 Score = weighted sum, capped at 100. Each feature that fires is returned as a reason. Default policy: `score < 40 → APPROVE`, `40–69 → APPROVE + FLAG`, `≥ 70 → DECLINE`.
 
 ### 10.4 Fail-open vs. fail-closed
@@ -587,7 +589,7 @@ CREATE TABLE outbox (
     "allowed_hours": { "start": "06:00", "end": "23:00" }
   },
   "velocity": [
-    { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 } },
+    { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 }, "reason": "CARD_TESTING_PATTERN" },
     { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
   ],
   "risk": { "flag_at": 40, "decline_at": 70 },
@@ -630,6 +632,7 @@ Response:
     { "code": "NEW_MERCHANT_CNP", "message": "First purchase at this merchant, card not present" }
   ],
   "policy_version": 3,
+  "flagged": false,
   "fallback_used": false,
   "latency_ms": 7.4
 }
