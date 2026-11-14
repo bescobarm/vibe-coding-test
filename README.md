@@ -594,7 +594,7 @@ CREATE TABLE outbox (
 {
   "company_id": "acme-mx",
   "version": 3,
-  "timezone": "America/Mexico_City",
+  "timezone": "America/Bogota",
   "controls": {
     "blocked_mccs": ["7995", "5933"],
     "allowed_countries": ["MX", "US", "CO"],
@@ -666,6 +666,7 @@ Response:
 | `PUT` | `/v1/companies/{id}/policy` | Publish a new policy version (validated) |
 | `GET` | `/v1/authorizations/{id}` | Full audit record, including the explanation once ready |
 | `GET` | `/v1/metrics` | Approval rate, decline reasons, latency percentiles |
+| `GET` | `/v1/metrics/series` | The same outcomes and latency percentiles per time bucket: `?since=&bucket_seconds=` (default 60; at most 1500 buckets) |
 
 ### Reason codes (initial set)
 
@@ -846,7 +847,7 @@ Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-b
 - **Real LLM provider** for the explainer: one adapter behind the existing `Explainer` interface.
 - **Shadow mode:** evaluate new rules on live traffic and log them without affecting decisions (cut from the MVP).
 - **Partial approval** (`APPROVE_PARTIAL`) up to the remaining budget when the terminal allows it (cut from the MVP).
-- **Dashboard, next steps:** push updates instead of polling, charts over time, and authentication before it leaves a laptop (the basic dashboard is built: `make dashboard`, [D-074](docs/DECISIONS.md#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)).
+- **Dashboard, next steps:** push updates instead of polling and authentication before it leaves a laptop (the basic dashboard is built: `make dashboard`, [D-074](docs/DECISIONS.md#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)).
 - Replace the weighted score with a **trained model** (gradient boosting) once labeled data exists, keeping the explainable features as model inputs.
 - **Peer-group baselines** for new cards with little history.
 - **Rule language** (e.g. CEL) and a UI so finance teams can write and backtest their own rules.

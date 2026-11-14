@@ -99,6 +99,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-073](#d-073-a-dashboard-is-a-future-task) | A dashboard is a future task (built 2026-11-14) | 🟢 Accepted | Scope | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator) | The dashboard is a separate process that reuses the simulator | 🟢 Accepted | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-075](#d-075-reason-messages-show-readable-amounts) | Reason messages show readable amounts | 🟢 Accepted | API | — |
+| [D-076](#d-076-charts-read-a-metrics-series-from-the-engine) | Charts read a metrics series from the engine | 🟢 Accepted | API | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-077](#d-077-the-dashboard-embeds-its-font-and-offers-a-fixed-merchant-list) | The dashboard embeds its font, offers a fixed merchant list and shows Colombian time | 🟢 Accepted | Dashboard | [06](../briefs/06-simulator-and-report-brief.md) |
 
 ---
 
@@ -725,6 +727,25 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Context:** reason messages printed minor units: "Amount 151500 is over the per-transaction limit of 50000 USD" reads as a 50,000 USD limit. A PM testing the risk system reads these messages on the dashboard, and they reach the API response and the explanations.
 - **Decision:** every message with an amount shows it as "1,515.00 USD" through one formatter, `domain.FormatMoney` (moved from the explainer). Velocity windows read as words ("per calendar day"). Reason codes and every `*_minor` field stay as they are, so nothing a machine parses changes.
 - **AI input and concerns:** all currencies print with 2 decimals. That is right for USD, MXN and COP; a 0-decimal currency (JPY, CLP) would print wrong, but the engine already treats every amount as cents of a 2-decimal currency (D-007). Messages are free text, so a client that matched on the old text would break; none does in this repo.
+- **Why:** 📝
+
+### D-076: Charts read a metrics series from the engine
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after seeing the dashboard) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Fixes:** [I-042](ISSUES.md#i-042-the-charts-could-only-show-the-last-minute-and-latency-was-a-flat-line)
+- **Context:** I asked for the two time charts to show real time or a period. The page built its own history by subtracting two polls of `GET /v1/metrics`, so it only knew the seconds since it was opened, and the latency chart drew the percentiles of the whole window, a flat line.
+- **Decision:** `GET /v1/metrics/series?since=&bucket_seconds=` groups the audit log into buckets (outcomes and p50/p95/p99 per bucket; empty buckets are left out). The dashboard asks for about 60 buckets: 1 s for live, 15 s for 15 minutes, 1 min for an hour, 30 min for 24 hours, and fills the empty ones itself.
+- **AI input and concerns:** it stays a scan of the window like D-070, now polled every second in live mode (every 5 seconds for the longer periods, and only while the charts tab is open). Fine for an operator page at this size; with real volume `created_at` needs an index or the series a rollup table. The handler caps a request at 1500 buckets. Buckets are aligned to the epoch in UTC, so 30-minute bars line up with the clock in whole-hour and half-hour time zones only.
+- **Alternatives not built:** keeping history in the browser (lost on reload, no past periods); in-memory counters in the engine (new state, lost on restart).
+- **Why:** 📝
+
+### D-077: The dashboard embeds its font and offers a fixed merchant list
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after seeing the dashboard) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Amends:** [D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)
+- **Context:** I asked for the look of a professional dashboard instead of the generic system style, for a merchant selector instead of a free-text field, and for times in Colombian time.
+- **Decision:**
+  - **Font:** Poppins (my choice; SIL Open Font License) in three weights is embedded in the binary and served under `/fonts/`, so the page still needs no network. The style is a dark product bar, white cards on a cool gray page, an indigo accent, uppercase labels and tinted status badges. Status and chart colors are unchanged.
+  - **Merchant:** a fixed list of seven demo merchants plus "a shop never seen before", which sends a new merchant ID each time. Choosing a merchant also sets its category (MCC), which can still be changed.
+  - **Time:** every time on the page (status, feed, chart axes and tooltips) is shown in Colombian time (`America/Bogota`), whatever the browser's time zone is; the header says so. The demo company's policy and the simulator's policy use the same time zone, so allowed hours and the daily limit follow the Colombian clock too.
+- **AI input and concerns:** the font files are the Latin subset (24 KB in total), so a few symbols (✓, ≥) fall back to the system font. Poppins has no fixed-width digits, so number columns in tables use the system font to stay aligned; the license is in `internal/dashboard/fonts/OFL.txt`. A fixed merchant list means an ID outside it can only be sent through the API; "never seen before" covers the new-merchant signal. A fixed time zone is wrong for a viewer elsewhere who expects local time; the header label makes it explicit. The API and the audit log stay in UTC.
+- **Alternatives not built:** loading the font from a CDN (breaks offline use); the system font or Inter; a free-text merchant with suggestions; the browser's local time.
 - **Why:** 📝
 
 ## Proposed (waiting for my decision)

@@ -1,5 +1,5 @@
 {
-  "timezone": "America/Mexico_City",
+  "timezone": "America/Bogota",
   "controls": {
     "blocked_mccs": ["7995", "6051", "4829"],
     "max_per_transaction": { "amount_minor": 50000, "currency": "USD" }

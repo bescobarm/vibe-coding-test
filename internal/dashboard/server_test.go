@@ -112,6 +112,24 @@ func TestThePageIsServed(t *testing.T) {
 	c.Contains(recorder.Body.String(), `id="tab-activity"`)
 }
 
+func TestTheFontIsServed(t *testing.T) {
+	c := require.New(t)
+
+	recorder := doRequest(newTestServer(t, &fakeEngine{}, ""), http.MethodGet, "/fonts/poppins-400.woff2", "")
+
+	c.Equal(http.StatusOK, recorder.Code)
+	c.Equal("font/woff2", recorder.Header().Get("Content-Type"))
+	c.Equal("wOF2", recorder.Body.String()[:4], "the WOFF2 signature")
+}
+
+func TestAnUnknownFontIsNotFound(t *testing.T) {
+	c := require.New(t)
+
+	recorder := doRequest(newTestServer(t, &fakeEngine{}, ""), http.MethodGet, "/fonts/comic-sans.woff2", "")
+
+	c.Equal(http.StatusNotFound, recorder.Code)
+}
+
 // A batch sends the same transaction N times, each with its own ID, and the
 // feed shows them newest first, tagged "manual".
 func TestABatchIsSentAndShownInTheFeed(t *testing.T) {
@@ -267,6 +285,27 @@ func TestMetricsArePassedThrough(t *testing.T) {
 
 	c.Equal(http.StatusOK, recorder.Code)
 	c.JSONEq(`{"decisions": 7}`, recorder.Body.String())
+}
+
+func TestTheMetricsSeriesIsPassedThrough(t *testing.T) {
+	c := require.New(t)
+	var path, since, bucket string
+	engine := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		path = request.URL.Path
+		since = request.URL.Query().Get("since")
+		bucket = request.URL.Query().Get("bucket_seconds")
+		_, _ = writer.Write([]byte(`{"bucket_seconds": 15, "buckets": []}`)) // the recorder below checks the body
+	}))
+	defer engine.Close()
+
+	recorder := doRequest(newTestServer(t, &fakeEngine{}, engine.URL), http.MethodGet,
+		"/api/metrics/series?since=2026-11-14T15:00:00Z&bucket_seconds=15", "")
+
+	c.Equal(http.StatusOK, recorder.Code)
+	c.Equal("/v1/metrics/series", path)
+	c.Equal("2026-11-14T15:00:00Z", since)
+	c.Equal("15", bucket)
+	c.JSONEq(`{"bucket_seconds": 15, "buckets": []}`, recorder.Body.String())
 }
 
 func TestMetricsReportAnUnreachableEngine(t *testing.T) {

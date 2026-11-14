@@ -47,6 +47,8 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-039](#i-039-the-dashboard-was-hard-to-read-without-knowing-the-demo) | 2026-11-14 | Dashboard | ✅ |
 | [I-040](#i-040-reason-messages-showed-amounts-in-cents) | 2026-11-14 | API | ✅ |
 | [I-041](#i-041-the-dashboard-layout-and-labels-still-assumed-an-engineer) | 2026-11-14 | Dashboard | ✅ |
+| [I-042](#i-042-the-charts-could-only-show-the-last-minute-and-latency-was-a-flat-line) | 2026-11-14 | Dashboard | ✅ |
+| [I-043](#i-043-send-a-purchase-had-the-right-information-in-the-wrong-order) | 2026-11-14 | Dashboard | ✅ |
 
 ---
 
@@ -219,3 +221,12 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-041: The dashboard layout and labels still assumed an engineer
 - **Found:** a screenshot review at desktop and phone widths. The page was pinned left with an empty band on wide screens; the action cards and two charts filled two thirds of a three-column grid; with no traffic the tiles read "0.0%" and "0.0 ms" as if measured; the table, filter and decline chart showed raw codes like `NEW_MERCHANT_CNP`; on a phone the scenario verdict was the last column and got cut off.
 - **Fix:** a centered 1280 px page with a two-column grid (one column under 860 px); "—" and a "No decisions yet" hint before the first decision; one map from reason code to plain words used by the table, the filter (sorted by label) and the chart, with the code kept in tooltips; the verdict column moved next to the scenario name.
+
+### I-042: The charts could only show the last minute, and latency was a flat line
+- **Found:** my review of the Activity tab. "Decisions per second" only covered the seconds since the page was opened, and "Engine latency" plotted the percentiles of the whole selected window on every sample, so it never moved.
+- **Cause:** the page derived both charts from two consecutive polls of `GET /v1/metrics`, which only returns totals.
+- **Fix:** a series endpoint in the engine and a period switch on the page (live, 15 minutes, 1 hour, 24 hours); latency is now measured per bucket, with gaps where nothing was decided ([D-076](DECISIONS.md#d-076-charts-read-a-metrics-series-from-the-engine)).
+
+### I-043: "Send a purchase" had the right information in the wrong order
+- **Found:** my review of the panel. The risk score thresholds, which explain half of the engine, were one sentence between two tables, and the form to build a purchase sat collapsed at the bottom where it was easy to miss.
+- **Fix:** the panel opens with three choices: company rules (step 1), risk score (step 2) and build your own purchase, each also reachable from the Overview card. The risk score has its own view with a 0–100 scale showing the three zones; the form is a full view, and every Try it answer links to it ("Change it and resend").

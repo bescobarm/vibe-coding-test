@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -18,8 +19,17 @@ var errQueryFailed = errors.New("query failed")
 
 type fakeMetrics struct {
 	metrics domain.Metrics
+	series  domain.MetricsSeries
 	err     error
 	since   time.Time
+	bucket  time.Duration
+}
+
+func (f *fakeMetrics) GetMetricsSeries(_ context.Context, since time.Time, bucket time.Duration) (domain.MetricsSeries, error) {
+	f.since = since
+	f.bucket = bucket
+
+	return f.series, f.err
 }
 
 func (f *fakeMetrics) GetMetrics(_ context.Context, since time.Time) (domain.Metrics, error) {
@@ -74,6 +84,80 @@ func TestMetricsHidesStoreErrors(t *testing.T) {
 	c := require.New(t)
 
 	recorder := doRequest(newMetricsHandler(&fakeMetrics{err: errQueryFailed}), http.MethodGet, "/v1/metrics", "")
+
+	c.Equal(http.StatusInternalServerError, recorder.Code)
+	c.EqualError(errMetricsUnavailable, decodeError(c, recorder).Error)
+}
+
+func TestMetricsSeriesReturnsTheBuckets(t *testing.T) {
+	c := require.New(t)
+	start := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	metrics := &fakeMetrics{series: domain.MetricsSeries{Since: start, BucketSeconds: 15, Buckets: []domain.MetricsBucket{
+		{Start: start, Approved: 8, Flagged: 1, Declined: 2, LatencyMS: domain.LatencyPercentiles{P50: 2.1, P95: 3.4, P99: 5.6}},
+	}}}
+	target := "/v1/metrics/series?bucket_seconds=15&since=" + start.Format(time.RFC3339)
+
+	recorder := doRequest(newMetricsHandler(metrics), http.MethodGet, target, "")
+
+	c.Equal(http.StatusOK, recorder.Code)
+	c.Equal(start, metrics.since)
+	c.Equal(15*time.Second, metrics.bucket)
+	var series domain.MetricsSeries
+	c.NoError(json.Unmarshal(recorder.Body.Bytes(), &series))
+	c.Equal(metrics.series, series)
+}
+
+func TestMetricsSeriesDefaultsToOneMinuteBuckets(t *testing.T) {
+	c := require.New(t)
+	metrics := &fakeMetrics{}
+
+	recorder := doRequest(newMetricsHandler(metrics), http.MethodGet, "/v1/metrics/series", "")
+
+	c.Equal(http.StatusOK, recorder.Code)
+	c.Equal(time.Minute, metrics.bucket)
+	c.WithinDuration(time.Now().Add(-24*time.Hour), metrics.since, time.Minute)
+}
+
+func TestMetricsSeriesRejectsABadSince(t *testing.T) {
+	c := require.New(t)
+
+	recorder := doRequest(newMetricsHandler(&fakeMetrics{}), http.MethodGet, "/v1/metrics/series?since=yesterday", "")
+
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	c.EqualError(errInvalidSince, decodeError(c, recorder).Error)
+}
+
+func TestMetricsSeriesRejectsABucketThatIsNotANumber(t *testing.T) {
+	c := require.New(t)
+
+	recorder := doRequest(newMetricsHandler(&fakeMetrics{}), http.MethodGet, "/v1/metrics/series?bucket_seconds=minute", "")
+
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	c.EqualError(errInvalidBucket, decodeError(c, recorder).Error)
+}
+
+func TestMetricsSeriesRejectsABucketOutOfRange(t *testing.T) {
+	c := require.New(t)
+
+	recorder := doRequest(newMetricsHandler(&fakeMetrics{}), http.MethodGet, "/v1/metrics/series?bucket_seconds=0", "")
+
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	c.EqualError(errInvalidBucket, decodeError(c, recorder).Error)
+}
+
+func TestMetricsSeriesRejectsTooManyBuckets(t *testing.T) {
+	c := require.New(t)
+
+	recorder := doRequest(newMetricsHandler(&fakeMetrics{}), http.MethodGet, "/v1/metrics/series?bucket_seconds=1", "")
+
+	c.Equal(http.StatusBadRequest, recorder.Code)
+	c.EqualError(errTooManyBuckets, decodeError(c, recorder).Error)
+}
+
+func TestMetricsSeriesHidesStoreErrors(t *testing.T) {
+	c := require.New(t)
+
+	recorder := doRequest(newMetricsHandler(&fakeMetrics{err: errQueryFailed}), http.MethodGet, "/v1/metrics/series", "")
 
 	c.Equal(http.StatusInternalServerError, recorder.Code)
 	c.EqualError(errMetricsUnavailable, decodeError(c, recorder).Error)

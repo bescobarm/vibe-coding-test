@@ -465,6 +465,46 @@ func (s *Store) GetMetrics(ctx context.Context, since time.Time) (domain.Metrics
 	return metrics, rows.Err()
 }
 
+// metricsSeriesSQL groups the decided authorizations since $1 into buckets of
+// $2 seconds, aligned to the epoch. Empty buckets produce no row.
+const metricsSeriesSQL = `
+SELECT to_timestamp(floor(extract(epoch FROM created_at) / $2::int) * $2::int),
+       count(*) FILTER (WHERE decision = 'APPROVE'),
+       count(*) FILTER (WHERE (response->>'flagged')::boolean),
+       count(*) FILTER (WHERE decision = 'DECLINE'),
+       round(coalesce(percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8,
+       round(coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8,
+       round(coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8
+FROM authorizations
+WHERE created_at >= $1 AND decision <> 'PENDING'
+GROUP BY 1
+ORDER BY 1`
+
+// GetMetricsSeries implements api.MetricsReader.
+func (s *Store) GetMetricsSeries(ctx context.Context, since time.Time, bucket time.Duration) (domain.MetricsSeries, error) {
+	seconds := int(bucket / time.Second)
+
+	rows, err := s.pool.Query(ctx, metricsSeriesSQL, since, seconds)
+	if err != nil {
+		return domain.MetricsSeries{}, fmt.Errorf("read metrics series: %w", err)
+	}
+
+	buckets, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.MetricsBucket, error) {
+		var item domain.MetricsBucket
+
+		scanErr := row.Scan(&item.Start, &item.Approved, &item.Flagged, &item.Declined,
+			&item.LatencyMS.P50, &item.LatencyMS.P95, &item.LatencyMS.P99)
+		item.Start = item.Start.UTC()
+
+		return item, scanErr
+	})
+	if err != nil {
+		return domain.MetricsSeries{}, fmt.Errorf("scan metrics series: %w", err)
+	}
+
+	return domain.MetricsSeries{Since: since, BucketSeconds: seconds, Buckets: buckets}, nil
+}
+
 // pendingDecisionsSQL reads decision events not yet published, oldest first,
 // with the request each one answered (the explainer needs the merchant).
 const pendingDecisionsSQL = `

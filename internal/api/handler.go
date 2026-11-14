@@ -112,6 +112,7 @@ func NewHandler(d Deps, log *slog.Logger) http.Handler {
 	mux.HandleFunc("POST /v1/authorizations/{id}/refund", routes.handleLifecycleEvent(lifecycle.TypeRefund))
 	mux.HandleFunc("PUT /v1/companies/{id}/policy", routes.publishPolicy)
 	mux.HandleFunc("GET /v1/metrics", routes.getMetrics)
+	mux.HandleFunc("GET /v1/metrics/series", routes.getMetricsSeries)
 	mux.HandleFunc("GET /healthz", routes.checkHealth)
 
 	return routes.logRequests(mux)
