@@ -72,11 +72,11 @@ const (
 	entryEcommerce   = "ecommerce"
 	entryManual      = "manual"
 	fmtCardTesting   = "%d small authorizations on this card in the last 10 minutes"
-	fmtSplit         = "%d purchases today at this merchant total %d, each above %d%% of the %d %s limit"
+	fmtSplit         = "%d purchases today at this merchant total %s, each above %d%% of the %s limit"
 	fmtNewCountry    = "First purchase in %s for this cardholder"
 	fmtNewMerchant   = "First purchase at merchant %s, card not present (%s)"
-	fmtAmountAnomaly = "Amount %d is %.1f standard deviations above this cardholder's mean of %.0f for MCC %s"
-	fmtRoundAmount   = "Round amount %d"
+	fmtAmountAnomaly = "Amount %s is %.1f standard deviations above this cardholder's mean of %s for MCC %s"
+	fmtRoundAmount   = "Round amount %s"
 )
 
 // Feature is one explainable signal.
@@ -128,7 +128,8 @@ func detectSplitPurchase(e *pipeline.Evaluation) (bool, string) {
 	fired := e.Request.AmountMinor > floor && total > limit.AmountMinor
 	parts := len(e.Signals.SameMerchantToday) + 1
 
-	return fired, fmt.Sprintf(fmtSplit, parts, total, splitSharePct, limit.AmountMinor, limit.Currency)
+	return fired, fmt.Sprintf(fmtSplit, parts, domain.FormatMoney(total, limit.Currency), splitSharePct,
+		domain.FormatMoney(limit.AmountMinor, limit.Currency))
 }
 
 func detectNewCountry(e *pipeline.Evaluation) (bool, string) {
@@ -157,14 +158,18 @@ func detectAmountAnomaly(e *pipeline.Evaluation) (bool, string) {
 	spread := math.Max(signals.MCCStdDevMinor, signals.MCCMeanMinor*minStdDevShare)
 	zScore := (float64(e.Request.AmountMinor) - signals.MCCMeanMinor) / spread
 
-	return zScore >= anomalyZ, fmt.Sprintf(fmtAmountAnomaly, e.Request.AmountMinor, zScore, signals.MCCMeanMinor, e.Request.Merchant.MCC)
+	currency := e.Request.Currency
+	mean := domain.FormatMoney(int64(math.Round(signals.MCCMeanMinor)), currency)
+
+	return zScore >= anomalyZ, fmt.Sprintf(fmtAmountAnomaly, domain.FormatMoney(e.Request.AmountMinor, currency), zScore, mean,
+		e.Request.Merchant.MCC)
 }
 
 func detectRoundAmount(e *pipeline.Evaluation) (bool, string) {
 	amount := e.Request.AmountMinor
 	fired := amount >= roundMinMinor && amount%roundUnitMinor == 0
 
-	return fired, fmt.Sprintf(fmtRoundAmount, amount)
+	return fired, fmt.Sprintf(fmtRoundAmount, domain.FormatMoney(amount, e.Request.Currency))
 }
 
 // isKnownCardholder: the cardholder has enough history for novelty to mean something (D-056).

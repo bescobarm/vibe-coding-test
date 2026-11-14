@@ -88,7 +88,7 @@ ev hotel refund '{"event_id": "f2"}'
 Expect, in order:
 1. `APPROVE` (card_exec allows 100000 per transaction).
 2. `decision: APPROVE`, `held_minor: 45000`.
-3. `decision: DECLINE` `OVER_TRANSACTION_LIMIT`: the new total 105000 is over 100000; the hold stays at 45000.
+3. `decision: DECLINE` `OVER_TRANSACTION_LIMIT`: the new total 1,050.00 USD is over 1,000.00 USD; the hold stays at 450.00 USD.
 4. Status `captured`, `captured_minor: 47000`: a tip above the hold is accepted and counts ([D-053](DECISIONS.md#d-053-a-capture-counts-the-captured-amount)).
 5. `refunded_minor: 7000`, still `captured`.
 6. Status `refunded`, `refunded_minor: 47000`.

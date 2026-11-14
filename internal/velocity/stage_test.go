@@ -133,7 +133,7 @@ func TestStageDeclinesAFullDailyBudget(t *testing.T) {
 
 	c.NoError(err)
 	c.Equal([]domain.Reason{{Code: domain.ReasonOverDailyLimit,
-		Message: "Rule daily-spend: 198000 already spent plus 4500 is over the limit of 200000 USD per calendar_day"}}, evaluation.GetReasons())
+		Message: "Rule daily-spend: 1,980.00 USD already spent plus 45.00 USD is over the limit of 2,000.00 USD per calendar day"}}, evaluation.GetReasons())
 }
 
 func TestStageDeclinesAFullMonthlyBudget(t *testing.T) {

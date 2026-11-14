@@ -72,7 +72,7 @@ func TestRedisDownDeclinesOverTheFailOpenCap(t *testing.T) {
 
 	c.NoError(err)
 	c.Equal(domain.Decline, resp.Decision)
-	c.Equal("Fallback fail_open_limited: amount 30000 is over 20000 USD", resp.Reasons[0].Message)
+	c.Equal("Fallback fail_open_limited: amount 300.00 USD is over 200.00 USD", resp.Reasons[0].Message)
 }
 
 // AC6 of SP05 (D-031): a retry replays the stored fallback.

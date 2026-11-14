@@ -221,7 +221,7 @@ func TestAuthorizeFallsBackWhenAStageFails(t *testing.T) {
 	c.Equal(domain.Approve, resp.Decision)
 	c.Equal(int64(4500), resp.ApprovedAmountMinor)
 	c.Equal(3, resp.PolicyVersion)
-	c.Equal([]domain.Reason{{Code: domain.ReasonFallbackApplied, Message: "Fallback fail_open_limited: approved up to 10000 USD"}}, resp.Reasons)
+	c.Equal([]domain.Reason{{Code: domain.ReasonFallbackApplied, Message: "Fallback fail_open_limited: approved up to 100.00 USD"}}, resp.Reasons)
 	c.Equal(2, rec.decided, "the failed decision, then the stored fallback")
 }
 

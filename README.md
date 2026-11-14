@@ -644,8 +644,8 @@ Response:
   "approved_amount_minor": 0,
   "risk_score": 78,
   "reasons": [
-    { "code": "SPLIT_TRANSACTION_PATTERN", "message": "3 charges at the same merchant today totaling 135000, each above 80% of the per-transaction limit" },
-    { "code": "NEW_MERCHANT_CNP", "message": "First purchase at this merchant, card not present" }
+    { "code": "SPLIT_TRANSACTION_PATTERN", "message": "3 purchases today at this merchant total 1,350.00 USD, each above 80% of the 500.00 USD limit" },
+    { "code": "NEW_MERCHANT_CNP", "message": "First purchase at merchant m_987, card not present (ecommerce)" }
   ],
   "policy_version": 3,
   "flagged": false,

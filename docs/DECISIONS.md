@@ -98,6 +98,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-072](#d-072-how-the-explainer-worker-drains-the-outbox) | How the explainer worker drains the outbox | 🟢 Accepted | Architecture | [07](../briefs/07-mock-llm-explainer-brief.md) |
 | [D-073](#d-073-a-dashboard-is-a-future-task) | A dashboard is a future task (built 2026-11-14) | 🟢 Accepted | Scope | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator) | The dashboard is a separate process that reuses the simulator | 🟢 Accepted | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-075](#d-075-reason-messages-show-readable-amounts) | Reason messages show readable amounts | 🟢 Accepted | API | — |
 
 ---
 
@@ -718,6 +719,12 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - One HTML page embedded in the binary, no external libraries (works offline), light and dark themes; every value is inserted as text, never HTML.
 - **Alternatives not built:** pages served by the engine; a frontend framework; push updates.
 - **Decision:** As built.
+- **Why:** 📝
+### D-075: Reason messages show readable amounts
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after seeing the dashboard) · **Fixes:** [I-040](ISSUES.md#i-040-reason-messages-showed-amounts-in-cents)
+- **Context:** reason messages printed minor units: "Amount 151500 is over the per-transaction limit of 50000 USD" reads as a 50,000 USD limit. A PM testing the risk system reads these messages on the dashboard, and they reach the API response and the explanations.
+- **Decision:** every message with an amount shows it as "1,515.00 USD" through one formatter, `domain.FormatMoney` (moved from the explainer). Velocity windows read as words ("per calendar day"). Reason codes and every `*_minor` field stay as they are, so nothing a machine parses changes.
+- **AI input and concerns:** all currencies print with 2 decimals. That is right for USD, MXN and COP; a 0-decimal currency (JPY, CLP) would print wrong, but the engine already treats every amount as cents of a 2-decimal currency (D-007). Messages are free text, so a client that matched on the old text would break; none does in this repo.
 - **Why:** 📝
 
 ## Proposed (waiting for my decision)

@@ -99,3 +99,21 @@ func TestValidateReportsEveryInvalidField(t *testing.T) {
 
 	c.Len(errs, 7)
 }
+
+func TestMoneyIsGroupedByThousands(t *testing.T) {
+	c := require.New(t)
+
+	c.Equal("1,234,567.89 MXN", FormatMoney(123456789, "MXN"))
+}
+
+func TestMoneyKeepsLeadingZeroCents(t *testing.T) {
+	c := require.New(t)
+
+	c.Equal("0.05 USD", FormatMoney(5, "USD"))
+}
+
+func TestNegativeMoneyKeepsItsSign(t *testing.T) {
+	c := require.New(t)
+
+	c.Equal("-1,350.00 USD", FormatMoney(-135000, "USD"))
+}
