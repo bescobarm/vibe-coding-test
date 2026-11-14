@@ -152,6 +152,16 @@ curl -s localhost:8080/v1/authorizations/x1 | jq .explanation
 
 Expect `"provider": "mock-llm"`, `"mocked": true`, `"validated": true` and a summary like "Declined at …: merchant category 7995 is blocked." An approval gets no explanation. To see the safety net, restart with `MOCK_LLM_FAILURE_RATE=1 make run`: the next explanation has `"validated": false, "fallback_used": true` and the template text.
 
+## 4i. Dashboard
+
+In a third terminal, with the engine running:
+
+```bash
+make dashboard
+```
+
+Open http://localhost:8090. Expect the metrics tiles to update every second. **Run** (all six scenarios) fills the report table and the live feed, tagged by scenario; sending a specific transaction (try MCC 7995, batch 3) adds 3 `DECLINE` `MCC_BLOCKED` lines tagged `manual`, and the decline-reason bars grow. A seed shown under the report replays that run exactly when typed back.
+
 ## 5. Publish a new policy version
 
 ```bash

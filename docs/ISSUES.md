@@ -41,6 +41,8 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-033](#i-033-a-rebase-dropped-pr-10s-documentation) | 2026-11-14 | Git | ✅ |
 | [I-034](#i-034-the-explainer-worker-fell-behind-and-never-paused) | 2026-11-14 | Performance | ✅ |
 | [I-035](#i-035-the-default-connection-pool-queued-requests-under-load) | 2026-11-14 | Performance | ✅ |
+| [I-036](#i-036-the-dashboard-showed-a-seed-that-could-not-replay-its-run) | 2026-11-14 | Dashboard | ✅ |
+| [I-037](#i-037-a-concurrency-test-raced-its-own-probe) | 2026-11-14 | Tests | ✅ |
 
 ---
 
@@ -189,4 +191,12 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-035: The default connection pool queued requests under load
 - **Found:** an A/B test to check SP07 AC1 ("latency unchanged with the explainer on"): at 1,000 req/s, the engine *without* the explainer also spiked (p99 147.5 ms in one of three runs), so the explainer wasn't the cause. SP06's single 6.4 ms run had been a good one. The pgx default pool, `max(4, CPUs)` = 12 here, was shared by 64 concurrent requests: any pause queued them for a connection.
 - **Fix:** `DATABASE_MAX_CONNS`, default 32 (D-071): three runs at p99 4.1, 3.8 and 9.9 ms. With the final build, three more runs passed at 43.0, 43.2 and 1.5 ms: the tail still varies on a laptop, but stays under the 100 ms goal. Lesson: one good run is not a measurement; compare A and B, several times.
+
+### I-036: The dashboard showed a seed that could not replay its run
+- **Found:** a screenshot of the dashboard showed the seed `11811799226578640000`. Seeds are 64-bit integers; JavaScript numbers are floats, exact only up to 2^53, so the page rounded the seed, and typing it back would have played different cases.
+- **Fix:** the seed travels as a JSON string both ways (Go's `json:",string"`), and the seed field is text with a digits-only pattern. Verified: a 20-digit seed came back exactly, and replaying it gave the same cases.
+
+### I-037: A concurrency test raced its own probe
+- **Found:** running the dashboard tests 10 times, `TestOnlyOneScenarioRunAtATime` failed 8 times. The test started a run and then probed for 409, but the probe could take the lock first and then block forever inside the fake engine.
+- **Fix:** the fake engine signals when a run is inside it; the test probes only after that. 50 runs pass. Lesson: run concurrency tests many times before trusting one green run.
 

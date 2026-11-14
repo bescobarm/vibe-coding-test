@@ -2,7 +2,7 @@ DATABASE_URL ?= postgres://auth:auth@localhost:55432/auth?sslmode=disable
 COVER_DIR    ?= $(or $(TMPDIR),/tmp)/card-auth-engine-cover
 export DATABASE_URL
 
-.PHONY: up down reset run test cover vet lint simulate load
+.PHONY: up down reset run test cover vet lint simulate load dashboard
 
 up: ## Start Postgres and Redis and wait until they are healthy
 	docker compose up -d --wait
@@ -39,3 +39,7 @@ simulate: ## Play the labeled scenarios against the running engine and print the
 
 load: ## Load test the running engine at a fixed rate; fails if p99 >= 100 ms (needs `make run`)
 	go run ./cmd/simulator -mode load
+
+dashboard: ## Web dashboard on http://localhost:8090: send transactions, watch metrics live (needs `make run`)
+	go run ./cmd/dashboard
+

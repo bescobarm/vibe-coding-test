@@ -96,7 +96,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-070](#d-070-metrics-are-read-from-the-audit-log) | Metrics are read from the audit log | 🟢 Accepted | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-071](#d-071-the-engine-keeps-32-postgres-connections) | The engine keeps 32 Postgres connections | 🟢 Accepted | Performance | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-072](#d-072-how-the-explainer-worker-drains-the-outbox) | How the explainer worker drains the outbox | 🟢 Accepted | Architecture | [07](../briefs/07-mock-llm-explainer-brief.md) |
-| [D-073](#d-073-a-dashboard-is-a-future-task) | A dashboard is a future task | 🟢 Accepted | Scope | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-073](#d-073-a-dashboard-is-a-future-task) | A dashboard is a future task (built 2026-11-14) | 🟢 Accepted | Scope | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator) | The dashboard is a separate process that reuses the simulator | 🟡 Proposed (implemented) | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
 
 ---
 
@@ -703,11 +704,21 @@ Entries marked 📝 need my own words before the interview (for example, what th
 ### D-073: A dashboard is a future task
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after reviewing the metrics) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Revisits:** [D-011](#d-011-mvp-scope-cuts)
 - **Context:** D-011 cut the dashboard UI and kept a CLI report and `GET /v1/metrics`. With the metrics and the simulator built, a dashboard is the natural next step.
-- **Decision:** A simple frontend, as a future task in this implementation: send random or specific transactions (one or a batch) and watch the metrics in real time. Not built in the MVP.
+- **Decision:** A simple frontend, as a future task in this implementation: send random or specific transactions (one or a batch) and watch the metrics in real time. Built on 2026-11-14, when I asked for it ([D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)).
 - **AI input and concerns:** it can reuse what exists: the simulator's scenarios and seeded random cases for "random", the authorization API for "specific", and `GET /v1/metrics` for the numbers. "Real time" can start as polling `/v1/metrics` every second; a push channel (server-sent events) is only needed beyond that.
 - **Why:** 📝
 
 ## Proposed (waiting for my decision)
 
-None right now.
+### D-074: The dashboard is a separate process that reuses the simulator
+- **Status:** 🟡 Proposed, **already implemented**. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Implements:** [D-073](#d-073-a-dashboard-is-a-future-task)
+- **AI recommendation (as built):**
+  - `cmd/dashboard` (`make dashboard`, http://localhost:8090) is its own process: the engine stays a pure authorization service, with no UI and no simulation endpoints.
+  - **Random cases** reuse the simulator's scenarios and seeded cases (D-066) on fresh cards; **specific transactions** go to the authorization API, one or a batch of up to 500; the numbers are the engine's `GET /v1/metrics`, passed through.
+  - **Real time** is the page polling metrics and the feed every second; server-sent events aren't needed at this scale.
+  - A live feed of the last 50 decisions the dashboard sent, tagged manual or by scenario; one scenario run at a time.
+  - One HTML page embedded in the binary, no external libraries (works offline), light and dark themes; every value is inserted as text, never HTML.
+- **Alternatives not built:** pages served by the engine; a frontend framework; push updates.
+- **Decision:** _pending my review_
+
 

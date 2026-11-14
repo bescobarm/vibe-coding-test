@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorization Dashboard</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #e3e6ec;
+    --approve: #1f8a4c; --decline: #c23b3b; --flag: #b7791f; --accent: #2f5bd3; --bar: #c23b3b33;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #9aa3b5; --line: #2b313d;
+      --approve: #4cc483; --decline: #ef6b6b; --flag: #e2a93b; --accent: #7d9bff; --bar: #ef6b6b44;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 16px 24px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 18px; margin: 0; }
+  .status { color: var(--muted); }
+  .status.down { color: var(--decline); }
+  main { padding: 16px 24px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .tile .label { color: var(--muted); font-size: 12px; }
+  .tile .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bars { display: grid; gap: 6px; }
+  .bar { display: grid; grid-template-columns: 220px 1fr 40px; gap: 8px; align-items: center; font-size: 13px; }
+  .bar .track { background: var(--line); border-radius: 4px; height: 12px; }
+  .bar .fill { background: var(--decline); height: 12px; border-radius: 4px; }
+  .bar .count { text-align: right; font-variant-numeric: tabular-nums; }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; align-items: end; }
+  label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  input, select, button { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  button { background: var(--accent); color: #fff; border: none; cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: wait; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .APPROVE { color: var(--approve); font-weight: 600; }
+  .DECLINE { color: var(--decline); font-weight: 600; }
+  .flag { color: var(--flag); font-weight: 600; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .error { color: var(--decline); margin-top: 8px; }
+  .scroll { overflow-x: auto; }
+  .feed { max-height: 420px; overflow-y: auto; }
+  .feed thead th { position: sticky; top: 0; background: var(--panel); }
+  td.wrap { white-space: normal; }
+  .window { margin-left: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Card Authorization Engine · Live dashboard</h1>
+  <span id="status" class="status">connecting…</span>
+  <label class="window">Metrics window
+    <select id="window">
+      <option value="session">since this page opened</option>
+      <option value="day">last 24 hours</option>
+    </select>
+  </label>
+</header>
+<main>
+  <section class="wide">
+    <h2>Metrics (updates every second)</h2>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section>
+    <h2>Run random cases</h2>
+    <form id="scenarioForm">
+      <label>Scenario
+        <select name="scenario">
+          <option value="all">all six</option>
+          <option>normal traffic</option>
+          <option>card testing</option>
+          <option>split purchase</option>
+          <option>stolen card</option>
+          <option>blocked MCC</option>
+          <option>hotel increment</option>
+        </select>
+      </label>
+      <label>Normal cards <input name="normal_cards" type="number" min="0" max="50" value="20"></label>
+      <label>Cards per fraud scenario <input name="fraud_cards" type="number" min="0" max="50" value="3"></label>
+      <label>Seed (blank: random) <input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="random"></label>
+      <button type="submit">Run</button>
+    </form>
+    <div id="scenarioResult"></div>
+  </section>
+
+  <section>
+    <h2>Send a specific transaction</h2>
+    <form id="txForm">
+      <label>Card
+        <select name="card_id">
+          <option>card_123</option><option>card_456</option><option>card_exec</option>
+          <option>card_frozen</option><option>card_terminated</option>
+        </select>
+      </label>
+      <label>Amount <input name="amount" type="number" min="0.01" step="0.01" value="45.00"></label>
+      <label>Currency <input name="currency" value="USD" maxlength="3"></label>
+      <label>Merchant category
+        <select name="mcc">
+          <option value="5734">5734 software</option><option value="5812">5812 restaurant</option>
+          <option value="4511">4511 airline</option><option value="7011">7011 hotel</option>
+          <option value="5999">5999 misc retail</option><option value="7995">7995 gambling</option>
+          <option value="6051">6051 quasi-cash</option>
+        </select>
+      </label>
+      <label>Merchant ID <input name="merchant_id" value="m_shop"></label>
+      <label>Country <input name="country" value="US" maxlength="2"></label>
+      <label>Entry mode
+        <select name="entry_mode">
+          <option>ecommerce</option><option>chip</option><option>contactless</option>
+          <option>wallet</option><option>manual</option><option>swipe</option>
+        </select>
+      </label>
+      <label>Batch (same transaction × N) <input name="count" type="number" min="1" max="500" value="1"></label>
+      <button type="submit">Send</button>
+    </form>
+    <div id="txResult"></div>
+  </section>
+
+  <section>
+    <h2>Decline reasons</h2>
+    <div class="bars" id="reasons"><span class="note">No declines yet.</span></div>
+  </section>
+
+  <section class="wide">
+    <h2>Recent decisions (sent from this dashboard)</h2>
+    <div class="scroll feed">
+      <table>
+        <thead><tr><th>Time</th><th>Source</th><th>Card</th><th>Amount</th><th>MCC</th><th>Country</th><th>Decision</th><th>Score</th><th>Reasons</th><th>ms</th></tr></thead>
+        <tbody id="recent"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+  "use strict";
+  const openedAt = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const $ = (id) => document.getElementById(id);
+
+  // Every value from the engine is inserted as text, never as HTML.
+  function cell(text, className) {
+    const td = document.createElement("td");
+    td.textContent = text;
+    if (className) td.className = className;
+    return td;
+  }
+
+  function money(minor, currency) {
+    return (minor / 100).toFixed(2) + " " + (currency || "");
+  }
+
+  function since() {
+    if ($("window").value === "day") return new Date(Date.now() - 864e5).toISOString().replace(/\.\d+Z$/, "Z");
+    return openedAt;
+  }
+
+  async function getJSON(url, options) {
+    const response = await fetch(url, options);
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || response.statusText);
+    return body;
+  }
+
+  function renderTiles(m) {
+    const tiles = [
+      ["Decisions", m.decisions],
+      ["Approval rate", (m.approval_rate * 100).toFixed(1) + "%"],
+      ["Declined", m.declined],
+      ["Flagged", m.flagged],
+      ["Fallbacks", m.fallback_used],
+      ["p50", m.latency_ms.p50.toFixed(1) + " ms"],
+      ["p95", m.latency_ms.p95.toFixed(1) + " ms"],
+      ["p99", m.latency_ms.p99.toFixed(1) + " ms"],
+      ["Explained", m.explainer.explained],
+      ["Explainer fallbacks", m.explainer.fallback_used],
+    ];
+    const box = $("tiles");
+    box.replaceChildren(...tiles.map(([label, value]) => {
+      const tile = document.createElement("div");
+      tile.className = "tile";
+      const l = document.createElement("div"); l.className = "label"; l.textContent = label;
+      const v = document.createElement("div"); v.className = "value"; v.textContent = value;
+      tile.append(l, v);
+      return tile;
+    }));
+  }
+
+  function renderReasons(reasons) {
+    const entries = Object.entries(reasons || {}).sort((a, b) => b[1] - a[1]);
+    const box = $("reasons");
+    if (entries.length === 0) {
+      const note = document.createElement("span"); note.className = "note"; note.textContent = "No declines yet.";
+      box.replaceChildren(note);
+      return;
+    }
+    const top = entries[0][1];
+    box.replaceChildren(...entries.map(([code, count]) => {
+      const row = document.createElement("div"); row.className = "bar";
+      const name = document.createElement("span"); name.textContent = code;
+      const track = document.createElement("div"); track.className = "track";
+      const fill = document.createElement("div"); fill.className = "fill"; fill.style.width = (100 * count / top) + "%";
+      track.append(fill);
+      const n = document.createElement("span"); n.className = "count"; n.textContent = count;
+      row.append(name, track, n);
+      return row;
+    }));
+  }
+
+  function renderRecent(items) {
+    $("recent").replaceChildren(...items.map((d) => {
+      const tr = document.createElement("tr");
+      const decision = d.flagged ? d.decision + " · flag" : d.decision;
+      tr.append(
+        cell(new Date(d.time).toLocaleTimeString()), cell(d.source), cell(d.card_id),
+        cell(money(d.amount_minor, d.currency), "num"), cell(d.mcc), cell(d.country),
+        cell(decision, d.flagged ? "flag" : d.decision), cell(d.risk_score, "num"),
+        cell((d.reasons || []).join(", ")), cell(d.latency_ms.toFixed(1), "num"));
+      return tr;
+    }));
+  }
+
+  async function refresh() {
+    try {
+      const [metrics, recent] = await Promise.all([
+        getJSON("/api/metrics?since=" + encodeURIComponent(since())),
+        getJSON("/api/recent"),
+      ]);
+      renderTiles(metrics);
+      renderReasons(metrics.decline_reasons);
+      renderRecent(recent);
+      $("status").textContent = "engine connected · " + new Date().toLocaleTimeString();
+      $("status").className = "status";
+    } catch (err) {
+      $("status").textContent = "engine unreachable: " + err.message;
+      $("status").className = "status down";
+    }
+  }
+
+  function showError(box, err) {
+    const p = document.createElement("p"); p.className = "error"; p.textContent = err.message;
+    box.replaceChildren(p);
+  }
+
+  $("scenarioForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const button = event.target.querySelector("button");
+    const box = $("scenarioResult");
+    button.disabled = true;
+    box.replaceChildren();
+    try {
+      const result = await getJSON("/api/scenarios", {
+        method: "POST",
+        body: JSON.stringify({
+          scenario: form.get("scenario"),
+          normal_cards: Number(form.get("normal_cards")),
+          fraud_cards: Number(form.get("fraud_cards")),
+          seed: String(form.get("seed")).trim() || "0", // a string: a 64-bit seed doesn't fit a JS number
+        }),
+      });
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      ["Scenario", "Requests", "Result"].forEach((h) => {
+        const th = document.createElement("th"); th.textContent = h; head.append(th);
+      });
+      table.append(head, ...result.rows.map((r) => {
+        const tr = document.createElement("tr");
+        tr.append(cell(r.scenario), cell(r.requests, "num"), cell(r.result, "wrap"));
+        return tr;
+      }));
+      const t = result.totals;
+      const note = document.createElement("p"); note.className = "note";
+      note.textContent = "Caught " + t.fraud_caught + "/" + t.fraud_cards + " fraud cards · false declines " +
+        t.false_declines + "/" + t.normal_requests + " · p99 " + t.p99_ms.toFixed(1) + " ms · seed " + result.seed;
+      const wrap = document.createElement("div"); wrap.className = "scroll"; wrap.append(table);
+      box.replaceChildren(wrap, note);
+    } catch (err) {
+      showError(box, err);
+    } finally {
+      button.disabled = false;
+      refresh();
+    }
+  });
+
+  $("txForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const button = event.target.querySelector("button");
+    const box = $("txResult");
+    button.disabled = true;
+    try {
+      const responses = await getJSON("/api/transactions", {
+        method: "POST",
+        body: JSON.stringify({
+          card_id: form.get("card_id"),
+          amount_minor: Math.round(Number(form.get("amount")) * 100),
+          currency: String(form.get("currency")).toUpperCase(),
+          mcc: form.get("mcc"),
+          merchant_id: form.get("merchant_id"),
+          country: String(form.get("country")).toUpperCase(),
+          entry_mode: form.get("entry_mode"),
+          count: Number(form.get("count")),
+        }),
+      });
+      const counts = responses.reduce((acc, r) => {
+        const key = r.flagged ? "flagged" : r.decision;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const last = responses[responses.length - 1];
+      const p = document.createElement("p"); p.className = "note";
+      p.textContent = Object.entries(counts).map(([k, v]) => v + " " + k).join(" · ") +
+        (last.reasons.length ? " · last reasons: " + last.reasons.map((r) => r.code).join(", ") : "");
+      box.replaceChildren(p);
+    } catch (err) {
+      showError(box, err);
+    } finally {
+      button.disabled = false;
+      refresh();
+    }
+  });
+
+  $("window").addEventListener("change", refresh);
+  refresh();
+  setInterval(refresh, 1000);
+</script>
+</body>
+</html>

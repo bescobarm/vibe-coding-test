@@ -10,6 +10,8 @@ Terminal 1, a clean start (`make reset` deletes local data):
 make reset && make run
 ```
 
+Terminal 3: `make dashboard`, and open http://localhost:8090 in the browser.
+
 Terminal 2, paste the helpers once:
 
 ```bash
@@ -45,9 +47,9 @@ Point at the pipeline: hard controls → velocity and budget → score → decis
 | 2:00 | Card testing | `for i in 1 2 3 4 5 6; do auth ct$i card_123 $((50 + 50 * i)) 5999 m_$i; done` | 3 × `APPROVE`, then flagged, then `DECLINE` `CARD_TESTING_PATTERN` | "Small charges at different merchants: the score flags the 4th, the velocity rule declines the 6th." |
 | 2:25 | Split purchase + explanation | `auth sp1 card_456 49000 5734 m_acme; auth sp2 card_456 49100 5734 m_acme; sleep 1; explain sp2` | `sp2` flagged `SPLIT_TRANSACTION_PATTERN`, then the mocked explanation | "Two purchases just under the limit at one merchant: flagged, and a finance team gets this explanation. It's mocked, and validated: it can't add a reason the engine didn't give." |
 | 2:55 | Redis down | `docker compose stop redis; auth f1 card_456 10000 5734; docker compose start redis` | `APPROVE` with `fallback_used: true` | "Redis is down: the company's fallback answers inside the deadline, and it's audited." |
-| 3:15 | The simulator | `make simulate` | 12/12 caught, 0 false declines | "New random fraud cases every run: all caught, no false declines." |
+| 3:15 | The dashboard (browser, http://localhost:8090; `make dashboard` started before recording) | Click **Run** (all six), then send MCC 7995 with batch 3 | The report: 12/12 caught, 0 false declines; tiles and decline bars update live | "New random fraud cases every run, all caught, no false declines, and the metrics update live." |
 
-**If something misbehaves:** `make simulate` alone shows every scenario; the runbook (`docs/RUNBOOK.md`, steps 4a–4h) has each moment as a tested command.
+**If something misbehaves:** `make simulate` in the terminal shows the same report; the runbook (`docs/RUNBOOK.md`, steps 4a–4h) has each moment as a tested command.
 
 ## 4. Code walkthrough (3:30–4:30) · editor
 
@@ -57,4 +59,4 @@ Point at the pipeline: hard controls → velocity and budget → score → decis
 
 ## 5. How I worked and next steps (4:30–5:00) · camera
 
-> "I made every decision; the AI wrote most of the code. Each part started with a brief, ended with a coverage gate, and every choice is logged with what the AI suggested and what I decided, including where I disagreed. Next: a dashboard to run transactions and watch the metrics live, a real LLM adapter, and shadow mode for new rules."
+> "I made every decision; the AI wrote most of the code. Each part started with a brief, ended with a coverage gate, and every choice is logged with what the AI suggested and what I decided, including where I disagreed. Next: a real LLM adapter, shadow mode for new rules, and multi-currency budgets."

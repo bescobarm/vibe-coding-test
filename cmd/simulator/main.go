@@ -5,10 +5,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	_ "embed"
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,25 +18,17 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/simulator"
 )
 
-// policy is the simulated company's policy: the demo controls, card-testing
-// and daily rules, risk thresholds and a fail-open fallback.
-//
-//go:embed policy.json
-var policy []byte
-
 const (
 	defaultEngineURL   = "http://localhost:8080"
 	defaultDatabaseURL = "postgres://auth:auth@localhost:55432/auth?sslmode=disable"
 	modeReport         = "report"
 	modeLoad           = "load"
 	pathHealth         = "/healthz"
-	runIDBytes         = 3
 	requestTimeout     = 5 * time.Second
 	readyTimeout       = 30 * time.Second
 	readyPause         = 300 * time.Millisecond
 	exitFailure        = 1
 
-	seedBytes          = 8
 	defaultNormalCards = 20
 	defaultFraudCards  = 3
 	defaultRate        = 200
@@ -103,12 +91,12 @@ func run(opts options) error {
 
 	defer pool.Close()
 
-	runID, err := newRunID()
+	runID, err := simulator.NewRunID()
 	if err != nil {
 		return err
 	}
 
-	seed, err := pickSeed(opts.seed)
+	seed, err := simulator.PickSeed(opts.seed)
 	if err != nil {
 		return err
 	}
@@ -127,7 +115,7 @@ func run(opts options) error {
 }
 
 func runReport(ctx context.Context, sim *simulator.Run, cards simulator.CardCreator, opts options) error {
-	report, err := simulator.RunReport(ctx, sim, cards, policy, simulator.ListScenarios(opts.normalCards, opts.fraudCards))
+	report, err := simulator.RunReport(ctx, sim, cards, simulator.DefaultPolicy, simulator.ListScenarios(opts.normalCards, opts.fraudCards))
 	if err != nil {
 		return err
 	}
@@ -140,7 +128,7 @@ func runLoad(ctx context.Context, sim *simulator.Run, cards simulator.CardCreato
 		return errInvalidLoadArgs
 	}
 
-	cardIDs, err := simulator.PrepareLoad(ctx, sim, cards, policy, opts.loadCards)
+	cardIDs, err := simulator.PrepareLoad(ctx, sim, cards, simulator.DefaultPolicy, opts.loadCards)
 	if err != nil {
 		return err
 	}
@@ -189,17 +177,6 @@ func waitForEngine(ctx context.Context, client *http.Client, engineURL string) e
 	}
 }
 
-func newRunID() (string, error) {
-	random := make([]byte, runIDBytes)
-
-	_, err := rand.Read(random)
-	if err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(random), nil
-}
-
 func getEnv(key, fallback string) string {
 	value := os.Getenv(key)
 	if value != "" {
@@ -207,21 +184,4 @@ func getEnv(key, fallback string) string {
 	}
 
 	return fallback
-}
-
-// pickSeed keeps a seed that was given, or draws a new one, so each run plays
-// different cases (D-066). The report prints it to replay the run.
-func pickSeed(given uint64) (uint64, error) {
-	if given != 0 {
-		return given, nil
-	}
-
-	random := make([]byte, seedBytes)
-
-	_, err := rand.Read(random)
-	if err != nil {
-		return 0, err
-	}
-
-	return binary.BigEndian.Uint64(random), nil
 }
