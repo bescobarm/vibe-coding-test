@@ -34,8 +34,8 @@ lint: ## golangci-lint (.golangci.yml), the style checker, and no init statement
 	go run ./tools/stylecheck .
 	@! grep -rnE '$(INIT_IN_IF)' --include='*.go' . || { echo "assign first, then check: no init statement in if/switch (D-043)"; false; }
 
-simulate:
-	@echo "Not implemented yet: arrives with sub-project 06 (briefs/06-simulator-and-report-brief.md)"
+simulate: ## Play the labeled scenarios against the running engine and print the report (needs `make run`)
+	go run ./cmd/simulator -mode report
 
-load:
-	@echo "Not implemented yet: arrives with sub-project 06 (briefs/06-simulator-and-report-brief.md)"
+load: ## Load test the running engine at a fixed rate; fails if p99 >= 100 ms (needs `make run`)
+	go run ./cmd/simulator -mode load

@@ -129,6 +129,19 @@ Expect:
 2. `f2`: `DECLINE` `FALLBACK_APPLIED` (over the cap).
 3. `f3`: `DECLINE` `FALLBACK_APPLIED` and `DEFAULT_POLICY_APPLIED`: the card can't be loaded, so the default fail-closed fallback applies ([D-062](DECISIONS.md#d-062-with-postgres-down-the-default-fallback-applies-and-is-logged)). The engine log has `"msg":"fallback not stored"` with the decision.
 
+## 4g. Simulator, metrics and load
+
+```bash
+make simulate
+curl -s localhost:8080/v1/metrics | jq '{decisions, approval_rate, decline_reasons, latency_ms}'
+make load
+```
+
+Expect:
+1. The report: 6 scenarios, `12/12 fraud cards caught`, `False declines: 0/160`. A second `make simulate` prints the same scenario results (same seed).
+2. Counts by reason and p50/p95/p99 for all traffic so far.
+3. `PASS (p99 < 100 ms)` at 200 req/s; `make load` exits non-zero on `FAIL`.
+
 ## 5. Publish a new policy version
 
 ```bash

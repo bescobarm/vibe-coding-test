@@ -88,6 +88,12 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-062](#d-062-with-postgres-down-the-default-fallback-applies-and-is-logged) | With Postgres down, the default fallback applies and is logged | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-063](#d-063-contents-of-the-default-policy) | Contents of the default policy | 🟢 Accepted | Risk | [05](../briefs/05-deadline-and-fallback-brief.md) |
 | [D-064](#d-064-the-engine-answers-at-the-deadline-even-if-a-stage-does-not) | The engine answers at the deadline, even if a stage does not | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
+| [D-065](#d-065-score-weights-can-be-overridden-with-env-vars) | Score weights can be overridden with env vars | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-066](#d-066-the-simulator-creates-its-own-cards-in-postgres) | The simulator creates its own cards in Postgres | 🟡 Proposed (implemented) | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-067](#d-067-the-simulator-runs-in-real-time) | The simulator runs in real time | 🟡 Proposed (implemented) | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-068](#d-068-the-report-has-no-target-rates) | The report has no target rates | 🟢 Accepted | Product | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-069](#d-069-load-is-tested-by-the-go-simulator) | Load is tested by the Go simulator | 🟢 Accepted | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-070](#d-070-metrics-are-read-from-the-audit-log) | Metrics are read from the audit log | 🟢 Accepted | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
 
 ---
 
@@ -625,6 +631,51 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** A.
 - **Why:** 📝
 
+### D-065: Score weights can be overridden with env vars
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (asked in the review of PR #10; analysis by AI) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** I asked whether the weights could be env vars, to test changes easily.
+- **AI input and concerns:**
+  - **Weights: yes.** SP06 tunes them against the simulator (detection vs. false declines); env vars make that loop run without a rebuild. D-057 still holds: the defaults stay in code.
+  - **Per feature, not high/medium/low:** tuning moves one feature at a time.
+  - **Thresholds: no.** `flag_at` and `decline_at` are per company in the policy and change at runtime with `PUT`.
+  - **Feature parameters (≥ 3 small attempts, 80% split share, z ≥ 3, cold start 5): not now.** They define what a feature means; six more variables add surface for little tuning gain.
+  - A weight outside 0–100, or not a number, stops the engine at startup instead of scoring wrong. `scoring.Stage` gets a constructor, because a zero-value stage would score everything 0 silently.
+- **Decision:** `SCORE_WEIGHT_CARD_TESTING`, `SCORE_WEIGHT_SPLIT_PURCHASE`, `SCORE_WEIGHT_NEW_COUNTRY`, `SCORE_WEIGHT_NEW_MERCHANT_CNP`, `SCORE_WEIGHT_AMOUNT_ANOMALY`, `SCORE_WEIGHT_ROUND_AMOUNT`.
+- **Why:** 📝
+
+### D-068: The report has no target rates
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Context:** SP06 brief Q1: is there a target detection or false-decline rate, or is the report enough?
+- **AI input and concerns:** report only. Without real traffic, a target would be set against data I generated myself; the write-up explains what the numbers mean instead.
+- **Decision:** The report shows detection per scenario and the false-decline rate; no pass/fail target.
+- **Why:** 📝
+
+### D-069: Load is tested by the Go simulator
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Options:** A: a k6 script (as the README first said) · B: the Go simulator's load mode, as designed in D-035.
+- **AI input and concerns:** B. Reviewers install nothing extra, and the report and the load test share one tool and one set of scenarios.
+- **Decision:** B. `make load` runs `cmd/simulator -mode load` and fails when the engine's p99 is 100 ms or more.
+- **Why:** 📝
+
+### D-070: Metrics are read from the audit log
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Options:** A: SQL over the `authorizations` table · B: in-memory counters and histograms in the engine.
+- **AI input and concerns:** A. The audit log already stores the decision, reasons, `fallback_used` and `latency_ms`; it survives restarts and needs no new state. It costs a scan of the window; fine for an operator endpoint, not for the hot path.
+- **Decision:** A. `GET /v1/metrics?since=` (default: the last 24 hours).
+- **Why:** 📝
+
 ## Proposed (waiting for my decision)
 
-None right now.
+### D-066: The simulator creates its own cards in Postgres
+- **Status:** 🟡 Proposed, **already implemented** in SP06. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Context:** The API has no way to create cards, and reusing the seeded cards would mix one run's counters into the next (the brief: "each run must start clean").
+- **AI recommendation (as built):** the simulator, a development tool, connects to Postgres to insert a fresh company's cards, and publishes that company's policy through the real API. IDs carry a random run ID; the traffic itself depends only on the seed. No admin endpoint, so no new attack surface.
+- **Alternatives not built:** a `POST /v1/cards` admin endpoint; fixed seed cards cleaned between runs.
+- **Decision:** _pending my review_
+
+### D-067: The simulator runs in real time
+- **Status:** 🟡 Proposed, **already implemented** in SP06. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Context:** SP06 brief Q2 suggested a `DEMO_MODE` where the request's `created_at` drives the windows, to run "a day" in seconds.
+- **AI recommendation (as built):** no fake clock. It would reverse D-045 (windows use the engine clock). Every scenario fits in real time: card testing is 8 requests in a second, split purchase and the daily limit happen on the same day.
+- **Decision:** _pending my review_
+
