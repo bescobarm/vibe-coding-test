@@ -2,7 +2,7 @@
 
 > A decision service that approves or declines corporate card transactions in milliseconds. It combines per-company spend controls, velocity limits and an explainable anomaly score, and it is built to stay **fast, safe and auditable** when things go wrong.
 
-> 🚧 **Status:** implementation in progress (started Thu 2026-11-12, due **Mon 2026-11-16**). The commands in [How to run](#1-how-to-run) are the target interface. Each one works once the matching sub-project in [Implementation plan](#16-implementation-plan) is done.
+> ✅ **Status:** MVP complete (Sat 2026-11-14, due Mon 2026-11-16). Every command in [How to run](#1-how-to-run) works, verified from a fresh clone: `make simulate` catches 12/12 fraud cases with 0 false declines, `make load` passes p99 < 100 ms, and every test and lint check passes.
 
 | Deliverable | Where |
 |---|---|
@@ -15,7 +15,7 @@
 | Glossary (CNP, MCC, hold, outbox…) | [docs/CONCEPTS.md](docs/CONCEPTS.md) |
 | SQL review | [docs/SQL_REVIEW.md](docs/SQL_REVIEW.md) |
 | Problem briefs (one per sub-project) | [briefs/](briefs/) |
-| One-page write-up | `WRITEUP.md` 🚧 (Day 3) |
+| Step-by-step test of every feature | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
 | 5-minute video | Link added on submission 🚧 |
 
 ---
@@ -53,6 +53,8 @@
 | Go | 1.25+ (built with 1.27) | Engine, simulator and tests | `brew install go` |
 | Docker runtime | Any with `docker compose` | Runs Postgres and Redis | `brew install --cask orbstack` (or Docker Desktop) |
 | make | Any | Shortcuts below | Comes with Xcode Command Line Tools |
+| jq | Any | Pretty JSON in the curl examples and the runbook | `brew install jq` |
+| golangci-lint *(optional)* | v2 | `make lint` only | `brew install golangci-lint` |
 
 No API keys are needed. The LLM explainer is **mocked** (see [§13](#13-mocked-llm-explainer)).
 
@@ -134,7 +136,7 @@ The deadline is short (due Mon 2026-11-16). The brief says *"a focused problem s
 | ✅ In the MVP | ✂️ Cut (moved to [What I'd do next](#18-what-id-do-next)) |
 |---|---|
 | Hard controls with per-company versioned JSON policies | Shadow mode (FR7) |
-| Velocity and budget with an atomic Redis reserve | Metrics dashboard UI (a CLI report and `GET /v1/metrics` remain) |
+| Velocity and budget with an atomic Redis reserve | Metrics dashboard UI: a CLI report and `GET /v1/metrics` remain; a dashboard is the next task ([D-073](docs/DECISIONS.md#d-073-a-dashboard-is-a-future-task)) |
 | Lifecycle: reversal, expiry, capture, refund, incremental auth | Partial approval (`APPROVE_PARTIAL`) |
 | Explainable anomaly score (6 features) and risk policy | Real LLM connection (mocked instead) |
 | Idempotency, internal deadline, per-company fallback | |
@@ -146,19 +148,19 @@ The deadline is short (due Mon 2026-11-16). The brief says *"a focused problem s
 
 | # | Task | Sub-project brief |
 |---|---|---|
-| 1 | Go module, `docker-compose.yml`, Makefile, embedded migrations | [01](briefs/01-walking-skeleton-brief.md) |
-| 2 | `POST /v1/authorizations` end to end: parse, decide, store, respond | [01](briefs/01-walking-skeleton-brief.md) |
-| 3 | Idempotency on `authorization_id` + audit record | [01](briefs/01-walking-skeleton-brief.md) |
-| 4 | Policy loading and validation, card-level overrides, `PUT /v1/companies/{id}/policy` | [02](briefs/02-policy-and-hard-controls-brief.md) |
-| 5 | Hard controls with reason codes | [02](briefs/02-policy-and-hard-controls-brief.md) |
-| 6 | Redis Lua check-and-reserve (rolling windows + daily/monthly budget) | [03](briefs/03-velocity-budget-lifecycle-brief.md) |
-| 7 | Lifecycle endpoints that release or adjust holds | [03](briefs/03-velocity-budget-lifecycle-brief.md) |
-| 8 | Concurrency test: 100 parallel requests, limit allows 10, exactly 10 approved | [03](briefs/03-velocity-budget-lifecycle-brief.md) |
-| 9 | Anomaly features + score + risk policy (approve / flag / decline) | [04](briefs/04-anomaly-scoring-brief.md) |
-| 10 | Internal deadline + per-company fallback + failure tests | [05](briefs/05-deadline-and-fallback-brief.md) |
-| 11 | Traffic simulator + scenario report + `GET /v1/metrics` | [06](briefs/06-simulator-and-report-brief.md) |
-| 12 | Mocked LLM explainer fed by the outbox, with template fallback | [07](briefs/07-mock-llm-explainer-brief.md) |
-| 13 | `WRITEUP.md`, final README pass, 5-minute video | — |
+| 1 | ✅ Go module, `docker-compose.yml`, Makefile, embedded migrations | [01](briefs/01-walking-skeleton-brief.md) |
+| 2 | ✅ `POST /v1/authorizations` end to end: parse, decide, store, respond | [01](briefs/01-walking-skeleton-brief.md) |
+| 3 | ✅ Idempotency on `authorization_id` + audit record | [01](briefs/01-walking-skeleton-brief.md) |
+| 4 | ✅ Policy loading and validation, card-level overrides, `PUT /v1/companies/{id}/policy` | [02](briefs/02-policy-and-hard-controls-brief.md) |
+| 5 | ✅ Hard controls with reason codes | [02](briefs/02-policy-and-hard-controls-brief.md) |
+| 6 | ✅ Redis Lua check-and-reserve (rolling windows + daily/monthly budget) | [03](briefs/03-velocity-budget-lifecycle-brief.md) |
+| 7 | ✅ Lifecycle endpoints that release or adjust holds | [03](briefs/03-velocity-budget-lifecycle-brief.md) |
+| 8 | ✅ Concurrency test: 100 parallel requests, limit allows 10, exactly 10 approved | [03](briefs/03-velocity-budget-lifecycle-brief.md) |
+| 9 | ✅ Anomaly features + score + risk policy (approve / flag / decline) | [04](briefs/04-anomaly-scoring-brief.md) |
+| 10 | ✅ Internal deadline + per-company fallback + failure tests | [05](briefs/05-deadline-and-fallback-brief.md) |
+| 11 | ✅ Traffic simulator + scenario report + `GET /v1/metrics` | [06](briefs/06-simulator-and-report-brief.md) |
+| 12 | ✅ Mocked LLM explainer fed by the outbox, with template fallback | [07](briefs/07-mock-llm-explainer-brief.md) |
+| 13 | ✅ `WRITEUP.md` · ✅ final README pass · 🎬 5-minute video ([script](docs/VIDEO_SCRIPT.md)) | — |
 
 ---
 
@@ -827,12 +829,14 @@ Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-b
 1. **Problem (30 s):** every swipe is a sub-second decision; too permissive = fraud, too strict = lost trust, too slow = someone else decides.
 2. **Architecture (60 s):** the big-picture diagram, why the stages are ordered cheap-to-expensive, why the LLM is out of the hot path (and mocked).
 3. **Live demo (2 min):**
-   - Normal purchase → approved in a few ms.
-   - Run the card-testing scenario → first attempts pass, then declined with `CARD_TESTING_PATTERN`.
-   - Split purchase → flagged with a clear reason, then the mocked LLM explanation appears on the audit record.
-   - Send the same request twice → same decision, counted once.
-   - Stop Redis → fallback applied and logged, still within the deadline.
-   - Show the scenario report and latency percentiles.
+   - Normal purchase → approved in a few ms (runbook 4a).
+   - Card testing → first attempts pass, then flagged, then declined with `CARD_TESTING_PATTERN` (4e).
+   - Split purchase → flagged with a clear reason, then the mocked LLM explanation appears on the audit record (4h).
+   - Send the same request twice → same decision, counted once (4a–4b).
+   - Stop Redis → fallback applied and logged, still within the deadline (4f).
+   - Show the scenario report and latency percentiles (4g).
+
+   The timed script with the exact commands is [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md).
 4. **Code walkthrough (60 s):** the decision pipeline, the Lua script, a policy document.
 5. **How I worked and next steps (30 s):** the briefs, the decision log, the coverage gate, what I'd build next.
 
