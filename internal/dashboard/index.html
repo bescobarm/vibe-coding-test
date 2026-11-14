@@ -6,139 +6,262 @@
 <title>Authorization Dashboard</title>
 <link rel="icon" href="data:,">
 <style>
+  /* Poppins, served by the dashboard itself so the page works offline (D-077). */
+  @font-face { font-family: "Poppins"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/poppins-400.woff2") format("woff2"); }
+  @font-face { font-family: "Poppins"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/poppins-500.woff2") format("woff2"); }
+  @font-face { font-family: "Poppins"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/poppins-600.woff2") format("woff2"); }
   /* Tokens: page chrome, status colors (approve / flag / decline) and two
-     series colors (p50 / p99), validated in both modes. */
+     series colors (p50 / p99), validated on both surfaces. */
   :root {
     color-scheme: light;
-    --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e; --muted: #898781;
-    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11, 11, 11, 0.10); --accent: #2a78d6; --wash: rgba(42, 120, 214, 0.08);
+    --page: #f4f5f8; --surface: #ffffff; --raised: #f8f9fb; --text: #101828; --text-2: #475467; --muted: #667085;
+    --grid: #eaecf0; --axis: #d0d5dd; --ring: #e4e7ec; --accent: #4338ca; --accent-fill: #4338ca; --wash: rgba(67, 56, 202, 0.07);
     --good: #0ca30c; --warning: #fab219; --critical: #d03b3b; --good-text: #006300; --critical-text: #b22f2f; --warning-text: #8a5a00;
     --series-1: #2a78d6; --series-2: #eb6834;
+    --bar: #0f1629; --bar-text: #ffffff; --bar-text-2: #aab3c5; --bar-line: rgba(255, 255, 255, 0.16);
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.05); --shadow-raised: 0 1px 3px rgba(16, 24, 40, 0.12);
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
       color-scheme: dark;
-      --page: #0d0d0d; --surface: #1a1a19; --text: #f0efec; --text-2: #c3c2b7; --muted: #898781;
-      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10); --accent: #3987e5; --wash: rgba(57, 135, 229, 0.12);
+      --page: #0b0d12; --surface: #14171f; --raised: #1a1e28; --text: #eef0f4; --text-2: #b3bac6; --muted: #808898;
+      --grid: #232834; --axis: #343a48; --ring: #262b37; --accent: #a5b4fc; --accent-fill: #4f46e5; --wash: rgba(129, 140, 248, 0.14);
       --good-text: #0ca30c; --critical-text: #e66767; --warning-text: #fab219;
       --series-1: #3987e5; --series-2: #d95926;
+      --bar: #07090d; --shadow: none; --shadow-raised: 0 1px 3px rgba(0, 0, 0, 0.5);
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --page: #0d0d0d; --surface: #1a1a19; --text: #f0efec; --text-2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10); --accent: #3987e5; --wash: rgba(57, 135, 229, 0.12);
+    --page: #0b0d12; --surface: #14171f; --raised: #1a1e28; --text: #eef0f4; --text-2: #b3bac6; --muted: #808898;
+    --grid: #232834; --axis: #343a48; --ring: #262b37; --accent: #a5b4fc; --accent-fill: #4f46e5; --wash: rgba(129, 140, 248, 0.14);
     --good-text: #0ca30c; --critical-text: #e66767; --warning-text: #fab219;
     --series-1: #3987e5; --series-2: #d95926;
+    --bar: #07090d; --shadow: none; --shadow-raised: 0 1px 3px rgba(0, 0, 0, 0.5);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--text); }
-  header { padding: 14px 24px 0; background: var(--surface); border-bottom: 1px solid var(--ring); }
-  .top { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
-  header h1 { font-size: 18px; margin: 0; }
-  .status { color: var(--text-2); font-size: 13px; }
-  .status.down { color: var(--critical-text); }
-  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px; }
-  .status.down .dot { background: var(--critical); }
-  .window { margin-left: auto; display: flex; gap: 8px; align-items: center; color: var(--text-2); font-size: 13px; }
-  nav { display: flex; gap: 4px; margin-top: 10px; }
-  nav button { background: none; color: var(--text-2); border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
-  nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
-  main { padding: 16px 24px 32px; max-width: 1280px; margin: 0 auto; }
-  header > * { max-width: 1232px; margin-left: auto; margin-right: auto; }
+  body { margin: 0; font: 14px/1.5 "Poppins", system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--text); -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- header: a dark bar with the product and the engine's state, tabs below ---------- */
+  header { position: sticky; top: 0; z-index: 5; }
+  .topbar { background: var(--bar); color: var(--bar-text); color-scheme: dark; padding: 0 24px; }
+  .top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-height: 52px; padding: 8px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, #6366f1, #4338ca); display: grid; place-items: center; flex: none; }
+  header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .status { color: var(--bar-text-2); font-size: 12px; border: 1px solid var(--bar-line); border-radius: 999px; padding: 3px 10px; font-variant-numeric: tabular-nums; }
+  .status.down { color: #ffb4b4; border-color: rgba(255, 120, 120, 0.5); }
+  .status .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #2fd158; margin-right: 7px; box-shadow: 0 0 0 3px rgba(47, 209, 88, 0.2); }
+  .status.down .dot { background: #ff6b6b; box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.2); }
+  .zone-note { margin-left: auto; color: var(--bar-text-2); font-size: 12px; }
+  .window { display: flex; gap: 8px; align-items: center; color: var(--bar-text-2); font-size: 12px; font-weight: 500; }
+  .window select { background: rgba(255, 255, 255, 0.08); border-color: var(--bar-line); color: var(--bar-text); padding: 5px 8px; font-size: 13px; box-shadow: none; }
+  .tabs { background: var(--surface); border-bottom: 1px solid var(--ring); padding: 0 24px; }
+  .top, nav { max-width: 1232px; margin: 0 auto; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: none; color: var(--text-2); border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 11px 12px 9px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  nav button:hover { color: var(--text); }
+  nav button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ---------- layout and cards ---------- */
+  main { padding: 20px 24px 40px; max-width: 1280px; margin: 0 auto; }
   [role="tabpanel"][hidden] { display: none; }
   .grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
-  section { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 16px; min-width: 0; }
+  section { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 20px; min-width: 0; box-shadow: var(--shadow); scroll-margin-top: 116px; }
   section.wide { grid-column: 1 / -1; }
-  h2 { font-size: 15px; margin: 0 0 4px; }
-  .lead { color: var(--text-2); margin: 0 0 14px; font-size: 13px; }
-  .empty-note { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--wash); color: var(--text); font-size: 13px; }
+  h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 2px; }
+  .lead { color: var(--text-2); margin: 0 0 16px; font-size: 13px; }
+  .empty-note { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; background: var(--wash); color: var(--text); font-size: 13px; }
   .empty-note[hidden] { display: none; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
-  .tile { border: 1px solid var(--ring); border-radius: 8px; padding: 10px 12px; }
-  .tile .label { color: var(--text-2); font-size: 12px; }
-  .tile .value { font-size: 24px; font-weight: 600; }
-  .tile .hint { color: var(--muted); font-size: 11px; }
-  form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .tiles.minor { margin-top: 12px; }
+  .tile { border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; min-width: 0; background: var(--surface); }
+  .tile .label { color: var(--text-2); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
+  .tile .label .mark { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .tile .value { font-size: 30px; font-weight: 600; line-height: 1.3; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+  .tiles.minor .tile { padding: 10px 16px; background: var(--raised); border-color: transparent; }
+  .tiles.minor .value { font-size: 18px; letter-spacing: -0.015em; }
+  .tile .hint { color: var(--text-2); font-size: 12px; }
+  .tile .hint.ok { color: var(--good-text); }
+  .tile .hint.warn { color: var(--warning-text); }
+  .tile .hint.bad { color: var(--critical-text); }
+  @media (max-width: 640px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  /* Share of outcomes: one segmented bar, 2px surface gap between fills. */
+  .share { margin: 16px 0 0; }
+  .share[hidden] { display: none; }
+  .share-bar { display: flex; gap: 2px; height: 8px; }
+  .share-bar span { min-width: 4px; border-radius: 2px; }
+  .share-bar span:first-child { border-radius: 4px 2px 2px 4px; }
+  .share-bar span:last-child { border-radius: 2px 4px 4px 2px; }
+  .share-bar span:only-child { border-radius: 4px; }
+  .share .legend { margin: 8px 0 0; }
+  .share .legend strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
+
+  /* ---------- forms and buttons ---------- */
+  form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
   form .full { grid-column: 1 / -1; }
-  label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; align-content: start; }
+  form .run { align-self: start; padding-top: 23px; }
+  @media (min-width: 861px) { form.form-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } form.form-3 .span-2 { grid-column: span 2; } }
+  label { display: grid; gap: 5px; font-size: 13px; font-weight: 500; align-content: start; }
   .help { font-weight: 400; color: var(--text-2); font-size: 12px; }
-  input, select { font: inherit; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--axis); background: var(--page); color: var(--text); min-width: 0; }
-  button.primary { font: inherit; background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
-  button.primary:disabled { opacity: .55; cursor: wait; }
+  input, select { font: inherit; letter-spacing: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--axis); background: var(--surface); color: var(--text); min-width: 0; box-shadow: var(--shadow); }
+  input:focus-visible, select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--wash); }
+  input::placeholder { color: var(--muted); }
+  button { letter-spacing: inherit; }
+  button.primary { font: inherit; background: var(--accent-fill); color: #fff; border: 1px solid transparent; border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.12); }
+  button.primary:disabled, button.secondary:disabled { opacity: .55; cursor: wait; }
+  button.secondary { font: inherit; background: var(--surface); color: var(--text); border: 1px solid var(--axis); border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow); }
+  button.secondary:hover:not(:disabled) { background: var(--raised); }
+  button.secondary[aria-expanded="true"] { background: var(--wash); border-color: var(--accent); color: var(--accent); }
+  button.link { font: inherit; font-size: 13px; font-weight: 500; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
+  button.link:hover { text-decoration: underline; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--axis); border-top-color: var(--accent); border-radius: 50%; margin-right: 8px; vertical-align: -1px; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+  /* ---------- overview: call-to-action cards and their panels ---------- */
   .cta { display: flex; flex-direction: column; gap: 10px; }
   .cta p { margin: 0; color: var(--text-2); font-size: 13px; }
-  .cta .actions { margin-top: auto; }
+  .cta .actions { margin-top: auto; padding-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
   .cta.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  .panel-head h2 { margin: 0; }
-  button.link { font: inherit; font-size: 13px; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
-  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px; }
+  .panel-head h2 { margin: 0; font-size: 17px; }
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
+  @media (max-width: 860px) { .steps { grid-template-columns: 1fr; } }
+  button.step { font: inherit; text-align: left; display: grid; gap: 3px; align-content: start; background: var(--surface); color: var(--text); border: 1px solid var(--axis); border-radius: 10px; padding: 14px 16px; cursor: pointer; box-shadow: var(--shadow); }
+  button.step:hover { border-color: var(--accent); }
+  button.step[aria-pressed="true"] { border-color: var(--accent); background: var(--wash); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .step-tag { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  button.step[aria-pressed="true"] .step-tag { color: var(--accent); }
+  .step-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .step-text { font-size: 12px; color: var(--text-2); }
+  [data-view-panel][hidden] { display: none; }
+  .view-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
+  .scale + .view-title { margin-top: 26px; }
+  /* Risk scale: three zones sized by their share of 0 to 100, 2px gap between fills. */
+  .scale { display: flex; gap: 2px; margin: 4px 0 0; padding: 16px; background: var(--raised); border-radius: 10px; }
+  .zone { display: grid; gap: 5px; align-content: start; justify-items: start; min-width: 0; padding-right: 12px; }
+  .zone-bar { justify-self: stretch; height: 8px; border-radius: 2px; margin: 0 -12px 8px 0; }
+  .zone:first-child .zone-bar { border-radius: 4px 2px 2px 4px; }
+  .zone:last-child .zone-bar { border-radius: 2px 4px 4px 2px; margin-right: 0; }
+  .zone:last-child { padding-right: 0; }
+  .zone-range { font-size: 26px; font-weight: 600; line-height: 1.2; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+  .zone-text { font-size: 12px; color: var(--text-2); }
+  .callout { background: var(--raised); border: 1px solid var(--ring); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-2); }
+  p.callout { margin: 14px 0 0; }
+  .callout strong { color: var(--text); }
+  .got { margin-top: 8px; padding: 7px 10px; border-left: 2px solid var(--accent); background: var(--wash); border-radius: 0 6px 6px 0; font-size: 12px; color: var(--text-2); }
+  .got .line { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+  .got .line > :first-child { font-weight: 600; color: var(--text); }
+  .got .line button.link { font-size: 12px; margin-left: auto; }
+  .got .why { margin-top: 3px; }
+
+  /* ---------- activity: period switch, filters, feed ---------- */
+  .toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+  .toolbar .toolbar-label { font-size: 13px; font-weight: 600; }
+  .toolbar .note { margin: 0; }
+  .segmented { display: inline-flex; gap: 2px; padding: 3px; background: var(--grid); border-radius: 9px; }
+  .segmented button { font: inherit; font-size: 13px; font-weight: 500; background: none; color: var(--text-2); border: none; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+  .segmented button:hover { color: var(--text); }
+  .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-raised); }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 12px; }
   .filters label { font-size: 12px; }
-  .filters input, .filters select { padding: 5px 8px; font-size: 13px; }
-  .filters .count { color: var(--text-2); font-size: 12px; margin-left: auto; align-self: center; }
-  .rules-table { margin-bottom: 12px; }
-  .form-title { font-size: 14px; margin: 8px 0 10px; }
-  .got { margin-top: 6px; font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .filters input, .filters select { padding: 6px 9px; font-size: 13px; }
+  .filters button.link { padding-bottom: 7px; }
+  .filters .count { color: var(--text-2); font-size: 12px; margin-left: auto; align-self: center; font-variant-numeric: tabular-nums; }
+  .feed { max-height: 520px; overflow: auto; border: 1px solid var(--ring); border-radius: 10px; }
+  .feed thead th { position: sticky; top: 0; box-shadow: 0 1px 0 var(--ring); z-index: 1; }
+  .feed tbody tr:hover { background: var(--raised); }
+  .feed tbody tr:last-child td { border-bottom: none; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: 0; }
+  .risk { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .risk .meter { width: 40px; height: 4px; border-radius: 2px; background: var(--grid); overflow: hidden; }
+  .risk .meter span { display: block; height: 100%; border-radius: 2px; background: var(--muted); }
+  .risk.flag .meter span { background: var(--warning); }
+  .risk.decline .meter span { background: var(--critical); }
+
+  /* ---------- tables and status badges ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--text-2); background: var(--raised); font-weight: 600; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; padding-top: 8px; padding-bottom: 8px; }
+  thead th:first-child { border-radius: 8px 0 0 0; } thead th:last-child { border-radius: 0 8px 0 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Poppins has no tabular figures, so number columns use the system font to keep digits aligned. */
+  td.num { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  td.wrap { white-space: normal; }
   .rules-table { width: 100%; min-width: 640px; table-layout: fixed; }
   .rules-table th, .rules-table td { white-space: normal; vertical-align: top; }
+  .rules-table td { padding-top: 11px; padding-bottom: 11px; }
   .rules-table th:nth-child(1) { width: 40%; }
   .rules-table th:nth-child(2) { width: 24%; }
-  .rules-table th:nth-child(4) { width: 100px; }
-  .note.rules-note { margin: 0 0 16px; }
-  .rules-table button { font: inherit; font-size: 12px; background: var(--wash); color: var(--accent); border: 1px solid var(--ring); border-radius: 999px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
-  .callout { background: var(--wash); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-2); margin-bottom: 12px; }
-  .callout strong { color: var(--text); }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
-  th { color: var(--text-2); font-weight: 600; font-size: 12px; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.wrap { white-space: normal; }
-  .pill { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
-  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 2px; }
-  .pill.approve { color: var(--good-text); } .pill.approve::before { background: var(--good); }
-  .pill.flag { color: var(--warning-text); } .pill.flag::before { background: var(--warning); }
-  .pill.decline { color: var(--critical-text); } .pill.decline::before { background: var(--critical); }
-  .result { margin-top: 12px; }
+  .rules-table th:nth-child(4) { width: 110px; }
+  .rules-table button[data-preset] { font: inherit; font-size: 12px; font-weight: 600; background: var(--surface); color: var(--accent); border: 1px solid var(--axis); border-radius: 7px; padding: 4px 12px; cursor: pointer; white-space: nowrap; box-shadow: var(--shadow); }
+  .rules-table button[data-preset]:hover:not(:disabled) { border-color: var(--accent); background: var(--wash); }
+  .rules-table td:last-child:not([colspan]) { text-align: right; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 1px 9px 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; }
+  .pill.approve { color: var(--good-text); background: color-mix(in srgb, var(--good) 13%, transparent); } .pill.approve::before { background: var(--good); }
+  .pill.flag { color: var(--warning-text); background: color-mix(in srgb, var(--warning) 20%, transparent); } .pill.flag::before { background: var(--warning); }
+  .pill.decline { color: var(--critical-text); background: color-mix(in srgb, var(--critical) 12%, transparent); } .pill.decline::before { background: var(--critical); }
+  .result { margin-top: 14px; }
   .note { color: var(--text-2); font-size: 12px; margin: 8px 0 0; }
   .error { color: var(--critical-text); margin: 8px 0 0; }
   .scroll { overflow-x: auto; }
+
+  /* ---------- charts ---------- */
   .chart { position: relative; }
-  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
-  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); margin: 0 0 8px; flex-wrap: wrap; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--text-2); margin: 0 0 10px; flex-wrap: wrap; }
   .legend .key { display: inline-flex; align-items: center; gap: 6px; }
   .legend .swatch { width: 10px; height: 10px; border-radius: 2px; }
   .legend .line { width: 14px; height: 2px; border-radius: 1px; }
-  .empty { color: var(--muted); font-size: 13px; padding: 24px 0; text-align: center; }
+  .empty { color: var(--muted); font-size: 13px; padding: 28px 0; text-align: center; white-space: normal; }
   .tooltip { position: fixed; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--ring);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16); border-radius: 8px; padding: 8px 10px; font-size: 12px; z-index: 10; display: none; max-width: 260px; }
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.16); border-radius: 8px; padding: 8px 10px; font-size: 12px; z-index: 10; display: none; max-width: 260px; }
   .tooltip .t-title { font-weight: 600; margin-bottom: 4px; }
-  .tooltip .t-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-  .tooltip .t-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tooltip .t-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; color: var(--text-2); }
+  .tooltip .t-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
   @media (max-width: 640px) {
-    header, main { padding-left: 16px; padding-right: 16px; }
+    .topbar, .tabs, main { padding-left: 16px; padding-right: 16px; }
     form { grid-template-columns: 1fr; }
     .grid { grid-template-columns: 1fr; }
+    .scale { flex-direction: column; gap: 14px; }
+    .zone-bar { margin-right: 0; }
   }
 </style>
 </head>
 <body>
 <header>
-  <div class="top">
-    <h1>Card Authorization Engine</h1>
-    <span id="status" class="status"><span class="dot"></span>connecting…</span>
-    <label class="window">Metrics for
-      <select id="window" aria-label="Metrics window">
-        <option value="session">since this page opened</option>
-        <option value="day">the last 24 hours</option>
-      </select>
-    </label>
+  <div class="topbar">
+    <div class="top">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="13" height="10" rx="2"/><path d="M1.5 6.5h13M4.5 10h3"/></svg>
+        </span>
+        <h1>Card Authorization Engine</h1>
+      </div>
+      <span id="status" class="status"><span class="dot"></span>connecting…</span>
+      <span class="zone-note" title="Every time on this page is shown in Colombian time (America/Bogota, UTC−5)">Times in Colombia (UTC−5)</span>
+      <label class="window">Metrics for
+        <select id="window" aria-label="Metrics window">
+          <option value="session">since this page opened</option>
+          <option value="day">the last 24 hours</option>
+        </select>
+      </label>
+    </div>
   </div>
-  <nav role="tablist">
-    <button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button>
-    <button role="tab" id="tab-activity" aria-controls="panel-activity" aria-selected="false">Activity &amp; charts</button>
-  </nav>
+  <div class="tabs">
+    <nav role="tablist">
+      <button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button>
+      <button role="tab" id="tab-activity" aria-controls="panel-activity" aria-selected="false">Activity &amp; charts</button>
+    </nav>
+  </div>
 </header>
 
 <main>
@@ -149,18 +272,30 @@
         <p class="lead">All decisions in the selected window. Updated every second.</p>
         <p class="empty-note" id="tilesEmpty" hidden>No decisions yet. Run the fraud scenarios or send a purchase below to see numbers here.</p>
         <div class="tiles" id="tiles"></div>
+        <div class="share" id="share" hidden>
+          <div class="share-bar" id="shareBar" role="img"></div>
+          <div class="legend" id="shareLegend"></div>
+        </div>
+        <div class="tiles minor" id="tilesMinor"></div>
       </section>
 
       <section class="cta" id="cta-scenarios">
         <h2>Run fraud scenarios</h2>
         <p>Simulates normal shoppers and 5 fraud patterns on fresh cards, then shows what the engine caught.</p>
-        <div class="actions"><button class="primary" type="button" data-open="panel-scenarios">Run fraud scenarios</button></div>
+        <div class="actions">
+          <button class="primary" type="button" id="runAll">Run all scenarios now</button>
+          <button class="secondary" type="button" data-open="panel-scenarios" aria-expanded="false" aria-controls="panel-scenarios">Customize the run</button>
+        </div>
       </section>
 
       <section class="cta" id="cta-purchase">
         <h2>Send a purchase</h2>
-        <p>Test one rule at a time: send a purchase that breaks it and see the decision and why.</p>
-        <div class="actions"><button class="primary" type="button" data-open="panel-purchase">Send a purchase</button></div>
+        <p>Send one purchase and see the decision and why: break a company rule, raise the risk score, or build any purchase yourself.</p>
+        <div class="actions">
+          <button class="secondary" type="button" data-open="panel-purchase" data-view="rules" aria-expanded="false" aria-controls="panel-purchase">Test a company rule</button>
+          <button class="secondary" type="button" data-open="panel-purchase" data-view="risk" aria-expanded="false" aria-controls="panel-purchase">Test the risk score</button>
+          <button class="secondary" type="button" data-open="panel-purchase" data-view="custom" aria-expanded="false" aria-controls="panel-purchase">Build your own</button>
+        </div>
       </section>
 
       <section class="wide" id="panel-scenarios" hidden>
@@ -168,8 +303,8 @@
           <h2>Run fraud scenarios</h2>
           <button class="link" type="button" data-close>Close</button>
         </div>
-        <form id="scenarioForm">
-          <label class="full">Scenario
+        <form id="scenarioForm" class="form-3">
+          <label class="span-2">Scenario
             <select name="scenario" id="scenarioSelect">
               <option value="all">All six scenarios</option>
               <option value="normal traffic">Normal traffic</option>
@@ -181,6 +316,10 @@
             </select>
             <span class="help" id="scenarioHelp"></span>
           </label>
+          <label>Seed (optional)
+            <input name="seed" id="seedInput" inputmode="numeric" pattern="[0-9]*" placeholder="Blank: new random purchases">
+            <span class="help">The same seed sends exactly the same purchases again, e.g. to check a fix.</span>
+          </label>
           <label>Normal shoppers
             <input name="normal_cards" type="number" min="0" max="50" value="20">
             <span class="help">6–10 everyday purchases each. Any decline is a false decline.</span>
@@ -189,11 +328,7 @@
             <input name="fraud_cards" type="number" min="0" max="50" value="3">
             <span class="help">One fraud attempt per card.</span>
           </label>
-          <label class="full">Seed (optional)
-            <input name="seed" id="seedInput" inputmode="numeric" pattern="[0-9]*" placeholder="Blank: new random purchases">
-            <span class="help">Each run makes up random purchases from a seed number. The same seed sends the same purchases again, e.g. to check a fix.</span>
-          </label>
-          <div class="full"><button class="primary" type="submit">Run</button></div>
+          <div class="run"><button class="primary" type="submit">Run</button></div>
         </form>
         <div class="result" id="scenarioResult"></div>
       </section>
@@ -203,7 +338,28 @@
           <h2>Send a purchase</h2>
           <button class="link" type="button" data-close>Close</button>
         </div>
-        <p class="lead">The engine checks every purchase against the demo company's rules below. Click <strong>Try it</strong> to send a purchase that tests that rule; what the engine answered appears in the same row.</p>
+        <p class="lead">The engine checks every purchase in two steps: first the company's rules, then a risk score. Pick what to test.</p>
+        <div class="steps" role="group" aria-label="What to test">
+          <button type="button" class="step" data-view="rules" aria-pressed="true">
+            <span class="step-tag">Step 1</span>
+            <span class="step-title">Company rules</span>
+            <span class="step-text">Limits, blocked merchants, countries, card status. Breaking one declines the purchase at once. 8 examples.</span>
+          </button>
+          <button type="button" class="step" data-view="risk" aria-pressed="false">
+            <span class="step-tag">Step 2</span>
+            <span class="step-title">Risk score</span>
+            <span class="step-text">Suspicious patterns add points: 40 flags the purchase for review, 70 declines it. 2 examples.</span>
+          </button>
+          <button type="button" class="step" data-view="custom" aria-pressed="false">
+            <span class="step-tag">Free form</span>
+            <span class="step-title">Build your own purchase</span>
+            <span class="step-text">Choose the card, amount, merchant and country, and send it once or many times in a row.</span>
+          </button>
+        </div>
+
+        <div data-view-panel="rules">
+          <h3 class="view-title">Company rules</h3>
+          <p class="lead">These are the demo company's rules. <strong>Try it</strong> sends a purchase that tests the rule, and the engine's answer appears in the same row.</p>
         <div class="scroll">
           <table class="rules-table">
             <thead><tr><th>Rule</th><th>Try it sends</th><th>Expected</th><th></th></tr></thead>
@@ -216,11 +372,37 @@
               <tr><td>Purchases only in <strong>Mexico, the US or Colombia</strong>.</td><td>45.00 USD at a shop in France</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="abroad">Try it</button></td></tr>
               <tr><td>The card must be inserted, tapped, in a phone wallet or used online. <strong>Swiped or typed</strong> cards are declined.</td><td>45.00 USD with a swiped card</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="swipe">Try it</button></td></tr>
               <tr><td><strong>Frozen and terminated</strong> cards are always declined.</td><td>20.00 USD on card_frozen</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="frozen">Try it</button></td></tr>
-              <tr><td>Purchases only between <strong>06:00 and 23:00</strong> Mexico City time.</td><td colspan="3" id="hoursNow">Uses the real clock.</td></tr>
+              <tr><td>Purchases only between <strong>06:00 and 23:00</strong> Colombian time.</td><td colspan="3" id="hoursNow">Uses the real clock.</td></tr>
             </tbody>
           </table>
         </div>
-        <p class="lead"><strong>Risk score.</strong> Suspicious patterns add points from 0 to 100. At <strong>40</strong> or more the purchase is approved but flagged for a person to review; at <strong>70</strong> or more it is declined.</p>
+          <p class="callout"><strong>The engine remembers each card.</strong> The daily limit counts everything approved today, so repeating an example can give a different answer the second time.</p>
+        </div>
+
+        <div data-view-panel="risk" hidden>
+          <h3 class="view-title">Risk score</h3>
+          <p class="lead">A purchase that passes every rule gets a score from 0 to 100. Each suspicious pattern adds points, and the total decides what happens:</p>
+          <div class="scale">
+            <div class="zone" style="flex: 40">
+              <span class="zone-bar" style="background: var(--good)"></span>
+              <span class="zone-range">0–39</span>
+              <span class="pill approve">Approved</span>
+              <span class="zone-text">Nothing unusual enough to act on.</span>
+            </div>
+            <div class="zone" style="flex: 30">
+              <span class="zone-bar" style="background: var(--warning)"></span>
+              <span class="zone-range">40–69</span>
+              <span class="pill flag">Flagged</span>
+              <span class="zone-text">Approved, and a person reviews it afterwards.</span>
+            </div>
+            <div class="zone" style="flex: 30">
+              <span class="zone-bar" style="background: var(--critical)"></span>
+              <span class="zone-range">70–100</span>
+              <span class="pill decline">Declined</span>
+              <span class="zone-text">Too risky to approve.</span>
+            </div>
+          </div>
+          <h3 class="view-title">Patterns you can try</h3>
         <div class="scroll">
           <table class="rules-table">
             <thead><tr><th>Pattern</th><th>Try it sends</th><th>Expected</th><th></th></tr></thead>
@@ -230,10 +412,14 @@
             </tbody>
           </table>
         </div>
-        <p class="note rules-note">The engine remembers what each card did: card testing looks at the last 10 minutes and the daily limit at today, so repeating an example soon can give a different result. Other signals (a new country, a new online shop, an unusual or round amount) only count after a cardholder's 5th approved purchase; the fraud scenarios show them.</p>
-        <h3 class="form-title">Or build your own purchase</h3>
-        <form id="txForm">
-          <label class="full">Card
+          <p class="callout"><strong>The engine remembers each card.</strong> Card testing looks at the last 10 minutes, so repeating an example soon can give a different answer. <strong>Other signals</strong> (a new country, a new online shop, an unusual or round amount) only count after a cardholder's 5th approved purchase; the fraud scenarios show them.</p>
+        </div>
+
+        <div data-view-panel="custom" hidden>
+          <h3 class="view-title">Build your own purchase</h3>
+          <p class="lead">Every <strong>Try it</strong> also fills this form, so you can change one value and send it again.</p>
+          <form id="txForm" class="form-3">
+          <label class="span-2">Card
             <select name="card_id">
               <option value="card_123">card_123 · active</option>
               <option value="card_456">card_456 · active</option>
@@ -241,30 +427,6 @@
               <option value="card_frozen">card_frozen · frozen: always declined</option>
               <option value="card_terminated">card_terminated · ex-employee: always declined</option>
             </select>
-          </label>
-          <label>Amount
-            <input name="amount" type="number" min="0.01" step="0.01" value="45.00">
-          </label>
-          <label>Currency
-            <input name="currency" value="USD" maxlength="3">
-            <span class="help">Limits are in USD.</span>
-          </label>
-          <label>Merchant category (MCC)
-            <select name="mcc">
-              <option value="5734">5734 · software</option>
-              <option value="5812">5812 · restaurant</option>
-              <option value="4511">4511 · airline</option>
-              <option value="7011">7011 · hotel</option>
-              <option value="5999">5999 · other retail</option>
-              <option value="7995">7995 · gambling (blocked)</option>
-            </select>
-          </label>
-          <label>Merchant
-            <input name="merchant_id" value="m_shop">
-            <span class="help">A new online merchant raises the risk score.</span>
-          </label>
-          <label>Country
-            <input name="country" value="US" maxlength="2">
           </label>
           <label>Card used
             <select name="entry_mode">
@@ -276,22 +438,68 @@
               <option value="swipe">Swipe (blocked)</option>
             </select>
           </label>
-          <label class="full">Repeat
+          <label>Amount
+            <input name="amount" type="number" min="0.01" step="0.01" value="45.00">
+          </label>
+          <label>Currency
+            <input name="currency" value="USD" maxlength="3">
+            <span class="help">Limits are in USD.</span>
+          </label>
+          <label>Country
+            <input name="country" value="US" maxlength="2">
+            <span class="help">Allowed: MX, US, CO.</span>
+          </label>
+          <label>Merchant
+            <select name="merchant_id" id="merchantSelect">
+              <option value="m_shop" data-mcc="5734">Software shop · m_shop</option>
+              <option value="m_lunch" data-mcc="5812">Restaurant · m_lunch</option>
+              <option value="m_airline" data-mcc="4511">Airline · m_airline</option>
+              <option value="m_hotel" data-mcc="7011">Hotel · m_hotel</option>
+              <option value="m_electronics" data-mcc="5999">Electronics store · m_electronics</option>
+              <option value="m_tiny_shop" data-mcc="5999">Small online shop · m_tiny_shop</option>
+              <option value="m_casino" data-mcc="7995">Casino · m_casino (gambling, blocked)</option>
+              <option value="new" data-mcc="5999">A shop never seen before · new ID each time</option>
+            </select>
+            <span class="help">Choosing a merchant also sets its category. A new online shop raises the risk score.</span>
+          </label>
+          <label>Merchant category (MCC)
+            <select name="mcc">
+              <option value="5734">5734 · software</option>
+              <option value="5812">5812 · restaurant</option>
+              <option value="4511">4511 · airline</option>
+              <option value="7011">7011 · hotel</option>
+              <option value="5999">5999 · other retail</option>
+              <option value="7995">7995 · gambling (blocked)</option>
+            </select>
+          </label>
+          <label>Repeat
             <input name="count" type="number" min="1" max="500" value="1">
-            <span class="help">Sends it N times in a row to trigger velocity rules, e.g. 6 × 1.50 USD = card testing.</span>
+            <span class="help">Sends it N times in a row, e.g. 6 × 1.50 USD = card testing.</span>
           </label>
           <div class="full"><button class="primary" type="submit">Send</button></div>
         </form>
-        <div class="result" id="txResult"></div>
+          <div class="result" id="txResult"></div>
+        </div>
       </section>
     </div>
   </div>
 
   <div role="tabpanel" id="panel-activity" aria-labelledby="tab-activity" hidden>
     <div class="grid">
+      <div class="toolbar">
+        <span class="toolbar-label">Charts show</span>
+        <div class="segmented" id="periods" role="group" aria-label="Chart period">
+          <button type="button" data-period="live" aria-pressed="true">Live · last 60 s</button>
+          <button type="button" data-period="15m" aria-pressed="false">Last 15 min</button>
+          <button type="button" data-period="1h" aria-pressed="false">Last hour</button>
+          <button type="button" data-period="24h" aria-pressed="false">Last 24 hours</button>
+        </div>
+        <span class="note" id="periodNote"></span>
+      </div>
+
       <section class="wide">
-        <h2>Decisions per second</h2>
-        <p class="lead">Last 60 seconds, by outcome.</p>
+        <h2>Decisions over time</h2>
+        <p class="lead" id="outcomesLead"></p>
         <div class="legend">
           <span class="key"><span class="swatch" style="background: var(--good)"></span>Approved</span>
           <span class="key"><span class="swatch" style="background: var(--warning)"></span>Approved, flagged for review</span>
@@ -302,10 +510,10 @@
 
       <section class="wide">
         <h2>Engine latency</h2>
-        <p class="lead">Selected window, sampled every second. Goal: p99 under 100 ms.</p>
+        <p class="lead" id="latencyLead"></p>
         <div class="legend">
-          <span class="key"><span class="line" style="background: var(--series-1)"></span>p50</span>
-          <span class="key"><span class="line" style="background: var(--series-2)"></span>p99</span>
+          <span class="key"><span class="line" style="background: var(--series-1)"></span>p50 (median)</span>
+          <span class="key"><span class="line" style="background: var(--series-2)"></span>p99 (slowest 1%)</span>
         </div>
         <div class="chart" id="chartLatency"></div>
       </section>
@@ -357,9 +565,16 @@
   const $ = (id) => document.getElementById(id);
   const SVG = "http://www.w3.org/2000/svg";
   const openedAt = new Date().toISOString().replace(/\.\d+Z$/, "Z");
-  const HISTORY = 60;
-  let history = [];   // one entry per poll: per-second outcomes and window latency
-  let previous = null; // the last metrics, to turn window totals into per-second counts
+  // Chart periods: every one is about 60 buckets, so both charts keep the same shape.
+  const PERIODS = {
+    live: { bucket: 1, count: 60, every: 1, unit: "second", note: "Updates every second." },
+    "15m": { bucket: 15, count: 60, every: 5, unit: "15 seconds", note: "Updates every 5 seconds." },
+    "1h": { bucket: 60, count: 60, every: 5, unit: "minute", note: "Updates every 5 seconds." },
+    "24h": { bucket: 1800, count: 48, every: 5, unit: "30 minutes", note: "Updates every 5 seconds." },
+  };
+  let period = "live";
+  let series = [];   // one entry per bucket of the chosen period, oldest first
+  let ticks = 0;
   let latestMetrics = null;
   let latestRecent = [];
 
@@ -394,6 +609,12 @@
     if ($("window").value === "day") return new Date(Date.now() - 864e5).toISOString().replace(/\.\d+Z$/, "Z");
     return openedAt;
   }
+  // Every time on the page is Colombian time, whatever the browser's time zone is.
+  const TIME_ZONE = "America/Bogota";
+  function clock(date, seconds) {
+    const parts = seconds ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" };
+    return date.toLocaleTimeString("en-US", { timeZone: TIME_ZONE, ...parts });
+  }
   async function getJSON(url, options) {
     const response = await fetch(url, options);
     const body = await response.json();
@@ -416,35 +637,75 @@
   function hideTooltip() { tooltip.style.display = "none"; }
 
   // ---------- tabs ----------
-  document.querySelectorAll('[role="tab"]').forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll('[role="tab"]').forEach((other) => {
-        const selected = other === tab;
-        other.setAttribute("aria-selected", String(selected));
-        $(other.getAttribute("aria-controls")).hidden = !selected;
-      });
-      drawCharts();
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  function selectTab(tab) {
+    tabs.forEach((other) => {
+      const selected = other === tab;
+      other.setAttribute("aria-selected", String(selected));
+      other.tabIndex = selected ? 0 : -1;
+      $(other.getAttribute("aria-controls")).hidden = !selected;
+    });
+    window.scrollTo({ top: 0 });
+    showSeries();
+  }
+  tabs.forEach((tab, index) => {
+    tab.tabIndex = index === 0 ? 0 : -1;
+    tab.addEventListener("click", () => selectTab(tab));
+    tab.addEventListener("keydown", (event) => { // arrow keys move between tabs
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+      if (!step) return;
+      const next = tabs[(index + step + tabs.length) % tabs.length];
+      next.focus();
+      selectTab(next);
     });
   });
 
   // ---------- overview: tiles ----------
+  const P99_GOAL_MS = 100;
+  function tile(label, value, hint, tone, mark) {
+    return el("div", { className: "tile" },
+      el("div", { className: "label" }, mark ? el("span", { className: "mark", style: "background: var(--" + mark + ")" }) : null, label),
+      el("div", { className: "value", textContent: value }),
+      el("div", { className: "hint " + (tone || ""), textContent: hint }));
+  }
+  function percent(part, total) {
+    return ((part / total) * 100).toFixed(1) + "%";
+  }
   function renderTiles(m) {
     const none = m.decisions === 0;
+    const clean = Math.max(0, m.approved - m.flagged); // approved includes flagged
     $("tilesEmpty").hidden = !none;
-    const tiles = [
-      ["Decisions", m.decisions.toLocaleString(), "answered"],
-      ["Approval rate", none ? "—" : (m.approval_rate * 100).toFixed(1) + "%", "approved / total"],
-      ["Declined", m.declined.toLocaleString(), "by a rule or the score"],
-      ["Flagged", m.flagged.toLocaleString(), "approved, score ≥ 40"],
-      ["Fallbacks", m.fallback_used.toLocaleString(), "a dependency failed"],
-      ["Latency p50", none ? "—" : m.latency_ms.p50.toFixed(1) + " ms", "median"],
-      ["Latency p99", none ? "—" : m.latency_ms.p99.toFixed(1) + " ms", "goal < 100 ms"],
-      ["Explanations", m.explainer.explained.toLocaleString(), m.explainer.fallback_used + " by template"],
-    ];
-    $("tiles").replaceChildren(...tiles.map(([label, value, hint]) => el("div", { className: "tile" },
-      el("div", { className: "label", textContent: label }),
-      el("div", { className: "value", textContent: value }),
-      el("div", { className: "hint", textContent: hint }))));
+    $("tiles").replaceChildren(
+      tile("Decisions", m.decisions.toLocaleString(), "answered by the engine"),
+      tile("Approval rate", none ? "—" : percent(m.approved, m.decisions), "approved, including flagged"),
+      tile("Flagged for review", m.flagged.toLocaleString(), "approved, risk score 40–69", "", "warning"),
+      tile("Declined", m.declined.toLocaleString(), "by a rule or a risk score ≥ 70", "", "critical"));
+
+    // Share of outcomes: the same three numbers as parts of one whole.
+    $("share").hidden = none;
+    if (!none) {
+      const parts = [["Approved", clean, "good"], ["Flagged for review", m.flagged, "warning"], ["Declined", m.declined, "critical"]];
+      $("shareBar").setAttribute("aria-label", parts.map(([label, count]) => label + " " + percent(count, m.decisions)).join(", "));
+      $("shareBar").replaceChildren(...parts.filter(([, count]) => count > 0).map(([label, count, color]) => {
+        const segment = el("span", { style: "flex: " + count + " 1 0; background: var(--" + color + ")" });
+        segment.addEventListener("mousemove", (event) => showTooltip(event, label,
+          [["Decisions", count.toLocaleString()], ["Share", percent(count, m.decisions)]]));
+        segment.addEventListener("mouseleave", hideTooltip);
+        return segment;
+      }));
+      $("shareLegend").replaceChildren(...parts.map(([label, count, color]) => el("span", { className: "key" },
+        el("span", { className: "swatch", style: "background: var(--" + color + ")" }),
+        label + " ", el("strong", { textContent: percent(count, m.decisions) }))));
+    }
+
+    const withinGoal = m.latency_ms.p99 < P99_GOAL_MS;
+    $("tilesMinor").replaceChildren(
+      tile("Latency p50", none ? "—" : m.latency_ms.p50.toFixed(1) + " ms", "half answered faster"),
+      tile("Latency p99", none ? "—" : m.latency_ms.p99.toFixed(1) + " ms",
+        none ? "goal: under 100 ms" : (withinGoal ? "✓ within the 100 ms goal" : "✕ over the 100 ms goal"), none ? "" : (withinGoal ? "ok" : "bad")),
+      tile("Fallbacks", m.fallback_used.toLocaleString(),
+        m.fallback_used ? "⚠ a dependency failed" : "no dependency failed", m.fallback_used ? "warn" : ""),
+      tile("Explanations written", m.explainer.explained.toLocaleString(), m.explainer.fallback_used + " by the template fallback"));
   }
 
   // ---------- activity: charts (inline SVG, thin marks, recessive grid) ----------
@@ -478,21 +739,71 @@
     container.replaceChildren(el("div", { className: "empty", textContent: message }));
   }
 
+  // ---------- chart period: the engine groups decisions into buckets (GET /v1/metrics/series) ----------
+  function isoSeconds(date) { return date.toISOString().replace(/\.\d+Z$/, "Z"); }
+  async function loadSeries() {
+    const key = period;
+    const p = PERIODS[key];
+    const last = Math.floor(Date.now() / 1000 / p.bucket) * p.bucket; // start of the bucket still filling
+    const first = last - (p.count - 1) * p.bucket;
+    const body = await getJSON("/api/metrics/series?since=" + encodeURIComponent(isoSeconds(new Date(first * 1000))) + "&bucket_seconds=" + p.bucket);
+    if (key !== period) return; // the period changed while this was loading
+    const found = new Map((body.buckets || []).map((b) => [Date.parse(b.start) / 1000, b]));
+    series = Array.from({ length: p.count }, (_, i) => {
+      const b = found.get(first + i * p.bucket);
+      return {
+        time: new Date((first + i * p.bucket) * 1000),
+        approved: b ? b.approved - b.flagged : 0, // approved includes flagged
+        flagged: b ? b.flagged : 0,
+        declined: b ? b.declined : 0,
+        p50: b ? b.latency_ms.p50 : null,
+        p99: b ? b.latency_ms.p99 : null,
+      };
+    });
+  }
+  function bucketLabel(point) {
+    const p = PERIODS[period];
+    if (p.bucket === 1) return clock(point.time, true);
+    const end = new Date(point.time.getTime() + p.bucket * 1000);
+    return clock(point.time, p.bucket < 60) + " – " + clock(end, p.bucket < 60);
+  }
+  // Five ticks under the plot: seconds ago when live, clock times otherwise.
+  function xAxis(f, slot) {
+    const p = PERIODS[period];
+    [0, 0.25, 0.5, 0.75, 1].forEach((share) => {
+      const i = Math.min(series.length - 1, Math.round(share * series.length)); // the bucket that starts at this tick
+      const anchor = share === 0 ? "start" : share === 1 ? "end" : "middle";
+      const x = M.left + share * series.length * slot;
+      const text = svg("text", { x, y: f.h - 6, "text-anchor": anchor, "font-size": 11, fill: "var(--muted)" });
+      if (share === 1) text.textContent = "now";
+      else if (p.bucket === 1) text.textContent = (series.length - i) + " s ago";
+      else text.textContent = clock(series[i].time, false);
+      f.root.append(text);
+    });
+  }
+  function updatePeriodText() {
+    const p = PERIODS[period];
+    $("periodNote").textContent = p.note;
+    $("outcomesLead").textContent = "Decisions per " + p.unit + ", by outcome.";
+    $("latencyLead").textContent = "Median and slowest 1% of the decisions in each " + p.unit + ". Goal: p99 under 100 ms.";
+  }
+  const EMPTY_PERIOD = "No decisions in this period. Run the scenarios or send a purchase on the Overview tab, or pick a longer period.";
+
   function drawOutcomes() {
     const container = $("chartOutcomes");
-    const points = history.slice(-HISTORY);
+    const points = series;
     if (points.every((p) => p.approved + p.flagged + p.declined === 0)) {
-      empty(container, "No decisions in the last minute. Run a scenario or send a purchase on the Overview tab.");
+      empty(container, EMPTY_PERIOD);
       return;
     }
-    const f = frame(container, "Decisions per second by outcome, last 60 seconds");
+    const f = frame(container, "Decisions per " + PERIODS[period].unit + " by outcome");
     const scale = niceScale(Math.max(...points.map((p) => p.approved + p.flagged + p.declined)), true);
     const max = scale.max;
     yAxis(f, scale, (v) => v.toLocaleString());
-    const slot = f.plotW / HISTORY;
+    const slot = f.plotW / points.length;
     const barW = Math.max(2, slot - 2);
     points.forEach((p, i) => {
-      const x = M.left + (HISTORY - points.length + i) * slot + 1;
+      const x = M.left + i * slot + 1;
       let y = M.top + f.plotH;
       [["approved", "var(--good)"], ["flagged", "var(--warning)"], ["declined", "var(--critical)"]].forEach(([key, color]) => {
         if (p[key] === 0) return;
@@ -501,36 +812,51 @@
         y -= h;
       });
       const hit = svg("rect", { x: x - 1, y: M.top, width: slot, height: f.plotH, fill: "transparent" });
-      hit.addEventListener("mousemove", (event) => showTooltip(event, p.time.toLocaleTimeString(),
+      hit.addEventListener("mousemove", (event) => showTooltip(event, bucketLabel(p),
         [["Approved", p.approved], ["Flagged", p.flagged], ["Declined", p.declined]]));
       hit.addEventListener("mouseleave", hideTooltip);
       f.root.append(hit);
     });
-    const now = svg("text", { x: M.left + f.plotW, y: f.h - 6, "text-anchor": "end", "font-size": 11, fill: "var(--muted)" });
-    now.textContent = "now";
-    const start = svg("text", { x: M.left, y: f.h - 6, "font-size": 11, fill: "var(--muted)" });
-    start.textContent = "60 s ago";
-    f.root.append(now, start);
+    xAxis(f, slot);
   }
 
   function drawLatency() {
     const container = $("chartLatency");
-    const points = history.slice(-HISTORY).filter((p) => p.p99 > 0);
-    if (points.length < 2) {
-      empty(container, "Waiting for decisions in the selected window.");
+    const points = series;
+    const measured = points.filter((p) => p.p99 !== null);
+    if (measured.length === 0) {
+      empty(container, EMPTY_PERIOD);
       return;
     }
-    const f = frame(container, "Engine latency p50 and p99 over time");
-    const scale = niceScale(Math.max(...points.map((p) => p.p99)), false);
+    const f = frame(container, "Engine latency p50 and p99 per " + PERIODS[period].unit);
+    const scale = niceScale(Math.max(...measured.map((p) => p.p99)), false);
     const max = scale.max;
     yAxis(f, scale, (v) => (Number.isInteger(v) ? v : v.toFixed(1)) + " ms");
-    const x = (i) => M.left + (f.plotW * i) / (points.length - 1);
+    const slot = f.plotW / points.length;
+    const x = (i) => M.left + (i + 0.5) * slot; // centered on the bar above
     const y = (v) => M.top + f.plotH - (v / max) * f.plotH;
-    [["p50", "var(--series-1)"], ["p99", "var(--series-2)"]].forEach(([key, color]) => {
-      const d = points.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p[key]).toFixed(1)).join(" ");
-      f.root.append(svg("path", { d, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round" }));
-      const last = points[points.length - 1];
-      const tag = svg("text", { x: x(points.length - 1) - 4, y: y(last[key]) - 6, "text-anchor": "end", "font-size": 11, fill: "var(--text-2)" });
+    const lastIndex = points.findLastIndex((p) => p.p99 !== null);
+    [["p50", "var(--series-1)", 14], ["p99", "var(--series-2)", -8]].forEach(([key, color, labelDy]) => {
+      // A line through buckets in a row; a bucket with no neighbor is a dot, and empty buckets leave a gap.
+      // With few measured buckets every one also gets a dot, so short runs stay readable.
+      let run = [];
+      const dots = measured.length <= 20;
+      const flush = () => {
+        if (run.length > 1) {
+          const d = run.map((i, n) => (n ? "L" : "M") + x(i).toFixed(1) + " " + y(points[i][key]).toFixed(1)).join(" ");
+          f.root.append(svg("path", { d, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+        }
+        if (run.length === 1 || dots) {
+          run.forEach((i) => f.root.append(svg("circle", { cx: x(i), cy: y(points[i][key]), r: 4, fill: color, stroke: "var(--surface)", "stroke-width": 2 })));
+        }
+        run = [];
+      };
+      points.forEach((p, i) => { if (p[key] === null) flush(); else run.push(i); });
+      flush();
+      const last = points[lastIndex];
+      const onRight = x(lastIndex) > M.left + f.plotW / 2;
+      const tag = svg("text", { x: x(lastIndex) + (onRight ? -8 : 8), y: Math.min(M.top + f.plotH - 5, Math.max(M.top + 10, y(last[key]) + labelDy)),
+        "text-anchor": onRight ? "end" : "start", "font-size": 11, fill: "var(--text-2)" });
       tag.textContent = key + " " + last[key].toFixed(1) + " ms";
       f.root.append(tag);
     });
@@ -540,13 +866,15 @@
     hit.addEventListener("mousemove", (event) => {
       const box = f.root.getBoundingClientRect();
       const px = ((event.clientX - box.left) / box.width) * f.w;
-      const i = Math.max(0, Math.min(points.length - 1, Math.round(((px - M.left) / f.plotW) * (points.length - 1))));
+      const i = Math.max(0, Math.min(points.length - 1, Math.floor((px - M.left) / slot)));
       cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
-      showTooltip(event, points[i].time.toLocaleTimeString(),
-        [["p50", points[i].p50.toFixed(2) + " ms"], ["p99", points[i].p99.toFixed(2) + " ms"]]);
+      const p = points[i];
+      showTooltip(event, bucketLabel(p), p.p99 === null ? [["Decisions", 0]] :
+        [["p50", p.p50.toFixed(2) + " ms"], ["p99", p.p99.toFixed(2) + " ms"], ["Decisions", p.approved + p.flagged + p.declined]]);
     });
     hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); hideTooltip(); });
     f.root.append(hit);
+    xAxis(f, slot);
   }
 
   function drawReasons() {
@@ -652,6 +980,12 @@
       (!reason || (d.reasons || []).includes(reason)) &&
       (!card || d.card_id.toLowerCase().includes(card));
   }
+  // The number, plus a small meter that turns amber at the flag threshold and red at the decline one.
+  function riskCell(score) {
+    const tone = score >= 70 ? " decline" : score >= 40 ? " flag" : "";
+    return el("td", { className: "num" }, el("span", { className: "risk" + tone },
+      el("span", { className: "meter" }, el("span", { style: "width: " + Math.min(100, score) + "%" })), String(score)));
+  }
   function renderRecent(all) {
     fillOptions($("filterSource"), [...new Set(all.map((d) => d.source))].sort());
     const reasonCodes = [...new Set(all.flatMap((d) => d.reasons || []))];
@@ -659,10 +993,15 @@
     fillOptions($("filterReason"), reasonCodes, describeReason);
     const items = all.filter(matchesFilters);
     $("filterCount").textContent = "Showing " + items.length + " of " + all.length;
+    if (items.length === 0) {
+      const message = all.length ? "No decision matches these filters." : "Nothing sent from this dashboard yet. Run the scenarios or send a purchase on the Overview tab.";
+      $("recent").replaceChildren(el("tr", {}, el("td", { colSpan: 10, className: "empty", textContent: message })));
+      return;
+    }
     $("recent").replaceChildren(...items.map((d) => el("tr", {},
-      cell(new Date(d.time).toLocaleTimeString()), cell(d.source), cell(d.card_id),
+      cell(clock(new Date(d.time), true)), cell(d.source), cell(d.card_id, "mono"),
       cell(money(d.amount_minor, d.currency), "num"), cell(d.mcc), cell(d.country),
-      el("td", {}, pill(d.decision, d.flagged)), cell(d.risk_score, "num"),
+      el("td", {}, pill(d.decision, d.flagged)), riskCell(d.risk_score),
       el("td", { className: "wrap", title: (d.reasons || []).join(", "), textContent: (d.reasons || []).map(describeReason).join(", ") || "—" }),
       cell(d.latency_ms.toFixed(1), "num"))));
   }
@@ -678,24 +1017,50 @@
   const ALLOWED_FROM_HOUR = 6;
   const ALLOWED_UNTIL_HOUR = 23;
   function updateHoursNow() {
-    const now = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+    const now = new Intl.DateTimeFormat("en-GB", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
     const hour = Number(now.slice(0, 2));
     const open = hour >= ALLOWED_FROM_HOUR && hour < ALLOWED_UNTIL_HOUR;
-    $("hoursNow").textContent = "No example: it uses the real clock. It is " + now + " in Mexico City, so purchases are " +
+    $("hoursNow").textContent = "No example: it uses the real clock. It is " + now + " in Colombia, so purchases are " +
       (open ? "allowed right now." : "declined right now, whatever you send.");
   }
   updateHoursNow();
   setInterval(updateHoursNow, 60000);
 
   // ---------- overview: call-to-action cards open one panel at a time ----------
+  let purchaseView = "rules";
+  function showView(name) {
+    purchaseView = name;
+    document.querySelectorAll("[data-view-panel]").forEach((panel) => { panel.hidden = panel.dataset.viewPanel !== name; });
+    document.querySelectorAll("button.step").forEach((step) => step.setAttribute("aria-pressed", String(step.dataset.view === name)));
+    syncOpeners();
+  }
+  // An opener is "expanded" when its panel is open and, for the purchase buttons, on its view.
+  function syncOpeners() {
+    document.querySelectorAll("[data-open]").forEach((button) => {
+      const open = !$(button.dataset.open).hidden && (!button.dataset.view || button.dataset.view === purchaseView);
+      button.setAttribute("aria-expanded", String(open));
+    });
+  }
   function openPanel(id) {
     ["panel-scenarios", "panel-purchase"].forEach((panel) => { $(panel).hidden = panel !== id; });
     $("cta-scenarios").classList.toggle("active", id === "panel-scenarios");
     $("cta-purchase").classList.toggle("active", id === "panel-purchase");
+    syncOpeners();
     if (id) $(id).scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  document.querySelectorAll("[data-open]").forEach((button) =>
-    button.addEventListener("click", () => openPanel(button.dataset.open)));
+  document.querySelectorAll("[data-open]").forEach((button) => // a second click on the same button closes the panel
+    button.addEventListener("click", () => {
+      if (button.getAttribute("aria-expanded") === "true") { openPanel(null); return; }
+      if (button.dataset.view) showView(button.dataset.view);
+      openPanel(button.dataset.open);
+    }));
+  document.querySelectorAll("button.step").forEach((step) => step.addEventListener("click", () => showView(step.dataset.view)));
+  $("runAll").addEventListener("click", () => { // one click: all six scenarios with the form's card counts
+    $("scenarioSelect").value = "all";
+    updateScenarioHelp();
+    openPanel("panel-scenarios");
+    $("scenarioForm").requestSubmit();
+  });
   document.querySelectorAll("[data-close]").forEach((button) =>
     button.addEventListener("click", () => openPanel(null)));
 
@@ -705,20 +1070,21 @@
   }
 
   // ---------- polling ----------
-  function record(m) {
-    if (previous) {
-      const flagged = Math.max(0, m.flagged - previous.flagged);
-      history.push({
-        time: new Date(),
-        approved: Math.max(0, m.approved - previous.approved - flagged),
-        flagged,
-        declined: Math.max(0, m.declined - previous.declined),
-        p50: m.latency_ms.p50, p99: m.latency_ms.p99,
-      });
-      if (history.length > HISTORY) history.shift();
-    }
-    previous = m;
+  async function showSeries() {
+    if ($("panel-activity").hidden) return;
+    try { await loadSeries(); } catch (err) { /* the status line already says the engine is unreachable */ }
+    drawCharts();
   }
+  document.querySelectorAll("#periods button").forEach((button) => {
+    button.addEventListener("click", () => {
+      period = button.dataset.period;
+      document.querySelectorAll("#periods button").forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
+      series = [];
+      updatePeriodText();
+      showSeries();
+    });
+  });
+  updatePeriodText();
 
   async function refresh() {
     try {
@@ -727,12 +1093,13 @@
         getJSON("/api/recent"),
       ]);
       latestMetrics = metrics; latestRecent = recent;
-      record(metrics);
       renderTiles(metrics);
       renderRecent(recent);
+      ticks++;
+      if (!$("panel-activity").hidden && ticks % PERIODS[period].every === 0) await loadSeries();
       drawCharts();
       $("status").className = "status";
-      $("status").replaceChildren(el("span", { className: "dot" }), "Engine connected · updated " + new Date().toLocaleTimeString());
+      $("status").replaceChildren(el("span", { className: "dot" }), "Engine connected · updated " + clock(new Date(), true));
     } catch (err) {
       $("status").className = "status down";
       $("status").replaceChildren(el("span", { className: "dot" }), "Engine unreachable: " + err.message);
@@ -801,8 +1168,11 @@
     const button = event.target.querySelector("button");
     const box = $("scenarioResult");
     button.disabled = true;
+    $("runAll").disabled = true;
     button.textContent = "Running…";
-    box.replaceChildren();
+    box.replaceChildren(el("p", { className: "note" }, el("span", { className: "spinner" }),
+      "Sending the purchases to the engine. This takes a few seconds; the metrics above update as it runs."));
+    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
     try {
       const result = await getJSON("/api/scenarios", {
         method: "POST",
@@ -814,12 +1184,16 @@
         }),
       });
       const t = result.totals;
-      const totals = [
-        t.fraud_cards ? "Fraud caught: " + t.fraud_caught + " of " + t.fraud_cards + " cards" : "",
-        t.normal_requests ? "Normal purchases wrongly declined: " + t.false_declines + " of " + t.normal_requests : "",
-        "Slowest 1% answered in " + t.p99_ms.toFixed(1) + " ms (p99, goal < 100 ms)",
-      ].filter(Boolean);
-      const summary = el("p", { className: "note", textContent: totals.join(" · ") });
+      const stats = el("div", { className: "stats" },
+        t.fraud_cards ? tile("Fraud caught", t.fraud_caught + " of " + t.fraud_cards,
+          t.fraud_caught === t.fraud_cards ? "✓ every fraud card" : "✕ " + (t.fraud_cards - t.fraud_caught) + " missed",
+          t.fraud_caught === t.fraud_cards ? "ok" : "bad") : null,
+        t.normal_requests ? tile("Wrongly declined", t.false_declines + " of " + t.normal_requests,
+          t.false_declines ? "✕ normal purchases declined" : "✓ no normal purchase declined", t.false_declines ? "bad" : "ok") : null,
+        tile("Slowest 1% (p99)", t.p99_ms.toFixed(1) + " ms",
+          t.p99_ms < P99_GOAL_MS ? "✓ within the 100 ms goal" : "✕ over the 100 ms goal", t.p99_ms < P99_GOAL_MS ? "ok" : "bad"));
+      const seeAll = el("button", { className: "link", type: "button", textContent: "See each decision in Activity & charts" });
+      seeAll.addEventListener("click", () => selectTab($("tab-activity")));
       const useSeed = el("button", { className: "link", type: "button", textContent: "Use this seed" });
       useSeed.addEventListener("click", () => {
         $("seedInput").value = result.seed;
@@ -835,11 +1209,12 @@
           const row = describeScenarioRow(r);
           return el("tr", {}, cell(r.scenario), el("td", {}, verdict(r, row.ok)), cell(row.text, "wrap"), cell(r.requests, "num"));
         })));
-      box.replaceChildren(el("div", { className: "scroll" }, table), summary, seed);
+      box.replaceChildren(stats, el("div", { className: "scroll" }, table), seed, el("p", { className: "note" }, seeAll));
     } catch (err) {
       showError(box, err);
     } finally {
       button.disabled = false;
+      $("runAll").disabled = false;
       button.textContent = "Run";
       refresh();
     }
@@ -858,6 +1233,11 @@
     dailyLimit: { card_id: "card_exec", amount: "700.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "US", entry_mode: "chip", count: 3 },
     splitPurchase: { card_id: "card_123", amount: "450.00", currency: "USD", mcc: "5999", merchant_id: "m_electronics", country: "US", entry_mode: "chip", count: 2 },
   };
+  // The merchant list is fixed; "new" stands for a shop no card has used, with a fresh ID per send.
+  const NEW_MERCHANT = "new";
+  $("merchantSelect").addEventListener("change", (event) => {
+    $("txForm").elements.mcc.value = event.target.selectedOptions[0].dataset.mcc;
+  });
   function sendPurchase(values) {
     return getJSON("/api/transactions", {
       method: "POST",
@@ -866,7 +1246,7 @@
         amount_minor: Math.round(Number(values.amount) * 100),
         currency: String(values.currency).toUpperCase(),
         mcc: values.mcc,
-        merchant_id: values.merchant_id,
+        merchant_id: values.merchant_id === NEW_MERCHANT ? "m_new_" + Date.now().toString(36) : values.merchant_id,
         country: String(values.country).toUpperCase(),
         entry_mode: values.entry_mode,
         count: Number(values.count),
@@ -883,14 +1263,17 @@
       if (last && last.kind.className === kind.className) last.to = i + 1;
       else groups.push({ kind, from: i + 1, to: i + 1 });
     });
-    const parts = [el("span", { textContent: "Got:" })];
+    const parts = [el("span", { textContent: "Engine answered" })];
     groups.forEach((g) => {
       const label = responses.length === 1 ? "" : "#" + (g.from === g.to ? g.from : g.from + "–" + g.to) + " ";
       parts.push(el("span", {}, label, el("span", { className: "pill " + g.kind.className, textContent: g.kind.label })));
     });
     const reasons = responses[responses.length - 1].reasons || [];
-    if (reasons.length) parts.push(el("span", { textContent: "· " + reasons.map((reason) => reason.message).join(" · ") }));
-    return parts;
+    const edit = el("button", { className: "link", type: "button", textContent: "Change it and resend" });
+    edit.addEventListener("click", () => { showView("custom"); $("txForm").scrollIntoView({ behavior: "smooth", block: "center" }); });
+    const line = el("div", { className: "line" }, ...parts, edit);
+    if (!reasons.length) return [line];
+    return [line, el("div", { className: "why", textContent: "Why: " + reasons.map((reason) => reason.message).join(" · ") })];
   }
 
   document.querySelectorAll("[data-preset]").forEach((button) => {
@@ -940,7 +1323,7 @@
     }
   });
 
-  $("window").addEventListener("change", () => { history = []; previous = null; refresh(); });
+  $("window").addEventListener("change", refresh);
   window.addEventListener("resize", drawCharts);
   refresh();
   setInterval(refresh, 1000);

@@ -24,7 +24,7 @@ Expect `{"status":"ok"}`.
 
 ## 3. Load a helper
 
-Paste once. `auth ID CARD AMOUNT MCC [CREATED_AT]` sends one authorization and prints the decision. The default time is 09:04 in Mexico City, inside the company's allowed hours.
+Paste once. `auth ID CARD AMOUNT MCC [CREATED_AT]` sends one authorization and prints the decision. The default time is 10:04 in Colombia, inside the company's allowed hours.
 
 ```bash
 auth() {
@@ -46,7 +46,7 @@ auth() {
 | d | `auth a3 card_frozen 4500 5734` | `DECLINE` `CARD_INACTIVE` |
 | e | `auth a4 card_123 80000 5734` | `DECLINE` `OVER_TRANSACTION_LIMIT` (limit 50000) |
 | f | `auth a5 card_exec 80000 5734` | `APPROVE` (card override raises the limit to 100000) |
-| g | `auth a6 card_123 4500 5734 2026-11-12T09:00:00Z` | `DECLINE` `OUTSIDE_ALLOWED_HOURS` (03:00 in Mexico City) |
+| g | `auth a6 card_123 4500 5734 2026-11-12T09:00:00Z` | `DECLINE` `OUTSIDE_ALLOWED_HOURS` (04:00 in Colombia) |
 | h | `for i in 1 2 3 4 5 6; do auth v$i card_456 300 5734; done` | 5 × `APPROVE`, then `DECLINE` `VELOCITY_EXCEEDED` (card testing: at most 5 charges ≤ 500 in 10 min) |
 | i | `for i in 1 2 3 4; do auth b$i card_456 50000 5734; done` | 3 × `APPROVE`, then `DECLINE` `OVER_DAILY_LIMIT` (1500 + 150000 + 50000 > 200000 USD per day) |
 
@@ -160,13 +160,13 @@ In a third terminal, with the engine running:
 make dashboard
 ```
 
-Open http://localhost:8090. **Overview**: the metrics tiles update every second; **Run fraud scenarios** opens its form and shows each scenario's result and its seed (paste it back to replay the run); **Send a purchase** lists the demo company's rules in plain words, each with a *Try it* button that fills the form and the result to expect (e.g. *Card testing*: approved, then flagged from the 4th, declined from the 6th, each with its reason). **Activity & charts**: decisions per second by outcome, p50/p99 latency, decline reasons, risk scores, and the last 50 decisions, filterable by decision, source, reason and card; hover any chart for the numbers.
+Open http://localhost:8090. **Overview**: the metrics tiles update every second; **Run all scenarios now** runs the six scenarios and shows each result and the seed (paste it back to replay the run); **Send a purchase** has three views: the demo company's rules in plain words, each with a *Try it* button and the result to expect; the risk score scale with its patterns (e.g. *Card testing*: approved, then flagged from the 4th, declined from the 6th); and a form to build any purchase. **Activity & charts**: decisions by outcome and p50/p99 latency, live (per second) or over the last 15 minutes, hour or 24 hours; decline reasons, risk scores, and the last 50 decisions, filterable by decision, source, reason and card; hover any chart for the numbers. Times are shown in Colombian time.
 
 ## 5. Publish a new policy version
 
 ```bash
 curl -s -X PUT localhost:8080/v1/companies/acme-mx/policy \
-  -d '{"timezone": "America/Mexico_City", "controls": {"blocked_mccs": ["7995", "5734"]}}'
+  -d '{"timezone": "America/Bogota", "controls": {"blocked_mccs": ["7995", "5734"]}}'
 auth a7 card_123 4500 5734
 ```
 

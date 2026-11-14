@@ -5,14 +5,13 @@ package dashboard
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"slices"
 	"sync"
 	"time"
@@ -24,6 +23,12 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+// The page's font (Poppins, one file per weight), embedded so the dashboard
+// still works offline (D-077).
+//
+//go:embed fonts/*.woff2
+var fontFiles embed.FS
+
 const (
 	maxBodyBytes      = 16 << 10
 	maxBatch          = 500
@@ -31,9 +36,13 @@ const (
 	scenarioAll       = "all"
 	sourceManual      = "manual"
 	pathEngineMetrics = "/v1/metrics"
+	pathEngineSeries  = "/v1/metrics/series"
 	headerType        = "Content-Type"
 	contentTypeJSON   = "application/json"
 	contentTypeHTML   = "text/html; charset=utf-8"
+	contentTypeFont   = "font/woff2"
+	headerCache       = "Cache-Control"
+	cacheOneDay       = "public, max-age=86400"
 	fmtManualID       = "dash-%s-%d"
 )
 
@@ -83,7 +92,9 @@ func NewServer(config Config) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.servePage)
-	mux.HandleFunc("GET /api/metrics", s.proxyMetrics)
+	mux.HandleFunc("GET /fonts/{file}", s.serveFont)
+	mux.HandleFunc("GET /api/metrics", s.proxyGet(pathEngineMetrics))
+	mux.HandleFunc("GET /api/metrics/series", s.proxyGet(pathEngineSeries))
 	mux.HandleFunc("GET /api/recent", s.listRecent)
 	mux.HandleFunc("POST /api/transactions", s.sendTransactions)
 	mux.HandleFunc("POST /api/scenarios", s.runScenarios)
@@ -100,30 +111,50 @@ func (s *Server) servePage(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// proxyMetrics passes GET /v1/metrics through, so the page needs one origin only.
-func (s *Server) proxyMetrics(w http.ResponseWriter, r *http.Request) {
-	target := s.config.EngineURL + pathEngineMetrics + "?" + url.Values{"since": {r.URL.Query().Get("since")}}.Encode()
-
-	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, http.NoBody)
+// serveFont serves one embedded font file, e.g. /fonts/poppins-400.woff2.
+func (s *Server) serveFont(w http.ResponseWriter, r *http.Request) {
+	font, err := fontFiles.ReadFile("fonts/" + r.PathValue("file"))
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err)
+		http.NotFound(w, r)
 		return
 	}
 
-	response, err := s.config.Client.Do(request)
+	w.Header().Set(headerType, contentTypeFont)
+	w.Header().Set(headerCache, cacheOneDay)
+
+	_, err = w.Write(font)
 	if err != nil {
-		s.writeError(w, http.StatusBadGateway, errEngine)
-		return
+		s.config.Log.Error("write font failed", "err", err)
 	}
+}
 
-	defer response.Body.Close() //nolint:errcheck // read below; nothing to do on close
+// proxyGet passes a GET and its query through to the engine's path, so the
+// page needs one origin only.
+func (s *Server) proxyGet(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		target := s.config.EngineURL + path + "?" + r.URL.Query().Encode()
 
-	w.Header().Set(headerType, contentTypeJSON)
-	w.WriteHeader(response.StatusCode)
+		request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, http.NoBody)
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 
-	_, err = io.Copy(w, response.Body)
-	if err != nil {
-		s.config.Log.Error("copy metrics failed", "err", err)
+		response, err := s.config.Client.Do(request)
+		if err != nil {
+			s.writeError(w, http.StatusBadGateway, errEngine)
+			return
+		}
+
+		defer response.Body.Close() //nolint:errcheck // read below; nothing to do on close
+
+		w.Header().Set(headerType, contentTypeJSON)
+		w.WriteHeader(response.StatusCode)
+
+		_, err = io.Copy(w, response.Body)
+		if err != nil {
+			s.config.Log.Error("copy metrics failed", "err", err)
+		}
 	}
 }
 
