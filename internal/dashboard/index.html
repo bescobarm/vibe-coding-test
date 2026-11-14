@@ -63,6 +63,19 @@
   input, select { font: inherit; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--axis); background: var(--page); color: var(--text); min-width: 0; }
   button.primary { font: inherit; background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
   button.primary:disabled { opacity: .55; cursor: wait; }
+  .cta { display: flex; flex-direction: column; gap: 10px; }
+  .cta p { margin: 0; color: var(--text-2); font-size: 13px; }
+  .cta .actions { margin-top: auto; }
+  .cta.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .panel-head h2 { margin: 0; }
+  button.link { font: inherit; font-size: 13px; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
+  .rules { list-style: none; margin: 0 0 12px; padding: 10px 12px; background: var(--wash); border-radius: 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 4px 16px; font-size: 12px; color: var(--text-2); }
+  .rules strong { color: var(--text); font-weight: 600; }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px; }
+  .filters label { font-size: 12px; }
+  .filters input, .filters select { padding: 5px 8px; font-size: 13px; }
+  .filters .count { color: var(--text-2); font-size: 12px; margin-left: auto; align-self: center; }
   .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
   .presets button { font: inherit; font-size: 12px; background: var(--wash); color: var(--text); border: 1px solid var(--ring); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
   .callout { background: var(--wash); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-2); margin-bottom: 12px; }
@@ -125,13 +138,27 @@
     <div class="grid">
       <section class="wide">
         <h2>Live metrics</h2>
-        <p class="lead">Every decision the engine made in the selected window, refreshed every second.</p>
+        <p class="lead">All decisions in the selected window. Updated every second.</p>
         <div class="tiles" id="tiles"></div>
       </section>
 
-      <section>
-        <h2>Run random fraud scenarios</h2>
-        <p class="lead">The simulator creates fresh cards and plays normal purchases and fraud patterns against the engine, then reports whether each fraud was caught.</p>
+      <section class="cta" id="cta-scenarios">
+        <h2>Run fraud scenarios</h2>
+        <p>Simulates normal shoppers and 5 fraud patterns on fresh cards, then shows what the engine caught.</p>
+        <div class="actions"><button class="primary" type="button" data-open="panel-scenarios">Run fraud scenarios</button></div>
+      </section>
+
+      <section class="cta" id="cta-purchase">
+        <h2>Send a purchase</h2>
+        <p>Builds one purchase on a demo card and shows the decision and the reason.</p>
+        <div class="actions"><button class="primary" type="button" data-open="panel-purchase">Send a purchase</button></div>
+      </section>
+
+      <section class="wide" id="panel-scenarios" hidden>
+        <div class="panel-head">
+          <h2>Run fraud scenarios</h2>
+          <button class="link" type="button" data-close>Close</button>
+        </div>
         <form id="scenarioForm">
           <label class="full">Scenario
             <select name="scenario" id="scenarioSelect">
@@ -145,44 +172,54 @@
             </select>
             <span class="help" id="scenarioHelp"></span>
           </label>
-          <label>Normal cardholders
+          <label>Normal shoppers
             <input name="normal_cards" type="number" min="0" max="50" value="20">
-            <span class="help">Each makes 6–10 everyday purchases; any decline here is a false decline.</span>
+            <span class="help">6–10 everyday purchases each. Any decline is a false decline.</span>
           </label>
-          <label>Cards per fraud pattern
+          <label>Cards per fraud scenario
             <input name="fraud_cards" type="number" min="0" max="50" value="3">
-            <span class="help">How many cards act out each fraud scenario.</span>
+            <span class="help">One fraud attempt per card.</span>
           </label>
           <label class="full">Seed (optional)
-            <input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="Leave blank for new random cases">
-            <span class="help">Each run invents its cases (amounts, countries, how many attempts) from a seed. Blank gives a new run every time; paste the seed of an earlier run to replay exactly the same cases.</span>
+            <input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="Blank: new random cases">
+            <span class="help">Paste a seed from an earlier run to replay exactly the same cases.</span>
           </label>
-          <div class="full"><button class="primary" type="submit">Run scenarios</button></div>
+          <div class="full"><button class="primary" type="submit">Run</button></div>
         </form>
         <div class="result" id="scenarioResult"></div>
       </section>
 
-      <section>
-        <h2>Send a specific purchase</h2>
-        <p class="lead">Build one purchase by hand and see how the engine decides. The demo cards belong to the company <strong>acme-mx</strong>.</p>
-        <div class="callout"><strong>acme-mx's policy:</strong> up to 500.00 USD per purchase and 2,000.00 USD per day per card; gambling (7995) blocked; countries MX, US, CO; no manual or swipe entry; purchases only from 06:00 to 23:00 Mexico City time; more than 5 charges of 5.00 USD or less in 10 minutes is card testing.</div>
+      <section class="wide" id="panel-purchase" hidden>
+        <div class="panel-head">
+          <h2>Send a purchase</h2>
+          <button class="link" type="button" data-close>Close</button>
+        </div>
+        <ul class="rules" aria-label="Demo company rules (acme-mx)">
+          <li><strong>≤ 500.00 USD</strong> per purchase</li>
+          <li><strong>≤ 2,000.00 USD</strong> per card per day</li>
+          <li><strong>Gambling</strong> (7995) blocked</li>
+          <li><strong>MX, US, CO</strong> only</li>
+          <li><strong>06:00–23:00</strong> Mexico City time</li>
+          <li><strong>No</strong> manual or swipe entry</li>
+          <li><strong>&gt; 5 charges ≤ 5.00 USD</strong> in 10 min = card testing</li>
+        </ul>
         <div class="presets" aria-label="Examples">
-          <button type="button" data-preset="normal">Normal purchase</button>
+          <button type="button" data-preset="normal">Normal</button>
           <button type="button" data-preset="gambling">Gambling</button>
           <button type="button" data-preset="overLimit">Over the limit</button>
           <button type="button" data-preset="executive">Executive card</button>
           <button type="button" data-preset="frozen">Frozen card</button>
-          <button type="button" data-preset="cardTesting">Card testing (6 tiny charges)</button>
-          <button type="button" data-preset="abroad">Not allowed country</button>
+          <button type="button" data-preset="cardTesting">Card testing</button>
+          <button type="button" data-preset="abroad">Country not allowed</button>
         </div>
         <form id="txForm">
           <label class="full">Card
             <select name="card_id">
-              <option value="card_123">card_123 · Ana · active, standard limits</option>
-              <option value="card_456">card_456 · Luis · active, standard limits</option>
-              <option value="card_exec">card_exec · Sofía · executive: up to 1,000.00 USD per purchase</option>
-              <option value="card_frozen">card_frozen · Marta · frozen: every purchase is declined</option>
-              <option value="card_terminated">card_terminated · Pedro · ex-employee: every purchase is declined</option>
+              <option value="card_123">card_123 · active</option>
+              <option value="card_456">card_456 · active</option>
+              <option value="card_exec">card_exec · active, executive: ≤ 1,000.00 USD per purchase</option>
+              <option value="card_frozen">card_frozen · frozen: always declined</option>
+              <option value="card_terminated">card_terminated · ex-employee: always declined</option>
             </select>
           </label>
           <label>Amount
@@ -190,7 +227,7 @@
           </label>
           <label>Currency
             <input name="currency" value="USD" maxlength="3">
-            <span class="help">Limits are in USD; another currency is declined.</span>
+            <span class="help">Limits are in USD.</span>
           </label>
           <label>Merchant category (MCC)
             <select name="mcc">
@@ -204,26 +241,26 @@
           </label>
           <label>Merchant
             <input name="merchant_id" value="m_shop">
-            <span class="help">A new merchant paid online can raise the risk score.</span>
+            <span class="help">A new online merchant raises the risk score.</span>
           </label>
           <label>Country
             <input name="country" value="US" maxlength="2">
           </label>
-          <label>How the card was used
+          <label>Card used
             <select name="entry_mode">
               <option value="ecommerce">Online (card not present)</option>
               <option value="chip">Chip</option>
               <option value="contactless">Contactless</option>
               <option value="wallet">Mobile wallet</option>
-              <option value="manual">Typed in manually (not allowed)</option>
-              <option value="swipe">Magnetic swipe (not allowed)</option>
+              <option value="manual">Typed manually (blocked)</option>
+              <option value="swipe">Swipe (blocked)</option>
             </select>
           </label>
           <label class="full">Repeat
             <input name="count" type="number" min="1" max="500" value="1">
-            <span class="help">Send this same purchase several times in a row, each as a new authorization. One purchase can't trigger velocity rules; repeating it shows them react: 6 tiny charges trip card testing, and 5 purchases of 450.00 go over the daily budget.</span>
+            <span class="help">Sends it N times in a row to trigger velocity rules, e.g. 6 × 1.50 USD = card testing.</span>
           </label>
-          <div class="full"><button class="primary" type="submit">Send purchase</button></div>
+          <div class="full"><button class="primary" type="submit">Send</button></div>
         </form>
         <div class="result" id="txResult"></div>
       </section>
@@ -234,7 +271,7 @@
     <div class="grid">
       <section class="wide">
         <h2>Decisions per second</h2>
-        <p class="lead">The last 60 seconds of the selected window, by outcome.</p>
+        <p class="lead">Last 60 seconds, by outcome.</p>
         <div class="legend">
           <span class="key"><span class="swatch" style="background: var(--good)"></span>Approved</span>
           <span class="key"><span class="swatch" style="background: var(--warning)"></span>Approved, flagged for review</span>
@@ -245,7 +282,7 @@
 
       <section class="wide">
         <h2>Engine latency</h2>
-        <p class="lead">p50 and p99 over the selected window, sampled every second. The goal is p99 under 100 ms.</p>
+        <p class="lead">Selected window, sampled every second. Goal: p99 under 100 ms.</p>
         <div class="legend">
           <span class="key"><span class="line" style="background: var(--series-1)"></span>p50</span>
           <span class="key"><span class="line" style="background: var(--series-2)"></span>p99</span>
@@ -255,19 +292,34 @@
 
       <section>
         <h2>Why purchases were declined</h2>
-        <p class="lead">Reason codes on declines in the selected window.</p>
+        <p class="lead">Reason codes on declines, selected window.</p>
         <div class="chart" id="chartReasons"></div>
       </section>
 
       <section>
         <h2>Risk scores</h2>
-        <p class="lead">The last 50 decisions this dashboard sent. Flag at 40, decline at 70.</p>
+        <p class="lead">Last 50 decisions from this dashboard. Flag at 40, decline at 70.</p>
         <div class="chart" id="chartRisk"></div>
       </section>
 
       <section class="wide">
         <h2>Recent decisions</h2>
-        <p class="lead">The last 50 decisions sent from this dashboard, newest first.</p>
+        <p class="lead">Last 50 sent from this dashboard, newest first.</p>
+        <div class="filters" id="filters">
+          <label>Decision
+            <select id="filterDecision">
+              <option value="">All</option>
+              <option value="approve">Approved</option>
+              <option value="flag">Flagged</option>
+              <option value="decline">Declined</option>
+            </select>
+          </label>
+          <label>Source <select id="filterSource"><option value="">All</option></select></label>
+          <label>Reason <select id="filterReason"><option value="">All</option></select></label>
+          <label>Card <input id="filterCard" type="search" placeholder="e.g. card_123"></label>
+          <button class="link" type="button" id="filterReset">Reset</button>
+          <span class="count" id="filterCount"></span>
+        </div>
         <div class="scroll feed">
           <table>
             <thead><tr><th>Time</th><th>Source</th><th>Card</th><th class="num">Amount</th><th>MCC</th><th>Country</th><th>Decision</th><th class="num">Risk</th><th>Reasons</th><th class="num">ms</th></tr></thead>
@@ -358,14 +410,14 @@
   // ---------- overview: tiles ----------
   function renderTiles(m) {
     const tiles = [
-      ["Decisions", m.decisions.toLocaleString(), "authorizations answered"],
-      ["Approval rate", (m.approval_rate * 100).toFixed(1) + "%", "approved ÷ decisions"],
+      ["Decisions", m.decisions.toLocaleString(), "answered"],
+      ["Approval rate", (m.approval_rate * 100).toFixed(1) + "%", "approved / total"],
       ["Declined", m.declined.toLocaleString(), "by a rule or the score"],
-      ["Flagged", m.flagged.toLocaleString(), "approved, risk score ≥ 40"],
-      ["Fallbacks", m.fallback_used.toLocaleString(), "answered while a dependency failed"],
-      ["Latency p50", m.latency_ms.p50.toFixed(1) + " ms", "half the decisions are faster"],
-      ["Latency p99", m.latency_ms.p99.toFixed(1) + " ms", "goal: under 100 ms"],
-      ["Explanations", m.explainer.explained.toLocaleString(), m.explainer.fallback_used + " by the template fallback"],
+      ["Flagged", m.flagged.toLocaleString(), "approved, score ≥ 40"],
+      ["Fallbacks", m.fallback_used.toLocaleString(), "a dependency failed"],
+      ["Latency p50", m.latency_ms.p50.toFixed(1) + " ms", "median"],
+      ["Latency p99", m.latency_ms.p99.toFixed(1) + " ms", "goal < 100 ms"],
+      ["Explanations", m.explainer.explained.toLocaleString(), m.explainer.fallback_used + " by template"],
     ];
     $("tiles").replaceChildren(...tiles.map(([label, value, hint]) => el("div", { className: "tile" },
       el("div", { className: "label", textContent: label }),
@@ -536,13 +588,53 @@
     });
   }
 
-  function renderRecent(items) {
+  // ---------- recent decisions: filters survive the every-second refresh ----------
+  function fillOptions(select, values) {
+    const current = select.value;
+    const options = [el("option", { value: "", textContent: "All" }), ...values.map((value) => el("option", { value, textContent: value }))];
+    select.replaceChildren(...options);
+    select.value = values.includes(current) ? current : "";
+  }
+  function matchesFilters(d) {
+    const decision = $("filterDecision").value;
+    const source = $("filterSource").value;
+    const reason = $("filterReason").value;
+    const card = $("filterCard").value.trim().toLowerCase();
+    return (!decision || outcome(d.decision, d.flagged).className === decision) &&
+      (!source || d.source === source) &&
+      (!reason || (d.reasons || []).includes(reason)) &&
+      (!card || d.card_id.toLowerCase().includes(card));
+  }
+  function renderRecent(all) {
+    fillOptions($("filterSource"), [...new Set(all.map((d) => d.source))].sort());
+    fillOptions($("filterReason"), [...new Set(all.flatMap((d) => d.reasons || []))].sort());
+    const items = all.filter(matchesFilters);
+    $("filterCount").textContent = "Showing " + items.length + " of " + all.length;
     $("recent").replaceChildren(...items.map((d) => el("tr", {},
       cell(new Date(d.time).toLocaleTimeString()), cell(d.source), cell(d.card_id),
       cell(money(d.amount_minor, d.currency), "num"), cell(d.mcc), cell(d.country),
       el("td", {}, pill(d.decision, d.flagged)), cell(d.risk_score, "num"),
       cell((d.reasons || []).join(", ") || "—", "wrap"), cell(d.latency_ms.toFixed(1), "num"))));
   }
+
+  ["filterDecision", "filterSource", "filterReason", "filterCard"].forEach((id) =>
+    $(id).addEventListener("input", () => renderRecent(latestRecent)));
+  $("filterReset").addEventListener("click", () => {
+    ["filterDecision", "filterSource", "filterReason", "filterCard"].forEach((id) => { $(id).value = ""; });
+    renderRecent(latestRecent);
+  });
+
+  // ---------- overview: call-to-action cards open one panel at a time ----------
+  function openPanel(id) {
+    ["panel-scenarios", "panel-purchase"].forEach((panel) => { $(panel).hidden = panel !== id; });
+    $("cta-scenarios").classList.toggle("active", id === "panel-scenarios");
+    $("cta-purchase").classList.toggle("active", id === "panel-purchase");
+    if (id) $(id).scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  document.querySelectorAll("[data-open]").forEach((button) =>
+    button.addEventListener("click", () => openPanel(button.dataset.open)));
+  document.querySelectorAll("[data-close]").forEach((button) =>
+    button.addEventListener("click", () => openPanel(null)));
 
   function drawCharts() {
     if ($("panel-activity").hidden) return;
@@ -586,13 +678,13 @@
 
   // ---------- scenario form ----------
   const scenarioHelp = {
-    "all": "Runs all six below, one after another.",
-    "normal traffic": "Everyday purchases (lunch, software, flights, taxis). They should all be approved; any decline is a false decline.",
-    "card testing": "6–10 tiny online charges at different merchants, like a fraudster testing a stolen card number. Expect flags from the 4th and a decline from the 6th.",
-    "split purchase": "2–4 purchases just under the 500.00 limit at the same merchant, splitting one big purchase. Expect a flag.",
-    "stolen card": "Normal history at home, then a large online purchase abroad at a new merchant. Expect a decline.",
-    "blocked MCC": "One purchase at a blocked category: gambling, quasi-cash or money transfer. Expect a decline.",
-    "hotel increment": "A hotel check-in, then one more night added to the same authorization. Expect it approved and the hold raised.",
+    "all": "Runs the six scenarios one after another.",
+    "normal traffic": "Everyday purchases. Expect: all approved.",
+    "card testing": "6–10 tiny online charges at different shops. Expect: flagged from the 4th, declined from the 6th.",
+    "split purchase": "2–4 purchases just under 500.00 USD at one shop. Expect: flagged.",
+    "stolen card": "Normal history, then a big online purchase abroad. Expect: declined.",
+    "blocked MCC": "One purchase at gambling, quasi-cash or money transfer. Expect: declined.",
+    "hotel increment": "Hotel check-in plus one more night. Expect: approved, hold raised.",
   };
   function updateScenarioHelp() { $("scenarioHelp").textContent = scenarioHelp[$("scenarioSelect").value]; }
   $("scenarioSelect").addEventListener("change", updateScenarioHelp);
@@ -624,7 +716,7 @@
         (t.normal_requests ? "False declines: " + t.false_declines + " of " + t.normal_requests + " normal purchases. " : "") +
         "p99 " + t.p99_ms.toFixed(1) + " ms.";
       const seed = el("p", { className: "note" });
-      seed.textContent = "Seed " + result.seed + " — paste it in the Seed field to replay this exact run.";
+      seed.textContent = "Seed " + result.seed + " · paste it above to replay this run.";
       const table = el("table", {},
         el("thead", {}, el("tr", {}, el("th", { textContent: "Scenario" }), el("th", { className: "num", textContent: "Purchases" }), el("th", { textContent: "Result" }))),
         el("tbody", {}, ...result.rows.map((r) => el("tr", {}, cell(r.scenario), cell(r.requests, "num"), cell(r.result, "wrap")))));
@@ -633,7 +725,7 @@
       showError(box, err);
     } finally {
       button.disabled = false;
-      button.textContent = "Run scenarios";
+      button.textContent = "Run";
       refresh();
     }
   });
@@ -679,7 +771,7 @@
       });
       const rows = responses.map((r, i) => el("tr", {},
         cell("#" + (i + 1)), el("td", {}, pill(r.decision, r.flagged)), cell(r.risk_score, "num"),
-        cell((r.reasons || []).map((reason) => reason.code + ": " + reason.message).join(" · ") || "No reason: every check passed", "wrap")));
+        cell((r.reasons || []).map((reason) => reason.code + ": " + reason.message).join(" · ") || "Every check passed", "wrap")));
       const table = el("table", {},
         el("thead", {}, el("tr", {}, el("th", { textContent: "Purchase" }), el("th", { textContent: "Decision" }), el("th", { className: "num", textContent: "Risk" }), el("th", { textContent: "Why" }))),
         el("tbody", {}, ...rows));
@@ -688,7 +780,7 @@
       showError(box, err);
     } finally {
       button.disabled = false;
-      button.textContent = "Send purchase";
+      button.textContent = "Send";
       refresh();
     }
   });
