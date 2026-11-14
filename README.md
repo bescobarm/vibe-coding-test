@@ -160,7 +160,7 @@ The deadline is short (due Mon 2026-11-16). The brief says *"a focused problem s
 | 10 | ✅ Internal deadline + per-company fallback + failure tests | [05](briefs/05-deadline-and-fallback-brief.md) |
 | 11 | ✅ Traffic simulator + scenario report + `GET /v1/metrics` | [06](briefs/06-simulator-and-report-brief.md) |
 | 12 | ✅ Mocked LLM explainer fed by the outbox, with template fallback | [07](briefs/07-mock-llm-explainer-brief.md) |
-| 13 | ✅ `WRITEUP.md` · ✅ final README pass · 🎬 5-minute video ([script](docs/VIDEO_SCRIPT.md)) | — |
+| 13 | ✅ `WRITEUP.md` · ✅ final README pass · 🎬 5-minute video | — |
 
 ---
 
@@ -835,8 +835,6 @@ Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-b
    - Send the same request twice → same decision, counted once (4a–4b).
    - Stop Redis → fallback applied and logged, still within the deadline (4f).
    - Show the scenario report and latency percentiles (4g).
-
-   The timed script with the exact commands is [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md).
 4. **Code walkthrough (60 s):** the decision pipeline, the Lua script, a policy document.
 5. **How I worked and next steps (30 s):** the briefs, the decision log, the coverage gate, what I'd build next.
 

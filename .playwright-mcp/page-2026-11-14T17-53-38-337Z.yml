@@ -1,0 +1,131 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - heading "Card Authorization Engine · Live dashboard" [level=1] [ref=f1e3]
+    - generic [ref=f1e4]: engine connected · 12:53:38 PM
+    - generic [ref=f1e5]:
+      - text: Metrics window
+      - combobox "Metrics window" [ref=f1e6]:
+        - option "since this page opened" [selected]
+        - option "last 24 hours"
+  - main [ref=f1e7]:
+    - generic [ref=f1e8]:
+      - heading "Metrics (updates every second)" [level=2] [ref=f1e9]
+      - generic [ref=f1e10]:
+        - generic [ref=f1e11]:
+          - generic [ref=f1e12]: Decisions
+          - generic [ref=f1e13]: "0"
+        - generic [ref=f1e14]:
+          - generic [ref=f1e15]: Approval rate
+          - generic [ref=f1e16]: 0.0%
+        - generic [ref=f1e17]:
+          - generic [ref=f1e18]: Declined
+          - generic [ref=f1e19]: "0"
+        - generic [ref=f1e20]:
+          - generic [ref=f1e21]: Flagged
+          - generic [ref=f1e22]: "0"
+        - generic [ref=f1e23]:
+          - generic [ref=f1e24]: Fallbacks
+          - generic [ref=f1e25]: "0"
+        - generic [ref=f1e26]:
+          - generic [ref=f1e27]: p50
+          - generic [ref=f1e28]: 0.0 ms
+        - generic [ref=f1e29]:
+          - generic [ref=f1e30]: p95
+          - generic [ref=f1e31]: 0.0 ms
+        - generic [ref=f1e32]:
+          - generic [ref=f1e33]: p99
+          - generic [ref=f1e34]: 0.0 ms
+        - generic [ref=f1e35]:
+          - generic [ref=f1e36]: Explained
+          - generic [ref=f1e37]: "0"
+        - generic [ref=f1e38]:
+          - generic [ref=f1e39]: Explainer fallbacks
+          - generic [ref=f1e40]: "0"
+    - generic [ref=f1e41]:
+      - heading "Run random cases" [level=2] [ref=f1e42]
+      - generic [ref=f1e43]:
+        - generic [ref=f1e44]:
+          - text: Scenario
+          - combobox "Scenario" [ref=f1e45]:
+            - option "all six" [selected]
+            - option "normal traffic"
+            - option "card testing"
+            - option "split purchase"
+            - option "stolen card"
+            - option "blocked MCC"
+            - option "hotel increment"
+        - generic [ref=f1e46]:
+          - text: Normal cards
+          - spinbutton "Normal cards" [ref=f1e47]: "20"
+        - generic [ref=f1e48]:
+          - text: Cards per fraud scenario
+          - spinbutton "Cards per fraud scenario" [ref=f1e49]: "3"
+        - generic [ref=f1e50]:
+          - text: "Seed (blank: random)"
+          - 'spinbutton "Seed (blank: random)" [ref=f1e51]'
+        - button "Run" [ref=f1e52] [cursor=pointer]
+    - generic [ref=f1e53]:
+      - heading "Send a specific transaction" [level=2] [ref=f1e54]
+      - generic [ref=f1e55]:
+        - generic [ref=f1e56]:
+          - text: Card
+          - combobox "Card" [ref=f1e57]:
+            - option "card_123" [selected]
+            - option "card_456"
+            - option "card_exec"
+            - option "card_frozen"
+            - option "card_terminated"
+        - generic [ref=f1e58]:
+          - text: Amount
+          - spinbutton "Amount" [ref=f1e59]: "45.00"
+        - generic [ref=f1e60]:
+          - text: Currency
+          - textbox "Currency" [ref=f1e61]: USD
+        - generic [ref=f1e62]:
+          - text: Merchant category
+          - combobox "Merchant category" [ref=f1e63]:
+            - option "5734 software" [selected]
+            - option "5812 restaurant"
+            - option "4511 airline"
+            - option "7011 hotel"
+            - option "5999 misc retail"
+            - option "7995 gambling"
+            - option "6051 quasi-cash"
+        - generic [ref=f1e64]:
+          - text: Merchant ID
+          - textbox "Merchant ID" [ref=f1e65]: m_shop
+        - generic [ref=f1e66]:
+          - text: Country
+          - textbox "Country" [ref=f1e67]: US
+        - generic [ref=f1e68]:
+          - text: Entry mode
+          - combobox "Entry mode" [ref=f1e69]:
+            - option "ecommerce" [selected]
+            - option "chip"
+            - option "contactless"
+            - option "wallet"
+            - option "manual"
+            - option "swipe"
+        - generic [ref=f1e70]:
+          - text: Batch (same transaction × N)
+          - spinbutton "Batch (same transaction × N)" [ref=f1e71]: "1"
+        - button "Send" [ref=f1e72] [cursor=pointer]
+    - generic [ref=f1e73]:
+      - heading "Decline reasons" [level=2] [ref=f1e74]
+      - generic [ref=f1e75]: No declines yet.
+    - generic [ref=f1e77]:
+      - heading "Recent decisions (sent from this dashboard)" [level=2] [ref=f1e78]
+      - table [ref=f1e80]:
+        - rowgroup [ref=f1e81]:
+          - row [ref=f1e82]:
+            - columnheader "Time" [ref=f1e83]
+            - columnheader "Source" [ref=f1e84]
+            - columnheader "Card" [ref=f1e85]
+            - columnheader "Amount" [ref=f1e86]
+            - columnheader "MCC" [ref=f1e87]
+            - columnheader "Country" [ref=f1e88]
+            - columnheader "Decision" [ref=f1e89]
+            - columnheader "Score" [ref=f1e90]
+            - columnheader "Reasons" [ref=f1e91]
+            - columnheader "ms" [ref=f1e92]
+        - rowgroup

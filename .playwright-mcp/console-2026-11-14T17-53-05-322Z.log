@@ -1,0 +1,5 @@
+[      39ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:18090/favicon.ico:1
+[   26024ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:18090/api/metrics?since=2026-11-14T17%3A53%3A05Z:1
+[   26026ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:18090/api/recent:1
+[   27021ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:18090/api/metrics?since=2026-11-14T17%3A53%3A05Z:1
+[   27021ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:18090/api/recent:1
