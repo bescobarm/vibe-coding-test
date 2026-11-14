@@ -1,15 +1,24 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
 	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 )
 
-const fieldAmountMinor = "amount_minor"
+const (
+	fieldAmountMinor = "amount_minor"
+
+	// lifecycleDeadline bounds a lifecycle call, including a wait on the
+	// authorization's row lock. On timeout the caller gets 500 and retries
+	// with the same event_id, which is safe (D-050, I-030).
+	lifecycleDeadline = 2 * time.Second
+)
 
 var (
 	errMalformedEvent = errors.New("lifecycle event is not valid JSON")
@@ -75,7 +84,10 @@ func (h *handler) handleLifecycleEvent(eventType string) http.HandlerFunc {
 
 		ev := lifecycle.Event{ID: req.EventID, AuthorizationID: r.PathValue(pathID), Type: eventType, AmountMinor: req.AmountMinor}
 
-		res, replayed, err := h.Lifecycle.Apply(r.Context(), ev)
+		ctx, cancel := context.WithTimeout(r.Context(), lifecycleDeadline)
+		defer cancel()
+
+		res, replayed, err := h.Lifecycle.Apply(ctx, ev)
 		if err != nil {
 			h.writeLifecycleError(w, ev, err)
 			return

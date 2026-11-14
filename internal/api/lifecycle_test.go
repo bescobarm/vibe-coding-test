@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -170,4 +172,27 @@ func TestRefundBeforeCaptureReturns409(t *testing.T) {
 
 	c.Equal(http.StatusConflict, recorder.Code)
 	c.EqualError(lifecycle.ErrNotCaptured, decodeError(c, recorder).Error)
+}
+
+// slowLifecycle stands for a call stuck behind another transaction's row lock.
+type slowLifecycle struct{}
+
+func (slowLifecycle) Apply(ctx context.Context, _ lifecycle.Event) (lifecycle.Result, bool, error) {
+	<-ctx.Done()
+	return lifecycle.Result{}, false, ctx.Err()
+}
+
+// I-030: a lifecycle call stuck on a lock answers 500 at its deadline instead of hanging.
+func TestALifecycleCallStuckOnALockAnswersAtItsDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := require.New(t)
+		routes := NewHandler(Deps{Lifecycle: slowLifecycle{}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		start := time.Now()
+
+		recorder := doRequest(routes, http.MethodPost, "/v1/authorizations/a1/expire", `{"event_id": "e1"}`)
+
+		c.Equal(lifecycleDeadline, time.Since(start))
+		c.Equal(http.StatusInternalServerError, recorder.Code)
+		c.EqualError(errEventFailed, decodeError(c, recorder).Error)
+	})
 }

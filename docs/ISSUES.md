@@ -33,6 +33,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-025](#i-025-the-default-policy-reason-said-the-company-had-no-policy) | 2026-11-14 | API | ✅ |
 | [I-026](#i-026-a-fallback-before-the-hard-controls-skips-them) | 2026-11-14 | Risk | ⏭️ |
 | [I-027](#i-027-a-synctest-bubble-cannot-end-with-blocked-goroutines) | 2026-11-14 | Tests | ✅ |
+| [I-031](#i-031-a-stacked-pr-merged-into-its-base-branch-instead-of-main) | 2026-11-14 | Git | ✅ |
 
 ---
 
@@ -149,4 +150,8 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-027: A synctest bubble cannot end with blocked goroutines
 - **Found:** `TestWaitGivesUpWhenItsContextEnds` panicked: after `Wait` gave up, the late decision was still sleeping inside the bubble.
 - **Fix:** the test waits for the background work at the end. It also shows the point of D-033: background work has to be waited for, or it outlives its owner.
+
+### I-031: A stacked PR merged into its base branch instead of main
+- **Found:** after "everything is merged", `main` had no `internal/authz/fallback.go`. PR #11's base was `VCT-10-anomaly-scoring`; after #10 merged, that branch stayed on GitHub (I-008), so GitHub didn't retarget #11 to `main`, and its merge landed on the old branch.
+- **Fix:** PR #12 brought the merge into `main`; "Automatically delete head branches" is now on, so GitHub retargets a stacked PR when its base merges. Lesson: after merging, check for a file from the latest PR on `main`.
 
