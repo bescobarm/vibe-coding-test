@@ -400,3 +400,62 @@ func (s *Store) GetSignals(ctx context.Context, q domain.SignalQuery) (domain.Si
 
 	return sig, nil
 }
+
+// metricsSQL counts decided authorizations since $1. A claim still in flight
+// has decision PENDING and is left out. With no rows the percentiles are NULL.
+const metricsSQL = `
+SELECT count(*),
+       count(*) FILTER (WHERE decision = 'APPROVE'),
+       count(*) FILTER (WHERE decision = 'DECLINE'),
+       count(*) FILTER (WHERE (response->>'flagged')::boolean),
+       count(*) FILTER (WHERE fallback_used),
+       round(coalesce(percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8,
+       round(coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8,
+       round(coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8
+FROM authorizations
+WHERE created_at >= $1 AND decision <> 'PENDING'`
+
+// declineReasonsSQL counts every reason on the declines since $1.
+const declineReasonsSQL = `
+SELECT reason->>'code', count(*)
+FROM authorizations, jsonb_array_elements(reasons) AS reason
+WHERE created_at >= $1 AND decision = 'DECLINE'
+GROUP BY 1`
+
+// GetMetrics implements api.MetricsReader.
+func (s *Store) GetMetrics(ctx context.Context, since time.Time) (domain.Metrics, error) {
+	metrics := domain.Metrics{Since: since, DeclineReasons: map[string]int{}}
+
+	err := s.pool.QueryRow(ctx, metricsSQL, since).Scan(&metrics.Decisions, &metrics.Approved, &metrics.Declined,
+		&metrics.Flagged, &metrics.FallbackUsed, &metrics.LatencyMS.P50, &metrics.LatencyMS.P95, &metrics.LatencyMS.P99)
+	if err != nil {
+		return domain.Metrics{}, fmt.Errorf("read metrics: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, declineReasonsSQL, since)
+	if err != nil {
+		return domain.Metrics{}, fmt.Errorf("read decline reasons: %w", err)
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			code  string
+			count int
+		)
+
+		err = rows.Scan(&code, &count)
+		if err != nil {
+			return domain.Metrics{}, fmt.Errorf("scan decline reason: %w", err)
+		}
+
+		metrics.DeclineReasons[code] = count
+	}
+
+	if metrics.Decisions > 0 {
+		metrics.ApprovalRate = float64(metrics.Approved) / float64(metrics.Decisions)
+	}
+
+	return metrics, rows.Err()
+}

@@ -112,7 +112,7 @@ func run(log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              ":" + getEnv("PORT", defaultPort),
-		Handler:           api.NewHandler(api.Deps{Auth: svc, Audit: st, Policies: policies, Lifecycle: events, DB: st}, log),
+		Handler:           api.NewHandler(api.Deps{Auth: svc, Audit: st, Policies: policies, Lifecycle: events, Metrics: st, DB: st}, log),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,

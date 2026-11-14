@@ -113,6 +113,27 @@ type Signals struct {
 	SameMerchantToday []int64 // amounts approved today on the card at this merchant, same currency
 }
 
+// Metrics summarize the decisions since a moment, read from the audit log
+// (GET /v1/metrics).
+type Metrics struct {
+	Since          time.Time          `json:"since"`
+	Decisions      int                `json:"decisions"`
+	Approved       int                `json:"approved"`
+	Declined       int                `json:"declined"`
+	Flagged        int                `json:"flagged"`
+	FallbackUsed   int                `json:"fallback_used"`
+	ApprovalRate   float64            `json:"approval_rate"`
+	DeclineReasons map[string]int     `json:"decline_reasons"`
+	LatencyMS      LatencyPercentiles `json:"latency_ms"`
+}
+
+// LatencyPercentiles are the engine's processing time, in milliseconds.
+type LatencyPercentiles struct {
+	P50 float64 `json:"p50"`
+	P95 float64 `json:"p95"`
+	P99 float64 `json:"p99"`
+}
+
 // CardStatus is the lifecycle state of a card; only active cards can spend.
 type CardStatus string
 
