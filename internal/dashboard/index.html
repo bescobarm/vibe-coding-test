@@ -6,165 +6,389 @@
 <title>Authorization Dashboard</title>
 <link rel="icon" href="data:,">
 <style>
+  /* Tokens: page chrome, status colors (approve / flag / decline) and two
+     series colors (p50 / p99), validated in both modes. */
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #e3e6ec;
-    --approve: #1f8a4c; --decline: #c23b3b; --flag: #b7791f; --accent: #2f5bd3; --bar: #c23b3b33;
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11, 11, 11, 0.10); --accent: #2a78d6; --wash: rgba(42, 120, 214, 0.08);
+    --good: #0ca30c; --warning: #fab219; --critical: #d03b3b; --good-text: #006300; --critical-text: #b22f2f; --warning-text: #8a5a00;
+    --series-1: #2a78d6; --series-2: #eb6834;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #9aa3b5; --line: #2b313d;
-      --approve: #4cc483; --decline: #ef6b6b; --flag: #e2a93b; --accent: #7d9bff; --bar: #ef6b6b44;
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --text: #f0efec; --text-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10); --accent: #3987e5; --wash: rgba(57, 135, 229, 0.12);
+      --good-text: #0ca30c; --critical-text: #e66767; --warning-text: #fab219;
+      --series-1: #3987e5; --series-2: #d95926;
     }
   }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --text: #f0efec; --text-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10); --accent: #3987e5; --wash: rgba(57, 135, 229, 0.12);
+    --good-text: #0ca30c; --critical-text: #e66767; --warning-text: #fab219;
+    --series-1: #3987e5; --series-2: #d95926;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  header { padding: 16px 24px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid var(--line); background: var(--panel); }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--text); }
+  header { padding: 14px 24px 0; background: var(--surface); border-bottom: 1px solid var(--ring); }
+  .top { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; }
-  .status { color: var(--muted); }
-  .status.down { color: var(--decline); }
-  main { padding: 16px 24px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .status { color: var(--text-2); font-size: 13px; }
+  .status.down { color: var(--critical-text); }
+  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px; }
+  .status.down .dot { background: var(--critical); }
+  .window { margin-left: auto; display: flex; gap: 8px; align-items: center; color: var(--text-2); font-size: 13px; }
+  nav { display: flex; gap: 4px; margin-top: 10px; }
+  nav button { background: none; color: var(--text-2); border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  main { padding: 16px 24px 32px; max-width: 1400px; }
+  [role="tabpanel"][hidden] { display: none; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+  section { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 16px; min-width: 0; }
   section.wide { grid-column: 1 / -1; }
-  h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-  .tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
-  .tile .label { color: var(--muted); font-size: 12px; }
-  .tile .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .bars { display: grid; gap: 6px; }
-  .bar { display: grid; grid-template-columns: 220px 1fr 40px; gap: 8px; align-items: center; font-size: 13px; }
-  .bar .track { background: var(--line); border-radius: 4px; height: 12px; }
-  .bar .fill { background: var(--decline); height: 12px; border-radius: 4px; }
-  .bar .count { text-align: right; font-variant-numeric: tabular-nums; }
-  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; align-items: end; }
-  label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
-  input, select, button { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
-  button { background: var(--accent); color: #fff; border: none; cursor: pointer; font-weight: 600; }
-  button:disabled { opacity: .5; cursor: wait; }
+  h2 { font-size: 15px; margin: 0 0 4px; }
+  .lead { color: var(--text-2); margin: 0 0 14px; font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .tile { border: 1px solid var(--ring); border-radius: 8px; padding: 10px 12px; }
+  .tile .label { color: var(--text-2); font-size: 12px; }
+  .tile .value { font-size: 24px; font-weight: 600; }
+  .tile .hint { color: var(--muted); font-size: 11px; }
+  form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  form .full { grid-column: 1 / -1; }
+  label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; align-content: start; }
+  .help { font-weight: 400; color: var(--text-2); font-size: 12px; }
+  input, select { font: inherit; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--axis); background: var(--page); color: var(--text); min-width: 0; }
+  button.primary { font: inherit; background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .55; cursor: wait; }
+  .cta { display: flex; flex-direction: column; gap: 10px; }
+  .cta p { margin: 0; color: var(--text-2); font-size: 13px; }
+  .cta .actions { margin-top: auto; }
+  .cta.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .panel-head h2 { margin: 0; }
+  button.link { font: inherit; font-size: 13px; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px; }
+  .filters label { font-size: 12px; }
+  .filters input, .filters select { padding: 5px 8px; font-size: 13px; }
+  .filters .count { color: var(--text-2); font-size: 12px; margin-left: auto; align-self: center; }
+  .rules-table { margin-bottom: 12px; }
+  .form-title { font-size: 14px; margin: 8px 0 10px; }
+  .got { margin-top: 6px; font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .rules-table { width: 100%; min-width: 640px; table-layout: fixed; }
+  .rules-table th, .rules-table td { white-space: normal; vertical-align: top; }
+  .rules-table th:nth-child(1) { width: 40%; }
+  .rules-table th:nth-child(2) { width: 24%; }
+  .rules-table th:nth-child(4) { width: 100px; }
+  .note.rules-note { margin: 0 0 16px; }
+  .rules-table button { font: inherit; font-size: 12px; background: var(--wash); color: var(--accent); border: 1px solid var(--ring); border-radius: 999px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+  .callout { background: var(--wash); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-2); margin-bottom: 12px; }
+  .callout strong { color: var(--text); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th { color: var(--muted); font-weight: 500; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .APPROVE { color: var(--approve); font-weight: 600; }
-  .DECLINE { color: var(--decline); font-weight: 600; }
-  .flag { color: var(--flag); font-weight: 600; }
-  .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
-  .error { color: var(--decline); margin-top: 8px; }
-  .scroll { overflow-x: auto; }
-  .feed { max-height: 420px; overflow-y: auto; }
-  .feed thead th { position: sticky; top: 0; background: var(--panel); }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--text-2); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   td.wrap { white-space: normal; }
-  .window { margin-left: auto; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 2px; }
+  .pill.approve { color: var(--good-text); } .pill.approve::before { background: var(--good); }
+  .pill.flag { color: var(--warning-text); } .pill.flag::before { background: var(--warning); }
+  .pill.decline { color: var(--critical-text); } .pill.decline::before { background: var(--critical); }
+  .result { margin-top: 12px; }
+  .note { color: var(--text-2); font-size: 12px; margin: 8px 0 0; }
+  .error { color: var(--critical-text); margin: 8px 0 0; }
+  .scroll { overflow-x: auto; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); margin: 0 0 8px; flex-wrap: wrap; }
+  .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .legend .line { width: 14px; height: 2px; border-radius: 1px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 24px 0; text-align: center; }
+  .tooltip { position: fixed; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--ring);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16); border-radius: 8px; padding: 8px 10px; font-size: 12px; z-index: 10; display: none; max-width: 260px; }
+  .tooltip .t-title { font-weight: 600; margin-bottom: 4px; }
+  .tooltip .t-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+  .tooltip .t-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+  @media (max-width: 640px) {
+    header, main { padding-left: 16px; padding-right: 16px; }
+    form { grid-template-columns: 1fr; }
+    .grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>Card Authorization Engine · Live dashboard</h1>
-  <span id="status" class="status">connecting…</span>
-  <label class="window">Metrics window
-    <select id="window">
-      <option value="session">since this page opened</option>
-      <option value="day">last 24 hours</option>
-    </select>
-  </label>
+  <div class="top">
+    <h1>Card Authorization Engine</h1>
+    <span id="status" class="status"><span class="dot"></span>connecting…</span>
+    <label class="window">Metrics for
+      <select id="window" aria-label="Metrics window">
+        <option value="session">since this page opened</option>
+        <option value="day">the last 24 hours</option>
+      </select>
+    </label>
+  </div>
+  <nav role="tablist">
+    <button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button>
+    <button role="tab" id="tab-activity" aria-controls="panel-activity" aria-selected="false">Activity &amp; charts</button>
+  </nav>
 </header>
+
 <main>
-  <section class="wide">
-    <h2>Metrics (updates every second)</h2>
-    <div class="tiles" id="tiles"></div>
-  </section>
+  <div role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">
+    <div class="grid">
+      <section class="wide">
+        <h2>Live metrics</h2>
+        <p class="lead">All decisions in the selected window. Updated every second.</p>
+        <div class="tiles" id="tiles"></div>
+      </section>
 
-  <section>
-    <h2>Run random cases</h2>
-    <form id="scenarioForm">
-      <label>Scenario
-        <select name="scenario">
-          <option value="all">all six</option>
-          <option>normal traffic</option>
-          <option>card testing</option>
-          <option>split purchase</option>
-          <option>stolen card</option>
-          <option>blocked MCC</option>
-          <option>hotel increment</option>
-        </select>
-      </label>
-      <label>Normal cards <input name="normal_cards" type="number" min="0" max="50" value="20"></label>
-      <label>Cards per fraud scenario <input name="fraud_cards" type="number" min="0" max="50" value="3"></label>
-      <label>Seed (blank: random) <input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="random"></label>
-      <button type="submit">Run</button>
-    </form>
-    <div id="scenarioResult"></div>
-  </section>
+      <section class="cta" id="cta-scenarios">
+        <h2>Run fraud scenarios</h2>
+        <p>Simulates normal shoppers and 5 fraud patterns on fresh cards, then shows what the engine caught.</p>
+        <div class="actions"><button class="primary" type="button" data-open="panel-scenarios">Run fraud scenarios</button></div>
+      </section>
 
-  <section>
-    <h2>Send a specific transaction</h2>
-    <form id="txForm">
-      <label>Card
-        <select name="card_id">
-          <option>card_123</option><option>card_456</option><option>card_exec</option>
-          <option>card_frozen</option><option>card_terminated</option>
-        </select>
-      </label>
-      <label>Amount <input name="amount" type="number" min="0.01" step="0.01" value="45.00"></label>
-      <label>Currency <input name="currency" value="USD" maxlength="3"></label>
-      <label>Merchant category
-        <select name="mcc">
-          <option value="5734">5734 software</option><option value="5812">5812 restaurant</option>
-          <option value="4511">4511 airline</option><option value="7011">7011 hotel</option>
-          <option value="5999">5999 misc retail</option><option value="7995">7995 gambling</option>
-          <option value="6051">6051 quasi-cash</option>
-        </select>
-      </label>
-      <label>Merchant ID <input name="merchant_id" value="m_shop"></label>
-      <label>Country <input name="country" value="US" maxlength="2"></label>
-      <label>Entry mode
-        <select name="entry_mode">
-          <option>ecommerce</option><option>chip</option><option>contactless</option>
-          <option>wallet</option><option>manual</option><option>swipe</option>
-        </select>
-      </label>
-      <label>Batch (same transaction × N) <input name="count" type="number" min="1" max="500" value="1"></label>
-      <button type="submit">Send</button>
-    </form>
-    <div id="txResult"></div>
-  </section>
+      <section class="cta" id="cta-purchase">
+        <h2>Send a purchase</h2>
+        <p>Test one rule at a time: send a purchase that breaks it and see the decision and why.</p>
+        <div class="actions"><button class="primary" type="button" data-open="panel-purchase">Send a purchase</button></div>
+      </section>
 
-  <section>
-    <h2>Decline reasons</h2>
-    <div class="bars" id="reasons"><span class="note">No declines yet.</span></div>
-  </section>
+      <section class="wide" id="panel-scenarios" hidden>
+        <div class="panel-head">
+          <h2>Run fraud scenarios</h2>
+          <button class="link" type="button" data-close>Close</button>
+        </div>
+        <form id="scenarioForm">
+          <label class="full">Scenario
+            <select name="scenario" id="scenarioSelect">
+              <option value="all">All six scenarios</option>
+              <option value="normal traffic">Normal traffic</option>
+              <option value="card testing">Card testing</option>
+              <option value="split purchase">Split purchase</option>
+              <option value="stolen card">Stolen card</option>
+              <option value="blocked MCC">Blocked merchant category</option>
+              <option value="hotel increment">Hotel incremental authorization</option>
+            </select>
+            <span class="help" id="scenarioHelp"></span>
+          </label>
+          <label>Normal shoppers
+            <input name="normal_cards" type="number" min="0" max="50" value="20">
+            <span class="help">6–10 everyday purchases each. Any decline is a false decline.</span>
+          </label>
+          <label>Cards per fraud scenario
+            <input name="fraud_cards" type="number" min="0" max="50" value="3">
+            <span class="help">One fraud attempt per card.</span>
+          </label>
+          <label class="full">Seed (optional)
+            <input name="seed" id="seedInput" inputmode="numeric" pattern="[0-9]*" placeholder="Blank: new random purchases">
+            <span class="help">Each run makes up random purchases from a seed number. The same seed sends the same purchases again, e.g. to check a fix.</span>
+          </label>
+          <div class="full"><button class="primary" type="submit">Run</button></div>
+        </form>
+        <div class="result" id="scenarioResult"></div>
+      </section>
 
-  <section class="wide">
-    <h2>Recent decisions (sent from this dashboard)</h2>
-    <div class="scroll feed">
-      <table>
-        <thead><tr><th>Time</th><th>Source</th><th>Card</th><th>Amount</th><th>MCC</th><th>Country</th><th>Decision</th><th>Score</th><th>Reasons</th><th>ms</th></tr></thead>
-        <tbody id="recent"></tbody>
-      </table>
+      <section class="wide" id="panel-purchase" hidden>
+        <div class="panel-head">
+          <h2>Send a purchase</h2>
+          <button class="link" type="button" data-close>Close</button>
+        </div>
+        <p class="lead">The engine checks every purchase against the demo company's rules below. Click <strong>Try it</strong> to send a purchase that tests that rule; what the engine answered appears in the same row.</p>
+        <div class="scroll">
+          <table class="rules-table">
+            <thead><tr><th>Rule</th><th>Try it sends</th><th>Expected</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>A purchase that breaks no rule is approved.</td><td>45.00 USD online at a software shop in the US</td><td><span class="pill approve">Approved</span></td><td><button type="button" data-preset="normal">Try it</button></td></tr>
+              <tr><td>One purchase can be at most <strong>500.00 USD</strong>.</td><td>800.00 USD on card_123</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="overLimit">Try it</button></td></tr>
+              <tr><td>Executive cards can go up to <strong>1,000.00 USD</strong> per purchase.</td><td>800.00 USD on card_exec</td><td><span class="pill approve">Approved</span></td><td><button type="button" data-preset="executive">Try it</button></td></tr>
+              <tr><td>A card can spend at most <strong>2,000.00 USD per day</strong>, counting everything approved today.</td><td>3 × 700.00 USD on card_exec</td><td><span class="pill approve">Approved</span> until the card's total for today passes 2,000.00 USD, then <span class="pill decline">Declined</span></td><td><button type="button" data-preset="dailyLimit">Try it</button></td></tr>
+              <tr><td><strong>Gambling</strong> merchants are blocked.</td><td>50.00 USD at a casino</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="gambling">Try it</button></td></tr>
+              <tr><td>Purchases only in <strong>Mexico, the US or Colombia</strong>.</td><td>45.00 USD at a shop in France</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="abroad">Try it</button></td></tr>
+              <tr><td>The card must be inserted, tapped, in a phone wallet or used online. <strong>Swiped or typed</strong> cards are declined.</td><td>45.00 USD with a swiped card</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="swipe">Try it</button></td></tr>
+              <tr><td><strong>Frozen and terminated</strong> cards are always declined.</td><td>20.00 USD on card_frozen</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="frozen">Try it</button></td></tr>
+              <tr><td>Purchases only between <strong>06:00 and 23:00</strong> Mexico City time.</td><td colspan="3" id="hoursNow">Uses the real clock.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="lead"><strong>Risk score.</strong> Suspicious patterns add points from 0 to 100. At <strong>40</strong> or more the purchase is approved but flagged for a person to review; at <strong>70</strong> or more it is declined.</p>
+        <div class="scroll">
+          <table class="rules-table">
+            <thead><tr><th>Pattern</th><th>Try it sends</th><th>Expected</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><strong>Card testing:</strong> many tiny charges in minutes, like a thief checking that a stolen card works.</td><td>6 × 1.50 USD on card_456</td><td><span class="pill flag">Flagged</span> from the 4th, <span class="pill decline">Declined</span> from the 6th</td><td><button type="button" data-preset="cardTesting">Try it</button></td></tr>
+              <tr><td><strong>Split purchase:</strong> one big purchase cut into parts just under the 500.00 USD limit, at the same shop.</td><td>2 × 450.00 USD on card_123</td><td><span class="pill flag">Flagged</span> at the 2nd</td><td><button type="button" data-preset="splitPurchase">Try it</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note rules-note">The engine remembers what each card did: card testing looks at the last 10 minutes and the daily limit at today, so repeating an example soon can give a different result. Other signals (a new country, a new online shop, an unusual or round amount) only count after a cardholder's 5th approved purchase; the fraud scenarios show them.</p>
+        <h3 class="form-title">Or build your own purchase</h3>
+        <form id="txForm">
+          <label class="full">Card
+            <select name="card_id">
+              <option value="card_123">card_123 · active</option>
+              <option value="card_456">card_456 · active</option>
+              <option value="card_exec">card_exec · active, executive: ≤ 1,000.00 USD per purchase</option>
+              <option value="card_frozen">card_frozen · frozen: always declined</option>
+              <option value="card_terminated">card_terminated · ex-employee: always declined</option>
+            </select>
+          </label>
+          <label>Amount
+            <input name="amount" type="number" min="0.01" step="0.01" value="45.00">
+          </label>
+          <label>Currency
+            <input name="currency" value="USD" maxlength="3">
+            <span class="help">Limits are in USD.</span>
+          </label>
+          <label>Merchant category (MCC)
+            <select name="mcc">
+              <option value="5734">5734 · software</option>
+              <option value="5812">5812 · restaurant</option>
+              <option value="4511">4511 · airline</option>
+              <option value="7011">7011 · hotel</option>
+              <option value="5999">5999 · other retail</option>
+              <option value="7995">7995 · gambling (blocked)</option>
+            </select>
+          </label>
+          <label>Merchant
+            <input name="merchant_id" value="m_shop">
+            <span class="help">A new online merchant raises the risk score.</span>
+          </label>
+          <label>Country
+            <input name="country" value="US" maxlength="2">
+          </label>
+          <label>Card used
+            <select name="entry_mode">
+              <option value="ecommerce">Online (card not present)</option>
+              <option value="chip">Chip</option>
+              <option value="contactless">Contactless</option>
+              <option value="wallet">Mobile wallet</option>
+              <option value="manual">Typed manually (blocked)</option>
+              <option value="swipe">Swipe (blocked)</option>
+            </select>
+          </label>
+          <label class="full">Repeat
+            <input name="count" type="number" min="1" max="500" value="1">
+            <span class="help">Sends it N times in a row to trigger velocity rules, e.g. 6 × 1.50 USD = card testing.</span>
+          </label>
+          <div class="full"><button class="primary" type="submit">Send</button></div>
+        </form>
+        <div class="result" id="txResult"></div>
+      </section>
     </div>
-  </section>
+  </div>
+
+  <div role="tabpanel" id="panel-activity" aria-labelledby="tab-activity" hidden>
+    <div class="grid">
+      <section class="wide">
+        <h2>Decisions per second</h2>
+        <p class="lead">Last 60 seconds, by outcome.</p>
+        <div class="legend">
+          <span class="key"><span class="swatch" style="background: var(--good)"></span>Approved</span>
+          <span class="key"><span class="swatch" style="background: var(--warning)"></span>Approved, flagged for review</span>
+          <span class="key"><span class="swatch" style="background: var(--critical)"></span>Declined</span>
+        </div>
+        <div class="chart" id="chartOutcomes"></div>
+      </section>
+
+      <section class="wide">
+        <h2>Engine latency</h2>
+        <p class="lead">Selected window, sampled every second. Goal: p99 under 100 ms.</p>
+        <div class="legend">
+          <span class="key"><span class="line" style="background: var(--series-1)"></span>p50</span>
+          <span class="key"><span class="line" style="background: var(--series-2)"></span>p99</span>
+        </div>
+        <div class="chart" id="chartLatency"></div>
+      </section>
+
+      <section>
+        <h2>Why purchases were declined</h2>
+        <p class="lead">Reason codes on declines, selected window.</p>
+        <div class="chart" id="chartReasons"></div>
+      </section>
+
+      <section>
+        <h2>Risk scores</h2>
+        <p class="lead">Last 50 decisions from this dashboard. Flag at 40, decline at 70.</p>
+        <div class="chart" id="chartRisk"></div>
+      </section>
+
+      <section class="wide">
+        <h2>Recent decisions</h2>
+        <p class="lead">Last 50 sent from this dashboard, newest first.</p>
+        <div class="filters" id="filters">
+          <label>Decision
+            <select id="filterDecision">
+              <option value="">All</option>
+              <option value="approve">Approved</option>
+              <option value="flag">Flagged</option>
+              <option value="decline">Declined</option>
+            </select>
+          </label>
+          <label>Source <select id="filterSource"><option value="">All</option></select></label>
+          <label>Reason <select id="filterReason"><option value="">All</option></select></label>
+          <label>Card <input id="filterCard" type="search" placeholder="e.g. card_123"></label>
+          <button class="link" type="button" id="filterReset">Reset</button>
+          <span class="count" id="filterCount"></span>
+        </div>
+        <div class="scroll feed">
+          <table>
+            <thead><tr><th>Time</th><th>Source</th><th>Card</th><th class="num">Amount</th><th>MCC</th><th>Country</th><th>Decision</th><th class="num">Risk</th><th>Reasons</th><th class="num">ms</th></tr></thead>
+            <tbody id="recent"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
 </main>
+<div class="tooltip" id="tooltip" role="status"></div>
+
 <script>
   "use strict";
-  const openedAt = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const $ = (id) => document.getElementById(id);
+  const SVG = "http://www.w3.org/2000/svg";
+  const openedAt = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const HISTORY = 60;
+  let history = [];   // one entry per poll: per-second outcomes and window latency
+  let previous = null; // the last metrics, to turn window totals into per-second counts
+  let latestMetrics = null;
+  let latestRecent = [];
 
-  // Every value from the engine is inserted as text, never as HTML.
+  // ---------- helpers: every value is inserted as text, never HTML ----------
+  function el(tag, props, ...children) {
+    const node = document.createElement(tag);
+    Object.assign(node, props || {});
+    node.append(...children.filter((child) => child !== null && child !== undefined));
+    return node;
+  }
   function cell(text, className) {
-    const td = document.createElement("td");
-    td.textContent = text;
-    if (className) td.className = className;
-    return td;
+    return el("td", { className: className || "", textContent: String(text) });
   }
-
+  function svg(tag, attrs) {
+    const node = document.createElementNS(SVG, tag);
+    for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, value);
+    return node;
+  }
   function money(minor, currency) {
-    return (minor / 100).toFixed(2) + " " + (currency || "");
+    return (minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (currency || "");
   }
-
+  function outcome(decision, flagged) {
+    if (decision === "DECLINE") return { label: "Declined", className: "decline" };
+    if (flagged) return { label: "Flagged", className: "flag" };
+    return { label: "Approved", className: "approve" };
+  }
+  function pill(decision, flagged) {
+    const kind = outcome(decision, flagged);
+    return el("span", { className: "pill " + kind.className, textContent: kind.label });
+  }
   function since() {
     if ($("window").value === "day") return new Date(Date.now() - 864e5).toISOString().replace(/\.\d+Z$/, "Z");
     return openedAt;
   }
-
   async function getJSON(url, options) {
     const response = await fetch(url, options);
     const body = await response.json();
@@ -172,62 +396,293 @@
     return body;
   }
 
+  // ---------- tooltip ----------
+  const tooltip = $("tooltip");
+  function showTooltip(event, title, rows) {
+    tooltip.replaceChildren(el("div", { className: "t-title", textContent: title }),
+      ...rows.map(([label, value]) => el("div", { className: "t-row" },
+        el("span", { textContent: label }), el("span", { textContent: String(value) }))));
+    tooltip.style.display = "block";
+    const x = Math.min(event.clientX + 14, window.innerWidth - tooltip.offsetWidth - 8);
+    const y = Math.min(event.clientY + 14, window.innerHeight - tooltip.offsetHeight - 8);
+    tooltip.style.left = x + "px";
+    tooltip.style.top = y + "px";
+  }
+  function hideTooltip() { tooltip.style.display = "none"; }
+
+  // ---------- tabs ----------
+  document.querySelectorAll('[role="tab"]').forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll('[role="tab"]').forEach((other) => {
+        const selected = other === tab;
+        other.setAttribute("aria-selected", String(selected));
+        $(other.getAttribute("aria-controls")).hidden = !selected;
+      });
+      drawCharts();
+    });
+  });
+
+  // ---------- overview: tiles ----------
   function renderTiles(m) {
     const tiles = [
-      ["Decisions", m.decisions],
-      ["Approval rate", (m.approval_rate * 100).toFixed(1) + "%"],
-      ["Declined", m.declined],
-      ["Flagged", m.flagged],
-      ["Fallbacks", m.fallback_used],
-      ["p50", m.latency_ms.p50.toFixed(1) + " ms"],
-      ["p95", m.latency_ms.p95.toFixed(1) + " ms"],
-      ["p99", m.latency_ms.p99.toFixed(1) + " ms"],
-      ["Explained", m.explainer.explained],
-      ["Explainer fallbacks", m.explainer.fallback_used],
+      ["Decisions", m.decisions.toLocaleString(), "answered"],
+      ["Approval rate", (m.approval_rate * 100).toFixed(1) + "%", "approved / total"],
+      ["Declined", m.declined.toLocaleString(), "by a rule or the score"],
+      ["Flagged", m.flagged.toLocaleString(), "approved, score ≥ 40"],
+      ["Fallbacks", m.fallback_used.toLocaleString(), "a dependency failed"],
+      ["Latency p50", m.latency_ms.p50.toFixed(1) + " ms", "median"],
+      ["Latency p99", m.latency_ms.p99.toFixed(1) + " ms", "goal < 100 ms"],
+      ["Explanations", m.explainer.explained.toLocaleString(), m.explainer.fallback_used + " by template"],
     ];
-    const box = $("tiles");
-    box.replaceChildren(...tiles.map(([label, value]) => {
-      const tile = document.createElement("div");
-      tile.className = "tile";
-      const l = document.createElement("div"); l.className = "label"; l.textContent = label;
-      const v = document.createElement("div"); v.className = "value"; v.textContent = value;
-      tile.append(l, v);
-      return tile;
-    }));
+    $("tiles").replaceChildren(...tiles.map(([label, value, hint]) => el("div", { className: "tile" },
+      el("div", { className: "label", textContent: label }),
+      el("div", { className: "value", textContent: value }),
+      el("div", { className: "hint", textContent: hint }))));
   }
 
-  function renderReasons(reasons) {
-    const entries = Object.entries(reasons || {}).sort((a, b) => b[1] - a[1]);
-    const box = $("reasons");
-    if (entries.length === 0) {
-      const note = document.createElement("span"); note.className = "note"; note.textContent = "No declines yet.";
-      box.replaceChildren(note);
+  // ---------- activity: charts (inline SVG, thin marks, recessive grid) ----------
+  const H = 220, M = { top: 10, right: 12, bottom: 26, left: 52 };
+  function frame(container, label, height) {
+    const h = height || H;
+    const w = Math.max(320, Math.round(container.clientWidth || 640));
+    const root = svg("svg", { viewBox: `0 0 ${w} ${h}`, width: w, height: h, role: "img", "aria-label": label });
+    container.replaceChildren(root);
+    return { root, w, h, plotW: w - M.left - M.right, plotH: h - M.top - M.bottom };
+  }
+  // niceScale picks a round tick step (1, 2, 2.5, 5 × 10^n), whole for counts.
+  function niceScale(value, whole) {
+    const raw = Math.max(value, whole ? 1 : 0.1) / 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
+    let step = [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((candidate) => candidate >= raw);
+    if (whole) step = Math.max(1, Math.ceil(step));
+    return { max: step * 4, step };
+  }
+  function yAxis(f, scale, format) {
+    for (let i = 0; i <= 4; i++) {
+      const value = scale.step * i;
+      const y = M.top + f.plotH - (f.plotH * i) / 4;
+      f.root.append(svg("line", { x1: M.left, x2: M.left + f.plotW, y1: y, y2: y, stroke: i === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }));
+      const text = svg("text", { x: M.left - 6, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "var(--muted)" });
+      text.textContent = format(value);
+      f.root.append(text);
+    }
+  }
+  function empty(container, message) {
+    container.replaceChildren(el("div", { className: "empty", textContent: message }));
+  }
+
+  function drawOutcomes() {
+    const container = $("chartOutcomes");
+    const points = history.slice(-HISTORY);
+    if (points.every((p) => p.approved + p.flagged + p.declined === 0)) {
+      empty(container, "No decisions in the last minute. Run a scenario or send a purchase on the Overview tab.");
       return;
     }
-    const top = entries[0][1];
-    box.replaceChildren(...entries.map(([code, count]) => {
-      const row = document.createElement("div"); row.className = "bar";
-      const name = document.createElement("span"); name.textContent = code;
-      const track = document.createElement("div"); track.className = "track";
-      const fill = document.createElement("div"); fill.className = "fill"; fill.style.width = (100 * count / top) + "%";
-      track.append(fill);
-      const n = document.createElement("span"); n.className = "count"; n.textContent = count;
-      row.append(name, track, n);
-      return row;
-    }));
+    const f = frame(container, "Decisions per second by outcome, last 60 seconds");
+    const scale = niceScale(Math.max(...points.map((p) => p.approved + p.flagged + p.declined)), true);
+    const max = scale.max;
+    yAxis(f, scale, (v) => v.toLocaleString());
+    const slot = f.plotW / HISTORY;
+    const barW = Math.max(2, slot - 2);
+    points.forEach((p, i) => {
+      const x = M.left + (HISTORY - points.length + i) * slot + 1;
+      let y = M.top + f.plotH;
+      [["approved", "var(--good)"], ["flagged", "var(--warning)"], ["declined", "var(--critical)"]].forEach(([key, color]) => {
+        if (p[key] === 0) return;
+        const h = Math.max((p[key] / max) * f.plotH, 4); // a single decision stays visible above the baseline
+        f.root.append(svg("rect", { x, y: y - h + 1, width: barW, height: h - 2, fill: color, rx: 1 }));
+        y -= h;
+      });
+      const hit = svg("rect", { x: x - 1, y: M.top, width: slot, height: f.plotH, fill: "transparent" });
+      hit.addEventListener("mousemove", (event) => showTooltip(event, p.time.toLocaleTimeString(),
+        [["Approved", p.approved], ["Flagged", p.flagged], ["Declined", p.declined]]));
+      hit.addEventListener("mouseleave", hideTooltip);
+      f.root.append(hit);
+    });
+    const now = svg("text", { x: M.left + f.plotW, y: f.h - 6, "text-anchor": "end", "font-size": 11, fill: "var(--muted)" });
+    now.textContent = "now";
+    const start = svg("text", { x: M.left, y: f.h - 6, "font-size": 11, fill: "var(--muted)" });
+    start.textContent = "60 s ago";
+    f.root.append(now, start);
   }
 
-  function renderRecent(items) {
-    $("recent").replaceChildren(...items.map((d) => {
-      const tr = document.createElement("tr");
-      const decision = d.flagged ? d.decision + " · flag" : d.decision;
-      tr.append(
-        cell(new Date(d.time).toLocaleTimeString()), cell(d.source), cell(d.card_id),
-        cell(money(d.amount_minor, d.currency), "num"), cell(d.mcc), cell(d.country),
-        cell(decision, d.flagged ? "flag" : d.decision), cell(d.risk_score, "num"),
-        cell((d.reasons || []).join(", ")), cell(d.latency_ms.toFixed(1), "num"));
-      return tr;
-    }));
+  function drawLatency() {
+    const container = $("chartLatency");
+    const points = history.slice(-HISTORY).filter((p) => p.p99 > 0);
+    if (points.length < 2) {
+      empty(container, "Waiting for decisions in the selected window.");
+      return;
+    }
+    const f = frame(container, "Engine latency p50 and p99 over time");
+    const scale = niceScale(Math.max(...points.map((p) => p.p99)), false);
+    const max = scale.max;
+    yAxis(f, scale, (v) => (Number.isInteger(v) ? v : v.toFixed(1)) + " ms");
+    const x = (i) => M.left + (f.plotW * i) / (points.length - 1);
+    const y = (v) => M.top + f.plotH - (v / max) * f.plotH;
+    [["p50", "var(--series-1)"], ["p99", "var(--series-2)"]].forEach(([key, color]) => {
+      const d = points.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p[key]).toFixed(1)).join(" ");
+      f.root.append(svg("path", { d, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round" }));
+      const last = points[points.length - 1];
+      const tag = svg("text", { x: x(points.length - 1) - 4, y: y(last[key]) - 6, "text-anchor": "end", "font-size": 11, fill: "var(--text-2)" });
+      tag.textContent = key + " " + last[key].toFixed(1) + " ms";
+      f.root.append(tag);
+    });
+    const cross = svg("line", { y1: M.top, y2: M.top + f.plotH, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+    f.root.append(cross);
+    const hit = svg("rect", { x: M.left, y: M.top, width: f.plotW, height: f.plotH, fill: "transparent" });
+    hit.addEventListener("mousemove", (event) => {
+      const box = f.root.getBoundingClientRect();
+      const px = ((event.clientX - box.left) / box.width) * f.w;
+      const i = Math.max(0, Math.min(points.length - 1, Math.round(((px - M.left) / f.plotW) * (points.length - 1))));
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+      showTooltip(event, points[i].time.toLocaleTimeString(),
+        [["p50", points[i].p50.toFixed(2) + " ms"], ["p99", points[i].p99.toFixed(2) + " ms"]]);
+    });
+    hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); hideTooltip(); });
+    f.root.append(hit);
+  }
+
+  function drawReasons() {
+    const container = $("chartReasons");
+    const entries = Object.entries((latestMetrics && latestMetrics.decline_reasons) || {}).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) {
+      empty(container, "No declines in the selected window.");
+      return;
+    }
+    const rowH = 26, labelW = 210;
+    const f = frame(container, "Decline reasons by count", entries.length * rowH + 8);
+    const max = entries[0][1];
+    const trackW = f.w - labelW - 60;
+    entries.forEach(([code, count], i) => {
+      const y = 4 + i * rowH;
+      const name = svg("text", { x: 0, y: y + 15, "font-size": 12, fill: "var(--text)" });
+      name.textContent = code;
+      const width = Math.max(2, (count / max) * trackW);
+      const bar = svg("rect", { x: labelW, y: y + 4, width, height: 14, rx: 4, fill: "var(--series-1)" });
+      const value = svg("text", { x: labelW + width + 6, y: y + 15, "font-size": 12, fill: "var(--text-2)" });
+      value.textContent = count.toLocaleString();
+      const hit = svg("rect", { x: 0, y, width: f.w, height: rowH, fill: "transparent" });
+      hit.addEventListener("mousemove", (event) => showTooltip(event, code, [["Declines", count.toLocaleString()]]));
+      hit.addEventListener("mouseleave", hideTooltip);
+      f.root.append(name, bar, value, hit);
+    });
+  }
+
+  function drawRisk() {
+    const container = $("chartRisk");
+    if (latestRecent.length === 0) {
+      empty(container, "No decisions sent from this dashboard yet.");
+      return;
+    }
+    const buckets = Array.from({ length: 10 }, (_, i) => ({ from: i * 10, count: 0 }));
+    latestRecent.forEach((d) => { buckets[Math.min(9, Math.floor(d.risk_score / 10))].count++; });
+    const f = frame(container, "Risk score distribution of the last 50 decisions");
+    const scale = niceScale(Math.max(...buckets.map((b) => b.count)), true);
+    const max = scale.max;
+    yAxis(f, scale, (v) => v.toLocaleString());
+    const slot = f.plotW / buckets.length;
+    buckets.forEach((b, i) => {
+      const x = M.left + i * slot + 1;
+      const h = (b.count / max) * f.plotH;
+      if (b.count > 0) {
+        f.root.append(svg("rect", { x, y: M.top + f.plotH - h, width: slot - 2, height: h, rx: 4, fill: "var(--series-1)" }));
+      }
+      const tick = svg("text", { x: x + (slot - 2) / 2, y: f.h - 8, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)" });
+      tick.textContent = String(b.from);
+      const hit = svg("rect", { x, y: M.top, width: slot, height: f.plotH, fill: "transparent" });
+      hit.addEventListener("mousemove", (event) => showTooltip(event, "Risk " + b.from + "–" + (b.from + 9), [["Decisions", b.count]]));
+      hit.addEventListener("mouseleave", hideTooltip);
+      f.root.append(tick, hit);
+    });
+    [[40, "flag at 40"], [70, "decline at 70"]].forEach(([score, text]) => {
+      const x = M.left + (score / 10) * slot;
+      f.root.append(svg("line", { x1: x, x2: x, y1: M.top, y2: M.top + f.plotH, stroke: "var(--text-2)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
+      const tag = svg("text", { x: x + 4, y: M.top + 12, "font-size": 11, fill: "var(--text-2)" });
+      tag.textContent = text;
+      f.root.append(tag);
+    });
+  }
+
+  // ---------- recent decisions: filters survive the every-second refresh ----------
+  function fillOptions(select, values) {
+    const current = select.value;
+    const options = [el("option", { value: "", textContent: "All" }), ...values.map((value) => el("option", { value, textContent: value }))];
+    select.replaceChildren(...options);
+    select.value = values.includes(current) ? current : "";
+  }
+  function matchesFilters(d) {
+    const decision = $("filterDecision").value;
+    const source = $("filterSource").value;
+    const reason = $("filterReason").value;
+    const card = $("filterCard").value.trim().toLowerCase();
+    return (!decision || outcome(d.decision, d.flagged).className === decision) &&
+      (!source || d.source === source) &&
+      (!reason || (d.reasons || []).includes(reason)) &&
+      (!card || d.card_id.toLowerCase().includes(card));
+  }
+  function renderRecent(all) {
+    fillOptions($("filterSource"), [...new Set(all.map((d) => d.source))].sort());
+    fillOptions($("filterReason"), [...new Set(all.flatMap((d) => d.reasons || []))].sort());
+    const items = all.filter(matchesFilters);
+    $("filterCount").textContent = "Showing " + items.length + " of " + all.length;
+    $("recent").replaceChildren(...items.map((d) => el("tr", {},
+      cell(new Date(d.time).toLocaleTimeString()), cell(d.source), cell(d.card_id),
+      cell(money(d.amount_minor, d.currency), "num"), cell(d.mcc), cell(d.country),
+      el("td", {}, pill(d.decision, d.flagged)), cell(d.risk_score, "num"),
+      cell((d.reasons || []).join(", ") || "—", "wrap"), cell(d.latency_ms.toFixed(1), "num"))));
+  }
+
+  ["filterDecision", "filterSource", "filterReason", "filterCard"].forEach((id) =>
+    $(id).addEventListener("input", () => renderRecent(latestRecent)));
+  $("filterReset").addEventListener("click", () => {
+    ["filterDecision", "filterSource", "filterReason", "filterCard"].forEach((id) => { $(id).value = ""; });
+    renderRecent(latestRecent);
+  });
+
+  // ---------- the hours rule uses the real clock, so say what it means right now ----------
+  const ALLOWED_FROM_HOUR = 6;
+  const ALLOWED_UNTIL_HOUR = 23;
+  function updateHoursNow() {
+    const now = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+    const hour = Number(now.slice(0, 2));
+    const open = hour >= ALLOWED_FROM_HOUR && hour < ALLOWED_UNTIL_HOUR;
+    $("hoursNow").textContent = "No example: it uses the real clock. It is " + now + " in Mexico City, so purchases are " +
+      (open ? "allowed right now." : "declined right now, whatever you send.");
+  }
+  updateHoursNow();
+  setInterval(updateHoursNow, 60000);
+
+  // ---------- overview: call-to-action cards open one panel at a time ----------
+  function openPanel(id) {
+    ["panel-scenarios", "panel-purchase"].forEach((panel) => { $(panel).hidden = panel !== id; });
+    $("cta-scenarios").classList.toggle("active", id === "panel-scenarios");
+    $("cta-purchase").classList.toggle("active", id === "panel-purchase");
+    if (id) $(id).scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  document.querySelectorAll("[data-open]").forEach((button) =>
+    button.addEventListener("click", () => openPanel(button.dataset.open)));
+  document.querySelectorAll("[data-close]").forEach((button) =>
+    button.addEventListener("click", () => openPanel(null)));
+
+  function drawCharts() {
+    if ($("panel-activity").hidden) return;
+    drawOutcomes(); drawLatency(); drawReasons(); drawRisk();
+  }
+
+  // ---------- polling ----------
+  function record(m) {
+    if (previous) {
+      const flagged = Math.max(0, m.flagged - previous.flagged);
+      history.push({
+        time: new Date(),
+        approved: Math.max(0, m.approved - previous.approved - flagged),
+        flagged,
+        declined: Math.max(0, m.declined - previous.declined),
+        p50: m.latency_ms.p50, p99: m.latency_ms.p99,
+      });
+      if (history.length > HISTORY) history.shift();
+    }
+    previous = m;
   }
 
   async function refresh() {
@@ -236,21 +691,74 @@
         getJSON("/api/metrics?since=" + encodeURIComponent(since())),
         getJSON("/api/recent"),
       ]);
+      latestMetrics = metrics; latestRecent = recent;
+      record(metrics);
       renderTiles(metrics);
-      renderReasons(metrics.decline_reasons);
       renderRecent(recent);
-      $("status").textContent = "engine connected · " + new Date().toLocaleTimeString();
+      drawCharts();
       $("status").className = "status";
+      $("status").replaceChildren(el("span", { className: "dot" }), "Engine connected · updated " + new Date().toLocaleTimeString());
     } catch (err) {
-      $("status").textContent = "engine unreachable: " + err.message;
       $("status").className = "status down";
+      $("status").replaceChildren(el("span", { className: "dot" }), "Engine unreachable: " + err.message);
     }
   }
 
-  function showError(box, err) {
-    const p = document.createElement("p"); p.className = "error"; p.textContent = err.message;
-    box.replaceChildren(p);
+  // ---------- scenario form ----------
+  const scenarioHelp = {
+    "all": "Runs the six scenarios one after another.",
+    "normal traffic": "Everyday purchases. Expect: all approved.",
+    "card testing": "6–10 tiny online charges at different shops. Expect: flagged from the 4th, declined from the 6th.",
+    "split purchase": "2–4 purchases just under 500.00 USD at one shop. Expect: flagged.",
+    "stolen card": "Normal history, then a big online purchase abroad. Expect: declined.",
+    "blocked MCC": "One purchase at gambling, quasi-cash or money transfer. Expect: declined.",
+    "hotel increment": "Hotel check-in plus one more night. Expect: approved, hold raised.",
+  };
+  function updateScenarioHelp() { $("scenarioHelp").textContent = scenarioHelp[$("scenarioSelect").value]; }
+  $("scenarioSelect").addEventListener("change", updateScenarioHelp);
+  updateScenarioHelp();
+
+  // ---------- scenario results in plain words ----------
+  function ordinal(n) {
+    const suffix = { 1: "st", 2: "nd", 3: "rd" }[n % 100 >= 11 && n % 100 <= 13 ? 0 : n % 10] || "th";
+    return n + suffix;
   }
+  function describeSpan(span) {
+    if (span[0] === span[1]) return String(span[0]);
+    return span[0] + "–" + span[1];
+  }
+  function describeSteps(r) {
+    if (r.scenario === "stolen card" && r.declined_from[0]) {
+      return "declined at the purchase abroad, after " + describeSpan(r.declined_from.map((n) => n - 1)) + " normal ones";
+    }
+    const steps = [];
+    if (r.flagged_from[0]) steps.push(["flagged", r.flagged_from[0]]);
+    if (r.declined_from[0]) steps.push(["declined", r.declined_from[0]]);
+    return steps.map(([verb, n], i) => verb + " from the " + ordinal(n) + (i === 0 ? " purchase" : "")).join(", ");
+  }
+  const checkWording = { "hotel increment": "extra night approved and hold raised" };
+  function describeScenarioRow(r) {
+    const errors = r.errors ? " " + r.errors + " engine errors." : "";
+    if (r.check) {
+      return { ok: r.caught === r.cards && !r.errors,
+        text: r.caught + " of " + r.cards + " cards: " + (checkWording[r.scenario] || "passed") + "." + errors };
+    }
+    if (!r.fraud) {
+      const flagged = r.flagged ? " " + r.flagged + " flagged for review." : "";
+      const declines = r.declined ? r.declined + " of " + r.requests + " wrongly declined." : "All approved, none wrongly declined.";
+      return { ok: !r.declined && !r.errors, text: declines + flagged + errors };
+    }
+    const steps = describeSteps(r);
+    return { ok: r.caught === r.cards && !r.errors,
+      text: "Caught " + r.caught + " of " + r.cards + " cards" + (steps ? ": " + steps : "") + "." + errors };
+  }
+  function verdict(row, ok) {
+    if (ok) return el("span", { className: "pill approve", textContent: "As expected" });
+    const missed = row.fraud || row.check ? row.cards - row.caught : row.declined;
+    return el("span", { className: "pill decline", textContent: missed ? "Missed " + missed : "Errors" });
+  }
+
+  function showError(box, err) { box.replaceChildren(el("p", { className: "error", textContent: err.message })); }
 
   $("scenarioForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -258,6 +766,7 @@
     const button = event.target.querySelector("button");
     const box = $("scenarioResult");
     button.disabled = true;
+    button.textContent = "Running…";
     box.replaceChildren();
     try {
       const result = await getJSON("/api/scenarios", {
@@ -269,69 +778,135 @@
           seed: String(form.get("seed")).trim() || "0", // a string: a 64-bit seed doesn't fit a JS number
         }),
       });
-      const table = document.createElement("table");
-      const head = document.createElement("tr");
-      ["Scenario", "Requests", "Result"].forEach((h) => {
-        const th = document.createElement("th"); th.textContent = h; head.append(th);
-      });
-      table.append(head, ...result.rows.map((r) => {
-        const tr = document.createElement("tr");
-        tr.append(cell(r.scenario), cell(r.requests, "num"), cell(r.result, "wrap"));
-        return tr;
-      }));
       const t = result.totals;
-      const note = document.createElement("p"); note.className = "note";
-      note.textContent = "Caught " + t.fraud_caught + "/" + t.fraud_cards + " fraud cards · false declines " +
-        t.false_declines + "/" + t.normal_requests + " · p99 " + t.p99_ms.toFixed(1) + " ms · seed " + result.seed;
-      const wrap = document.createElement("div"); wrap.className = "scroll"; wrap.append(table);
-      box.replaceChildren(wrap, note);
+      const totals = [
+        t.fraud_cards ? "Fraud caught: " + t.fraud_caught + " of " + t.fraud_cards + " cards" : "",
+        t.normal_requests ? "Normal purchases wrongly declined: " + t.false_declines + " of " + t.normal_requests : "",
+        "Slowest 1% answered in " + t.p99_ms.toFixed(1) + " ms (p99, goal < 100 ms)",
+      ].filter(Boolean);
+      const summary = el("p", { className: "note", textContent: totals.join(" · ") });
+      const useSeed = el("button", { className: "link", type: "button", textContent: "Use this seed" });
+      useSeed.addEventListener("click", () => {
+        $("seedInput").value = result.seed;
+        $("seedInput").focus();
+      });
+      const seed = el("p", { className: "note" },
+        "These purchases came from seed " + result.seed + ". ", useSeed, " to send exactly the same ones again.");
+      const table = el("table", {},
+        el("thead", {}, el("tr", {},
+          el("th", { textContent: "Scenario" }), el("th", { className: "num", textContent: "Purchases" }),
+          el("th", { textContent: "What happened" }), el("th", { textContent: "Verdict" }))),
+        el("tbody", {}, ...result.rows.map((r) => {
+          const row = describeScenarioRow(r);
+          return el("tr", {}, cell(r.scenario), cell(r.requests, "num"), cell(row.text, "wrap"), el("td", {}, verdict(r, row.ok)));
+        })));
+      box.replaceChildren(el("div", { className: "scroll" }, table), summary, seed);
     } catch (err) {
       showError(box, err);
     } finally {
       button.disabled = false;
+      button.textContent = "Run";
       refresh();
     }
+  });
+
+  // ---------- specific purchase form ----------
+  const presets = {
+    normal: { card_id: "card_123", amount: "45.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "US", entry_mode: "ecommerce", count: 1 },
+    gambling: { card_id: "card_123", amount: "50.00", currency: "USD", mcc: "7995", merchant_id: "m_casino", country: "US", entry_mode: "ecommerce", count: 1 },
+    overLimit: { card_id: "card_123", amount: "800.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "US", entry_mode: "ecommerce", count: 1 },
+    executive: { card_id: "card_exec", amount: "800.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "US", entry_mode: "ecommerce", count: 1 },
+    frozen: { card_id: "card_frozen", amount: "20.00", currency: "USD", mcc: "5812", merchant_id: "m_lunch", country: "US", entry_mode: "contactless", count: 1 },
+    cardTesting: { card_id: "card_456", amount: "1.50", currency: "USD", mcc: "5999", merchant_id: "m_tiny_shop", country: "US", entry_mode: "ecommerce", count: 6 },
+    abroad: { card_id: "card_123", amount: "45.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "FR", entry_mode: "ecommerce", count: 1 },
+    swipe: { card_id: "card_123", amount: "45.00", currency: "USD", mcc: "5812", merchant_id: "m_lunch", country: "US", entry_mode: "swipe", count: 1 },
+    dailyLimit: { card_id: "card_exec", amount: "700.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "US", entry_mode: "chip", count: 3 },
+    splitPurchase: { card_id: "card_123", amount: "450.00", currency: "USD", mcc: "5999", merchant_id: "m_electronics", country: "US", entry_mode: "chip", count: 2 },
+  };
+  function sendPurchase(values) {
+    return getJSON("/api/transactions", {
+      method: "POST",
+      body: JSON.stringify({
+        card_id: values.card_id,
+        amount_minor: Math.round(Number(values.amount) * 100),
+        currency: String(values.currency).toUpperCase(),
+        mcc: values.mcc,
+        merchant_id: values.merchant_id,
+        country: String(values.country).toUpperCase(),
+        entry_mode: values.entry_mode,
+        count: Number(values.count),
+      }),
+    });
+  }
+
+  // "#1–3 Approved · #4–5 Flagged · #6 Declined", then why the last one was decided.
+  function summarizeResponses(responses) {
+    const groups = [];
+    responses.forEach((r, i) => {
+      const kind = outcome(r.decision, r.flagged);
+      const last = groups[groups.length - 1];
+      if (last && last.kind.className === kind.className) last.to = i + 1;
+      else groups.push({ kind, from: i + 1, to: i + 1 });
+    });
+    const parts = [el("span", { textContent: "Got:" })];
+    groups.forEach((g) => {
+      const label = responses.length === 1 ? "" : "#" + (g.from === g.to ? g.from : g.from + "–" + g.to) + " ";
+      parts.push(el("span", {}, label, el("span", { className: "pill " + g.kind.className, textContent: g.kind.label })));
+    });
+    const reasons = responses[responses.length - 1].reasons || [];
+    if (reasons.length) parts.push(el("span", { textContent: "· " + reasons.map((reason) => reason.message).join(" · ") }));
+    return parts;
+  }
+
+  document.querySelectorAll("[data-preset]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const preset = presets[button.dataset.preset];
+      const form = $("txForm");
+      for (const [name, value] of Object.entries(preset)) form.elements[name].value = value;
+      const expected = button.closest("tr").cells[2];
+      let got = expected.querySelector(".got");
+      if (!got) { got = el("div", { className: "got" }); expected.append(got); }
+      button.disabled = true;
+      button.textContent = "Sending…";
+      try {
+        got.replaceChildren(...summarizeResponses(await sendPurchase(preset)));
+      } catch (err) {
+        got.replaceChildren(el("span", { className: "error", textContent: err.message }));
+      } finally {
+        button.disabled = false;
+        button.textContent = "Try again";
+        refresh();
+      }
+    });
   });
 
   $("txForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(event.target);
+    const values = Object.fromEntries(new FormData(event.target));
     const button = event.target.querySelector("button");
     const box = $("txResult");
     button.disabled = true;
+    button.textContent = "Sending…";
     try {
-      const responses = await getJSON("/api/transactions", {
-        method: "POST",
-        body: JSON.stringify({
-          card_id: form.get("card_id"),
-          amount_minor: Math.round(Number(form.get("amount")) * 100),
-          currency: String(form.get("currency")).toUpperCase(),
-          mcc: form.get("mcc"),
-          merchant_id: form.get("merchant_id"),
-          country: String(form.get("country")).toUpperCase(),
-          entry_mode: form.get("entry_mode"),
-          count: Number(form.get("count")),
-        }),
-      });
-      const counts = responses.reduce((acc, r) => {
-        const key = r.flagged ? "flagged" : r.decision;
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      }, {});
-      const last = responses[responses.length - 1];
-      const p = document.createElement("p"); p.className = "note";
-      p.textContent = Object.entries(counts).map(([k, v]) => v + " " + k).join(" · ") +
-        (last.reasons.length ? " · last reasons: " + last.reasons.map((r) => r.code).join(", ") : "");
-      box.replaceChildren(p);
+      const responses = await sendPurchase(values);
+      const rows = responses.map((r, i) => el("tr", {},
+        cell("#" + (i + 1)), el("td", {}, pill(r.decision, r.flagged)), cell(r.risk_score, "num"),
+        cell((r.reasons || []).map((reason) => reason.code + ": " + reason.message).join(" · ") || "Every check passed", "wrap")));
+      const table = el("table", {},
+        el("thead", {}, el("tr", {}, el("th", { textContent: "Purchase" }), el("th", { textContent: "Decision" }), el("th", { className: "num", textContent: "Risk" }), el("th", { textContent: "Why" }))),
+        el("tbody", {}, ...rows));
+      box.replaceChildren(el("div", { className: "scroll" }, table));
     } catch (err) {
       showError(box, err);
     } finally {
       button.disabled = false;
+      button.textContent = "Send";
       refresh();
     }
   });
 
-  $("window").addEventListener("change", refresh);
+  $("window").addEventListener("change", () => { history = []; previous = null; refresh(); });
+  window.addEventListener("resize", drawCharts);
   refresh();
   setInterval(refresh, 1000);
 </script>

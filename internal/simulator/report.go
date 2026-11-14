@@ -125,12 +125,22 @@ func widenRange(span [2]int, attempt int) [2]int {
 }
 
 // Row is one scenario's line of the report.
+// The counts let a page word the result its own way; Result is the CLI's wording.
 type Row struct {
-	Scenario string `json:"scenario"`
-	Cards    int    `json:"cards"`
-	Requests int    `json:"requests"`
-	Expected string `json:"expected"`
-	Result   string `json:"result"`
+	Scenario     string `json:"scenario"`
+	Cards        int    `json:"cards"`
+	Requests     int    `json:"requests"`
+	Expected     string `json:"expected"`
+	Result       string `json:"result"`
+	Fraud        bool   `json:"fraud"`
+	Check        bool   `json:"check"`
+	Approved     int    `json:"approved"`
+	Declined     int    `json:"declined"`
+	Flagged      int    `json:"flagged"`
+	Errors       int    `json:"errors"`
+	Caught       int    `json:"caught"`
+	FlaggedFrom  [2]int `json:"flagged_from"`
+	DeclinedFrom [2]int `json:"declined_from"`
 }
 
 // Totals are the report's last two lines: detection, false declines, latency.
@@ -153,6 +163,9 @@ func (r Report) ListRows() []Row {
 		rows[index] = Row{
 			Scenario: outcome.Scenario.Name, Cards: outcome.Scenario.Cards, Requests: outcome.Requests,
 			Expected: outcome.Scenario.Expected, Result: describeOutcome(outcome),
+			Fraud: outcome.Scenario.Fraud, Check: outcome.Scenario.Check,
+			Approved: outcome.Approved, Declined: outcome.Declined, Flagged: outcome.Flagged, Errors: outcome.Errors,
+			Caught: outcome.Caught, FlaggedFrom: outcome.FlaggedFrom, DeclinedFrom: outcome.DeclinedFrom,
 		}
 	}
 

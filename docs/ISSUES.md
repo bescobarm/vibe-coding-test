@@ -44,6 +44,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-036](#i-036-the-dashboard-showed-a-seed-that-could-not-replay-its-run) | 2026-11-14 | Dashboard | ✅ |
 | [I-037](#i-037-a-concurrency-test-raced-its-own-probe) | 2026-11-14 | Tests | ✅ |
 | [I-038](#i-038-browser-screenshots-were-committed-by-mistake) | 2026-11-14 | Git | ✅ |
+| [I-039](#i-039-the-dashboard-was-hard-to-read-without-knowing-the-demo) | 2026-11-14 | Dashboard | ✅ |
 
 ---
 
@@ -204,4 +205,8 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-038: Browser screenshots were committed by mistake
 - **Found:** moving the video script out of the repo, `git add -A` on PR #18's branch also committed `.playwright-mcp/` (dashboard screenshots and page snapshots from the browser check, about 0.8 MB). Its ignore rule existed only on PR #19's branch.
 - **Fix:** a follow-up commit untracked the folder and ignored it on both branches; PR #18's diff is back to `README.md` and `.gitignore`. The files stay in that branch's history (no force-push); a squash merge of #18 keeps them out of `main`. Lesson: stage files by name, not with `-A`, when tools write into the repo.
+
+### I-039: The dashboard was hard to read without knowing the demo
+- **Found:** my review of the first dashboard: what a card means, why repeat a purchase, and what a seed is were not explained, and decisions and charts competed for one page. Screenshots of the redesign then showed chart text scaling with the panel width (6 px in half-width charts), uneven axis ticks (63, 188), and a single decline drawn below the baseline.
+- **Fix:** two tabs (Overview, Activity & charts); a description per demo card, the company's policy, help on Repeat and Seed, per-scenario descriptions and example buttons; a "Why" column per purchase. Charts draw at their real pixel width with round ticks and a minimum bar height, in validated status and series colors for light and dark (checked in screenshots of both).
 

@@ -108,7 +108,8 @@ func TestThePageIsServed(t *testing.T) {
 
 	c.Equal(http.StatusOK, recorder.Code)
 	c.Equal("text/html; charset=utf-8", recorder.Header().Get("Content-Type"))
-	c.Contains(recorder.Body.String(), "Live dashboard")
+	c.Contains(recorder.Body.String(), `id="tab-overview"`)
+	c.Contains(recorder.Body.String(), `id="tab-activity"`)
 }
 
 // A batch sends the same transaction N times, each with its own ID, and the
