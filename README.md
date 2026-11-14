@@ -9,6 +9,7 @@
 | Code + run instructions | This repo, starting with [How to run](#1-how-to-run) |
 | Design and research | This README, sections 4–15 |
 | Decision log (for the interview) | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| One-page write-up | [WRITEUP.md](WRITEUP.md) |
 | Trade-offs in short (for the interview) | [docs/TRADEOFFS.md](docs/TRADEOFFS.md) |
 | Issues found while building | [docs/ISSUES.md](docs/ISSUES.md) |
 | Glossary (CNP, MCC, hold, outbox…) | [docs/CONCEPTS.md](docs/CONCEPTS.md) |
@@ -563,7 +564,8 @@ CREATE TABLE authorizations (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Behavioral baseline per cardholder (updated asynchronously)
+-- Behavioral baseline per cardholder. Reserved, not used yet: the history is one
+-- query before the claim (D-059); this table is the caching step for later.
 CREATE TABLE cardholder_profiles (
   cardholder_id   TEXT PRIMARY KEY,
   countries       TEXT[],
@@ -627,6 +629,8 @@ Request (modeled on Stripe Issuing and Lithic ASA payloads):
   "created_at": "2026-11-12T15:04:05Z"
 }
 ```
+
+`is_amount_controllable` and `network_risk_score` are accepted and kept in the audit's `request`, but no rule reads them yet: the first only matters for partial approval, which was cut ([D-011](docs/DECISIONS.md#d-011-mvp-scope-cuts)); the second could become a score feature (see [What I'd do next](#18-what-id-do-next)).
 
 Response:
 
@@ -796,7 +800,8 @@ The report shows the **detection rate per scenario** and the **false-decline rat
 ### Observability
 
 - **Structured logs** (JSON) with `authorization_id`, `company_id`, decision, reasons, latency.
-- **Metrics:** decisions by outcome and reason, stage latency histograms, fallback count, idempotent replays, explainer fallbacks.
+- **Metrics** (`GET /v1/metrics`, from the audit log, D-070): decisions by outcome, approval rate, flags, fallbacks, decline reasons, p50/p95/p99 latency, and explanations written by the model, by the template, or failed.
+- **Not built yet:** per-stage latency histograms and an idempotent-replay count (replays write nothing to the audit log, so they need in-memory counters).
 - **Alerts (described, not built):** fallback rate > X%, p99 > budget, sudden spike in a decline reason (a misconfigured policy).
 
 ---
@@ -838,13 +843,15 @@ Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-b
 - **Real LLM provider** for the explainer: one adapter behind the existing `Explainer` interface.
 - **Shadow mode:** evaluate new rules on live traffic and log them without affecting decisions (cut from the MVP).
 - **Partial approval** (`APPROVE_PARTIAL`) up to the remaining budget when the terminal allows it (cut from the MVP).
-- **Metrics dashboard** on top of `GET /v1/metrics` (cut from the MVP).
+- **Dashboard** ([D-073](docs/DECISIONS.md#d-073-a-dashboard-is-a-future-task)): a simple frontend to send random or specific transactions, one or a batch, and watch the metrics update in real time, on top of `GET /v1/metrics` and the simulator.
 - Replace the weighted score with a **trained model** (gradient boosting) once labeled data exists, keeping the explainable features as model inputs.
 - **Peer-group baselines** for new cards with little history.
 - **Rule language** (e.g. CEL) and a UI so finance teams can write and backtest their own rules.
 - **Backtesting** new policies against historical traffic.
 - **Step-up challenge** (push to the cardholder's phone) instead of a hard decline for medium scores.
 - **Multi-currency budgets** with FX conversion at authorization time.
+- **Score input from the network:** use `network_risk_score` as a feature, and partial approval with `is_amount_controllable`.
+- **Replay counts and per-stage latency** in the metrics.
 - **Load shedding:** cap requests in flight and answer with the fallback right away when the cap is reached, instead of queueing for a database connection past the processor's deadline.
 - Integration with a real processor sandbox (Stripe Issuing test mode or Lithic sandbox).
 
