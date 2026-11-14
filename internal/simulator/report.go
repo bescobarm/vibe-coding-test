@@ -124,6 +124,53 @@ func widenRange(span [2]int, attempt int) [2]int {
 	return span
 }
 
+// Row is one scenario's line of the report.
+type Row struct {
+	Scenario string `json:"scenario"`
+	Cards    int    `json:"cards"`
+	Requests int    `json:"requests"`
+	Expected string `json:"expected"`
+	Result   string `json:"result"`
+}
+
+// Totals are the report's last two lines: detection, false declines, latency.
+type Totals struct {
+	FraudCaught   int     `json:"fraud_caught"`
+	FraudCards    int     `json:"fraud_cards"`
+	FalseDeclines int     `json:"false_declines"`
+	NormalCount   int     `json:"normal_requests"`
+	Decisions     int     `json:"decisions"`
+	Fallbacks     int     `json:"fallbacks"`
+	P50           float64 `json:"p50_ms"`
+	P95           float64 `json:"p95_ms"`
+	P99           float64 `json:"p99_ms"`
+}
+
+// ListRows returns the report's rows, as Render prints them.
+func (r Report) ListRows() []Row {
+	rows := make([]Row, len(r.Outcomes))
+	for index, outcome := range r.Outcomes {
+		rows[index] = Row{
+			Scenario: outcome.Scenario.Name, Cards: outcome.Scenario.Cards, Requests: outcome.Requests,
+			Expected: outcome.Scenario.Expected, Result: describeOutcome(outcome),
+		}
+	}
+
+	return rows
+}
+
+// GetTotals returns the detection, false declines and latency of the run.
+func (r Report) GetTotals() Totals {
+	caught, fraud, falseDeclines, normal := summarize(r.Outcomes)
+	latencies, fallbacks := collectLatency(r.Outcomes)
+	latency := computePercentiles(latencies)
+
+	return Totals{
+		FraudCaught: caught, FraudCards: fraud, FalseDeclines: falseDeclines, NormalCount: normal,
+		Decisions: len(latencies), Fallbacks: fallbacks, P50: latency.P50, P95: latency.P95, P99: latency.P99,
+	}
+}
+
 // errWriter keeps the first write error, so a report is many prints and one check.
 type errWriter struct {
 	out io.Writer

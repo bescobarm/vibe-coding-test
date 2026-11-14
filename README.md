@@ -77,6 +77,7 @@ make test                # unit, concurrency and idempotency tests
 make cover               # test coverage per package (target: 80% on changed files)
 make lint                # golangci-lint + style rules (D-043), needs golangci-lint v2
 make load                # load test at 200 req/s: p50/p95/p99, fails if p99 >= 100 ms
+make dashboard           # web dashboard on http://localhost:8090: send transactions, watch metrics live
 ```
 
 For a short step-by-step test of what is built so far, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
@@ -136,7 +137,7 @@ The deadline is short (due Mon 2026-11-16). The brief says *"a focused problem s
 | ✅ In the MVP | ✂️ Cut (moved to [What I'd do next](#18-what-id-do-next)) |
 |---|---|
 | Hard controls with per-company versioned JSON policies | Shadow mode (FR7) |
-| Velocity and budget with an atomic Redis reserve | Metrics dashboard UI: a CLI report and `GET /v1/metrics` remain; a dashboard is the next task ([D-073](docs/DECISIONS.md#d-073-a-dashboard-is-a-future-task)) |
+| Velocity and budget with an atomic Redis reserve | ~~Metrics dashboard UI~~: built after the MVP as `make dashboard` ([D-073](docs/DECISIONS.md#d-073-a-dashboard-is-a-future-task), [D-074](docs/DECISIONS.md#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)) |
 | Lifecycle: reversal, expiry, capture, refund, incremental auth | Partial approval (`APPROVE_PARTIAL`) |
 | Explainable anomaly score (6 features) and risk policy | Real LLM connection (mocked instead) |
 | Idempotency, internal deadline, per-company fallback | |
@@ -845,7 +846,7 @@ Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-b
 - **Real LLM provider** for the explainer: one adapter behind the existing `Explainer` interface.
 - **Shadow mode:** evaluate new rules on live traffic and log them without affecting decisions (cut from the MVP).
 - **Partial approval** (`APPROVE_PARTIAL`) up to the remaining budget when the terminal allows it (cut from the MVP).
-- **Dashboard** ([D-073](docs/DECISIONS.md#d-073-a-dashboard-is-a-future-task)): a simple frontend to send random or specific transactions, one or a batch, and watch the metrics update in real time, on top of `GET /v1/metrics` and the simulator.
+- **Dashboard, next steps:** push updates instead of polling, charts over time, and authentication before it leaves a laptop (the basic dashboard is built: `make dashboard`, [D-074](docs/DECISIONS.md#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)).
 - Replace the weighted score with a **trained model** (gradient boosting) once labeled data exists, keeping the explainable features as model inputs.
 - **Peer-group baselines** for new cards with little history.
 - **Rule language** (e.g. CEL) and a UI so finance teams can write and backtest their own rules.
