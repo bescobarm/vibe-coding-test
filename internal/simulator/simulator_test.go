@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +30,7 @@ type scriptedEngine struct {
 	mu        sync.Mutex
 	small     map[string]int
 	large     map[string]int
+	rooms     map[string]int64
 	published []string
 	authErr   error
 	eventErr  error
@@ -35,7 +38,7 @@ type scriptedEngine struct {
 }
 
 func newScriptedEngine() *scriptedEngine {
-	return &scriptedEngine{small: map[string]int{}, large: map[string]int{}}
+	return &scriptedEngine{small: map[string]int{}, large: map[string]int{}, rooms: map[string]int64{}}
 }
 
 func (s *scriptedEngine) Authorize(_ context.Context, request domain.AuthRequest) (domain.AuthResponse, error) {
@@ -47,9 +50,10 @@ func (s *scriptedEngine) Authorize(_ context.Context, request domain.AuthRequest
 	}
 
 	response := domain.AuthResponse{AuthorizationID: request.AuthorizationID, Decision: domain.Approve, LatencyMS: 2}
+	s.rooms[request.AuthorizationID] = request.AmountMinor
 
 	switch {
-	case request.Merchant.MCC == mccGambling, request.Merchant.Country == countryAbroad:
+	case slices.Contains(blockedMCCs, request.Merchant.MCC), request.Merchant.Country != countryHome:
 		response.Decision = domain.Decline
 	case request.AmountMinor <= 500:
 		s.small[request.CardID]++
@@ -57,7 +61,7 @@ func (s *scriptedEngine) Authorize(_ context.Context, request domain.AuthRequest
 		if s.small[request.CardID] >= 6 {
 			response.Decision, response.Flagged = domain.Decline, false
 		}
-	case request.AmountMinor >= 49000:
+	case request.AmountMinor >= splitMinMinor:
 		s.large[request.CardID]++
 		response.Flagged = s.large[request.CardID] >= 2
 	}
@@ -72,7 +76,7 @@ func (s *scriptedEngine) ApplyEvent(_ context.Context, authorizationID, _ string
 
 	return lifecycle.Result{
 		AuthorizationID: authorizationID, Decision: domain.Approve, Status: lifecycle.StatusPending,
-		HeldMinor: hotelMinor + oddCents + *body.AmountMinor,
+		HeldMinor: s.rooms[authorizationID] + *body.AmountMinor,
 	}, nil
 }
 
@@ -110,17 +114,20 @@ func TestTheReportCoversEveryScenario(t *testing.T) {
 	c.Len(cards.created, 4+5*2)
 	c.Len(report.Outcomes, 6)
 
-	normal, cardTesting, split, stolen, gambling, hotel := report.Outcomes[0], report.Outcomes[1], report.Outcomes[2],
+	normal, cardTesting, split, stolen, blocked, hotel := report.Outcomes[0], report.Outcomes[1], report.Outcomes[2],
 		report.Outcomes[3], report.Outcomes[4], report.Outcomes[5]
-	c.Equal(32, normal.Approved)
+	c.Equal(normal.Requests, normal.Approved)
 	c.Zero(normal.Declined)
+	c.GreaterOrEqual(normal.Requests, 4*normalMinRequests)
+	c.LessOrEqual(normal.Requests, 4*normalMaxRequests)
 	c.Equal(2, cardTesting.Caught)
 	c.Equal([2]int{4, 4}, cardTesting.FlaggedFrom)
-	c.Equal([2]int{6, 6}, cardTesting.DeclinedFrom)
+	c.Equal([2]int{6, 6}, cardTesting.DeclinedFrom, "the 6th small charge, however many a case sends")
 	c.Equal(2, split.Caught)
 	c.Equal(2, stolen.Caught)
-	c.Equal([2]int{7, 7}, stolen.DeclinedFrom)
-	c.Equal(2, gambling.Caught)
+	c.GreaterOrEqual(stolen.DeclinedFrom[0], stolenMinHistory+1)
+	c.LessOrEqual(stolen.DeclinedFrom[1], stolenMaxHistory+1)
+	c.Equal(2, blocked.Caught)
 	c.Equal(2, hotel.Caught)
 }
 
@@ -136,6 +143,42 @@ func TestTheSameSeedSendsTheSameTraffic(t *testing.T) {
 	}
 
 	c.Equal(amountsFirst, amountsSecond)
+}
+
+// D-066: each seed plays its own cases; the same seed replays the same report.
+func TestDifferentSeedsPlayDifferentCases(t *testing.T) {
+	c := require.New(t)
+	scenarios := ListScenarios(4, 2)
+
+	first, err := RunReport(context.Background(), NewRun("r1", 1, newScriptedEngine()), &fakeCards{}, json.RawMessage(`{}`), scenarios)
+	c.NoError(err)
+	replay, err := RunReport(context.Background(), NewRun("r1", 1, newScriptedEngine()), &fakeCards{}, json.RawMessage(`{}`), scenarios)
+	c.NoError(err)
+	other, err := RunReport(context.Background(), NewRun("r1", 2, newScriptedEngine()), &fakeCards{}, json.RawMessage(`{}`), scenarios)
+	c.NoError(err)
+
+	c.Equal(renderReport(c, first), renderReport(c, replay))
+	c.NotEqual(renderReport(c, first), renderReport(c, other))
+}
+
+// renderReport compares reports as text: an Outcome holds its scenario's play
+// function, and functions are never equal in Go.
+func renderReport(c *require.Assertions, report Report) string {
+	var out bytes.Buffer
+	c.NoError(report.Render(&out))
+	return strings.ReplaceAll(out.String(), fmt.Sprintf("seed %d (replay with -seed %d)", report.Seed, report.Seed), "seed")
+}
+
+func TestEveryCaseStaysInsideItsRange(t *testing.T) {
+	c := require.New(t)
+	run := NewRun("r1", 3, newScriptedEngine())
+
+	for range 500 {
+		value := run.between(splitMinMinor, splitMaxMinor)
+		c.GreaterOrEqual(value, int64(splitMinMinor))
+		c.LessOrEqual(value, int64(splitMaxMinor))
+		c.Contains(countriesAbroad, run.pickFrom(countriesAbroad))
+	}
 }
 
 func TestNormalAmountsAreNeverRound(t *testing.T) {
@@ -156,11 +199,12 @@ func TestTheReportRendersOnOneScreen(t *testing.T) {
 	c.NoError(report.Render(&out))
 
 	text := out.String()
-	c.Contains(text, "Simulator report · seed 42 · run r1")
-	c.Contains(text, "card testing     2      16        flag, then decline    2/2 caught · flagged from #4 · declined from #6")
-	c.Contains(text, "hotel increment  2      4         approve, hold raised  2/2 passed")
-	c.Contains(text, "Detection: 8/8 fraud cards caught (100.0%) · False declines: 0/32 normal requests (0.0%)")
-	c.Contains(text, "Engine latency: p50 2.0 ms · p95 2.0 ms · p99 2.0 ms · 72 decisions · 0 fallbacks")
+	c.Contains(text, "Simulator report · seed 42 (replay with -seed 42) · run r1")
+	c.Contains(text, "2/2 caught · flagged from #4 · declined from #6")
+	c.Contains(text, "approve, hold raised  2/2 passed")
+	c.Contains(text, "blocked MCC")
+	c.Contains(text, "Detection: 8/8 fraud cards caught (100.0%) · False declines: 0/")
+	c.Contains(text, "Engine latency: p50 2.0 ms · p95 2.0 ms · p99 2.0 ms ·")
 	c.Less(strings.Count(text, "\n"), 15)
 }
 
