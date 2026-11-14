@@ -181,8 +181,8 @@
             <span class="help">One fraud attempt per card.</span>
           </label>
           <label class="full">Seed (optional)
-            <input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="Blank: new random cases">
-            <span class="help">Paste a seed from an earlier run to replay exactly the same cases.</span>
+            <input name="seed" id="seedInput" inputmode="numeric" pattern="[0-9]*" placeholder="Blank: new random purchases">
+            <span class="help">Each run makes up random purchases from a seed number. The same seed sends the same purchases again, e.g. to check a fix.</span>
           </label>
           <div class="full"><button class="primary" type="submit">Run</button></div>
         </form>
@@ -690,6 +690,46 @@
   $("scenarioSelect").addEventListener("change", updateScenarioHelp);
   updateScenarioHelp();
 
+  // ---------- scenario results in plain words ----------
+  function ordinal(n) {
+    const suffix = { 1: "st", 2: "nd", 3: "rd" }[n % 100 >= 11 && n % 100 <= 13 ? 0 : n % 10] || "th";
+    return n + suffix;
+  }
+  function describeSpan(span) {
+    if (span[0] === span[1]) return String(span[0]);
+    return span[0] + "–" + span[1];
+  }
+  function describeSteps(r) {
+    if (r.scenario === "stolen card" && r.declined_from[0]) {
+      return "declined at the purchase abroad, after " + describeSpan(r.declined_from.map((n) => n - 1)) + " normal ones";
+    }
+    const steps = [];
+    if (r.flagged_from[0]) steps.push(["flagged", r.flagged_from[0]]);
+    if (r.declined_from[0]) steps.push(["declined", r.declined_from[0]]);
+    return steps.map(([verb, n], i) => verb + " from the " + ordinal(n) + (i === 0 ? " purchase" : "")).join(", ");
+  }
+  const checkWording = { "hotel increment": "extra night approved and hold raised" };
+  function describeScenarioRow(r) {
+    const errors = r.errors ? " " + r.errors + " engine errors." : "";
+    if (r.check) {
+      return { ok: r.caught === r.cards && !r.errors,
+        text: r.caught + " of " + r.cards + " cards: " + (checkWording[r.scenario] || "passed") + "." + errors };
+    }
+    if (!r.fraud) {
+      const flagged = r.flagged ? " " + r.flagged + " flagged for review." : "";
+      const declines = r.declined ? r.declined + " of " + r.requests + " wrongly declined." : "All approved, none wrongly declined.";
+      return { ok: !r.declined && !r.errors, text: declines + flagged + errors };
+    }
+    const steps = describeSteps(r);
+    return { ok: r.caught === r.cards && !r.errors,
+      text: "Caught " + r.caught + " of " + r.cards + " cards" + (steps ? ": " + steps : "") + "." + errors };
+  }
+  function verdict(row, ok) {
+    if (ok) return el("span", { className: "pill approve", textContent: "As expected" });
+    const missed = row.fraud || row.check ? row.cards - row.caught : row.declined;
+    return el("span", { className: "pill decline", textContent: missed ? "Missed " + missed : "Errors" });
+  }
+
   function showError(box, err) { box.replaceChildren(el("p", { className: "error", textContent: err.message })); }
 
   $("scenarioForm").addEventListener("submit", async (event) => {
@@ -711,15 +751,27 @@
         }),
       });
       const t = result.totals;
-      const summary = el("p", { className: "note" });
-      summary.textContent = (t.fraud_cards ? "Caught " + t.fraud_caught + " of " + t.fraud_cards + " fraud cards. " : "") +
-        (t.normal_requests ? "False declines: " + t.false_declines + " of " + t.normal_requests + " normal purchases. " : "") +
-        "p99 " + t.p99_ms.toFixed(1) + " ms.";
-      const seed = el("p", { className: "note" });
-      seed.textContent = "Seed " + result.seed + " · paste it above to replay this run.";
+      const totals = [
+        t.fraud_cards ? "Fraud caught: " + t.fraud_caught + " of " + t.fraud_cards + " cards" : "",
+        t.normal_requests ? "Normal purchases wrongly declined: " + t.false_declines + " of " + t.normal_requests : "",
+        "Slowest 1% answered in " + t.p99_ms.toFixed(1) + " ms (p99, goal < 100 ms)",
+      ].filter(Boolean);
+      const summary = el("p", { className: "note", textContent: totals.join(" · ") });
+      const useSeed = el("button", { className: "link", type: "button", textContent: "Use this seed" });
+      useSeed.addEventListener("click", () => {
+        $("seedInput").value = result.seed;
+        $("seedInput").focus();
+      });
+      const seed = el("p", { className: "note" },
+        "These purchases came from seed " + result.seed + ". ", useSeed, " to send exactly the same ones again.");
       const table = el("table", {},
-        el("thead", {}, el("tr", {}, el("th", { textContent: "Scenario" }), el("th", { className: "num", textContent: "Purchases" }), el("th", { textContent: "Result" }))),
-        el("tbody", {}, ...result.rows.map((r) => el("tr", {}, cell(r.scenario), cell(r.requests, "num"), cell(r.result, "wrap")))));
+        el("thead", {}, el("tr", {},
+          el("th", { textContent: "Scenario" }), el("th", { className: "num", textContent: "Purchases" }),
+          el("th", { textContent: "What happened" }), el("th", { textContent: "Verdict" }))),
+        el("tbody", {}, ...result.rows.map((r) => {
+          const row = describeScenarioRow(r);
+          return el("tr", {}, cell(r.scenario), cell(r.requests, "num"), cell(row.text, "wrap"), el("td", {}, verdict(r, row.ok)));
+        })));
       box.replaceChildren(el("div", { className: "scroll" }, table), summary, seed);
     } catch (err) {
       showError(box, err);

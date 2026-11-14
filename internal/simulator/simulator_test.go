@@ -131,6 +131,26 @@ func TestTheReportCoversEveryScenario(t *testing.T) {
 	c.Equal(2, hotel.Caught)
 }
 
+// The dashboard words results itself, so each row carries the counts too.
+func TestARowCarriesTheCountsBehindItsResult(t *testing.T) {
+	c := require.New(t)
+
+	report, err := runReport(t, newScriptedEngine(), &fakeCards{})
+
+	c.NoError(err)
+	rows := report.ListRows()
+	cardTesting, hotel := rows[1], rows[5]
+	c.True(cardTesting.Fraud)
+	c.False(cardTesting.Check)
+	c.Equal(2, cardTesting.Caught)
+	c.Equal([2]int{4, 4}, cardTesting.FlaggedFrom)
+	c.Equal([2]int{6, 6}, cardTesting.DeclinedFrom)
+	c.Equal(report.Outcomes[1].Declined, cardTesting.Declined)
+	c.True(hotel.Check)
+	c.Equal(2, hotel.Caught)
+	c.Equal(report.Outcomes[0].Approved, rows[0].Approved)
+}
+
 // AC2 of SP06: the same seed sends the same traffic.
 func TestTheSameSeedSendsTheSameTraffic(t *testing.T) {
 	c := require.New(t)
