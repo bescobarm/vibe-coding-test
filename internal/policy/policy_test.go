@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/bescobarm/card-auth-engine/internal/domain"
 )
 
 const fullPolicy = `{
@@ -22,7 +24,7 @@ const fullPolicy = `{
   },
   "velocity": [{ "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5 }],
   "risk": { "flag_at": 40, "decline_at": 70 },
-  "fallback": { "mode": "fail_open_limited", "max_amount_minor": 20000 }
+  "fallback": { "mode": "fail_open_limited", "max_amount": { "amount_minor": 20000, "currency": "USD" } }
 }`
 
 func newValidDoc(t *testing.T) Document {
@@ -151,12 +153,59 @@ func TestValidateRejectsUnorderedRiskThresholds(t *testing.T) {
 func TestValidateRejectsAnUnknownFallbackMode(t *testing.T) {
 	c := require.New(t)
 	doc := newValidDoc(t)
-	doc.Fallback = &Fallback{Mode: "fail_open", MaxAmountMinor: -1}
+	doc.Fallback = &Fallback{Mode: "fail_open", MaxAmount: &Money{AmountMinor: -1, Currency: "USD"}}
 
 	c.Equal(map[string]string{
-		"fallback.mode":             "must be fail_closed or fail_open_limited",
-		"fallback.max_amount_minor": "must not be negative",
+		"fallback.mode":                    msgFallbackMode,
+		"fallback.max_amount.amount_minor": domain.MsgPositive,
 	}, doc.Validate())
+}
+
+// D-061: fail-open needs a cap.
+func TestValidateRequiresACapForFailOpen(t *testing.T) {
+	c := require.New(t)
+	doc := newValidDoc(t)
+	doc.Fallback = &Fallback{Mode: FailOpenLimited}
+
+	c.Equal(map[string]string{"fallback.max_amount": msgFallbackMax}, doc.Validate())
+}
+
+func TestValidateAcceptsFailClosedWithoutACap(t *testing.T) {
+	c := require.New(t)
+	doc := newValidDoc(t)
+	doc.Fallback = &Fallback{Mode: FailClosed}
+
+	c.Empty(doc.Validate())
+}
+
+// D-042, D-063: the embedded default is valid, has no money limit, and fails closed.
+func TestTheDefaultPolicyIsValidAndFailsClosed(t *testing.T) {
+	c := require.New(t)
+
+	doc := GetDefault()
+
+	c.Equal(DefaultCompanyID, doc.CompanyID)
+	c.Equal([]string{
+		"7995",
+		"6051",
+		"4829",
+	}, doc.Controls.BlockedMCCs)
+	c.Nil(doc.Controls.MaxPerTransaction)
+	c.Equal(&Fallback{Mode: FailClosed}, doc.Fallback)
+	c.Equal(&Risk{FlagAt: 40, DeclineAt: 70}, doc.Risk)
+}
+
+func TestAnInvalidDefaultPolicyPanicsAtStartup(t *testing.T) {
+	c := require.New(t)
+	saved := defaultJSON
+	t.Cleanup(func() {
+		defaultJSON = saved
+	})
+	defaultJSON = []byte(`{"company_id": ""}`)
+
+	c.PanicsWithValue("embedded default policy is invalid: stored policy  v0 is invalid: map[company_id:required]", func() {
+		mustLoadDefault()
+	})
 }
 
 func TestValidateAcceptsAMinimalPolicy(t *testing.T) {

@@ -1,0 +1,9 @@
+{
+  "company_id": "_default",
+  "version": 0,
+  "controls": {
+    "blocked_mccs": ["7995", "6051", "4829"]
+  },
+  "risk": { "flag_at": 40, "decline_at": 70 },
+  "fallback": { "mode": "fail_closed" }
+}

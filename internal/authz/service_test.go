@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,19 +14,55 @@ import (
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 )
 
+// fakeRecorder behaves like the store: a stored answer is replayed, and a
+// decision whose context expired is not stored (pgx fails on a cancelled
+// context). down makes every call fail, as when Postgres is down.
 type fakeRecorder struct {
-	replay  *domain.AuthResponse
-	decided int
+	mu        sync.Mutex
+	replay    *domain.AuthResponse
+	down      error
+	ignoreCtx bool
+	decided   int
+	stored    []domain.AuthResponse
 }
 
 func (f *fakeRecorder) Decide(ctx context.Context, _ domain.AuthRequest, decide DecideFunc) (domain.AuthResponse, bool, error) {
-	if f.replay != nil {
-		return *f.replay, true, nil
+	f.mu.Lock()
+	replay, down := f.replay, f.down
+	f.mu.Unlock()
+
+	if down != nil {
+		return domain.AuthResponse{}, false, down
 	}
 
+	if replay != nil {
+		return *replay, true, nil
+	}
+
+	f.mu.Lock()
 	f.decided++
+	f.mu.Unlock()
+
 	resp, err := decide(ctx)
-	return resp, false, err
+	if err == nil && !f.ignoreCtx {
+		err = ctx.Err()
+	}
+
+	if err != nil {
+		return domain.AuthResponse{}, false, err
+	}
+
+	f.mu.Lock()
+	f.stored = append(f.stored, resp)
+	f.mu.Unlock()
+
+	return resp, false, nil
+}
+
+func (f *fakeRecorder) storedResponses() []domain.AuthResponse {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stored
 }
 
 type fakeCards struct {
@@ -89,7 +126,7 @@ var (
 )
 
 func newRequest() domain.AuthRequest {
-	return domain.AuthRequest{AuthorizationID: "auth_1", CardID: "card_123", AmountMinor: 4500}
+	return domain.AuthRequest{AuthorizationID: "auth_1", CardID: "card_123", AmountMinor: 4500, Currency: "USD"}
 }
 
 // Each call to the clock advances it by 1.5 ms, so latency is deterministic.
@@ -147,40 +184,49 @@ func TestAuthorizeReturnsReplayWithoutEvaluating(t *testing.T) {
 	c.Zero(rec.decided)
 }
 
-func TestAuthorizeFailsWhenCardLookupFails(t *testing.T) {
+func TestAuthorizeFallsBackWhenTheCardCannotBeLoaded(t *testing.T) {
 	c := require.New(t)
 	rec := &fakeRecorder{}
 	svc := NewService(rec, fakeCards{err: errBoom}, fakePolicies{}, pipeline.New(failingStage{}))
 
-	_, _, err := svc.Authorize(context.Background(), newRequest())
+	resp, _, err := svc.Authorize(context.Background(), newRequest())
 
-	c.ErrorIs(err, errBoom)
-	c.Zero(rec.decided, "nothing must be claimed when loading fails")
+	c.NoError(err)
+	c.True(resp.FallbackUsed)
+	c.Equal(domain.Decline, resp.Decision, "an unknown company gets the default fail-closed fallback (D-062)")
+	c.Equal([]string{domain.ReasonFallbackApplied, domain.ReasonDefaultPolicy}, listReasonCodes(resp))
+	c.Equal([]domain.AuthResponse{resp}, rec.storedResponses(), "the fallback is stored")
 }
 
-func TestAuthorizeFailsWhenPolicyLookupFails(t *testing.T) {
+func TestAuthorizeFallsBackWhenThePolicyCannotBeLoaded(t *testing.T) {
+	c := require.New(t)
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{err: errBoom}, pipeline.New(failingStage{}))
+
+	resp, _, err := svc.Authorize(context.Background(), newRequest())
+
+	c.NoError(err)
+	c.True(resp.FallbackUsed)
+	c.Equal(domain.Decline, resp.Decision)
+}
+
+// AC1 of SP05 with fakes: a failing stage (Redis down) gets the company's fail-open fallback.
+func TestAuthorizeFallsBackWhenAStageFails(t *testing.T) {
 	c := require.New(t)
 	rec := &fakeRecorder{}
-	svc := NewService(rec, fakeCards{card: activeCard}, fakePolicies{err: errBoom}, pipeline.New(failingStage{}))
+	svc := NewService(rec, fakeCards{card: activeCard}, fakePolicies{doc: newFailOpenPolicy(10000)}, pipeline.New(failingStage{errBoom}))
 
-	_, _, err := svc.Authorize(context.Background(), newRequest())
+	resp, _, err := svc.Authorize(context.Background(), newRequest())
 
-	c.ErrorIs(err, errBoom)
-	c.Zero(rec.decided, "nothing must be claimed when loading fails")
+	c.NoError(err)
+	c.Equal(domain.Approve, resp.Decision)
+	c.Equal(int64(4500), resp.ApprovedAmountMinor)
+	c.Equal(3, resp.PolicyVersion)
+	c.Equal([]domain.Reason{{Code: domain.ReasonFallbackApplied, Message: "Fallback fail_open_limited: approved up to 10000 USD"}}, resp.Reasons)
+	c.Equal(2, rec.decided, "the failed decision, then the stored fallback")
 }
 
-func TestAuthorizeFailsWhenAStageFails(t *testing.T) {
-	c := require.New(t)
-	rec := &fakeRecorder{}
-	svc := NewService(rec, fakeCards{card: activeCard}, fakePolicies{doc: policy.Document{Version: 1}}, pipeline.New(failingStage{errBoom}))
-
-	_, _, err := svc.Authorize(context.Background(), newRequest())
-
-	c.ErrorIs(err, errBoom)
-	c.Equal(1, rec.decided)
-}
-
-func TestAuthorizeWithoutCompanyPolicyRecordsVersionZero(t *testing.T) {
+// D-042, D-063: a company without a policy gets the embedded default.
+func TestAuthorizeWithoutCompanyPolicyUsesTheDefault(t *testing.T) {
 	c := require.New(t)
 	var got pipeline.Evaluation
 	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{err: domain.ErrNotFound}, pipeline.New(captureStage{&got}))
@@ -190,7 +236,12 @@ func TestAuthorizeWithoutCompanyPolicyRecordsVersionZero(t *testing.T) {
 	c.NoError(err)
 	c.Equal(domain.Approve, resp.Decision)
 	c.Zero(resp.PolicyVersion)
-	c.Equal(policy.Controls{}, got.Controls)
+	c.Equal([]string{
+		"7995",
+		"6051",
+		"4829",
+	}, got.Controls.BlockedMCCs)
+	c.Equal([]string{domain.ReasonDefaultPolicy}, listReasonCodes(resp))
 }
 
 func TestAuthorizeAppliesCardOverrides(t *testing.T) {
@@ -212,17 +263,19 @@ func TestAuthorizeAppliesCardOverrides(t *testing.T) {
 	c.Equal(2, got.PolicyVersion)
 }
 
-func TestAuthorizeFailsOnInvalidCardOverrides(t *testing.T) {
+func TestAuthorizeFallsBackOnInvalidCardOverrides(t *testing.T) {
 	c := require.New(t)
 	rec := &fakeRecorder{}
 	card := activeCard
 	card.Overrides = []byte(`{"blocked_mcc": ["7995"]}`)
-	svc := NewService(rec, fakeCards{card: card}, fakePolicies{}, pipeline.New(failingStage{}))
+	svc := NewService(rec, fakeCards{card: card}, fakePolicies{doc: newFailOpenPolicy(10000)}, pipeline.New(failingStage{}))
 
-	_, _, err := svc.Authorize(context.Background(), newRequest())
+	resp, _, err := svc.Authorize(context.Background(), newRequest())
 
-	c.ErrorContains(err, "card card_123")
-	c.Zero(rec.decided, "nothing must be claimed when loading fails")
+	c.NoError(err)
+	c.True(resp.FallbackUsed)
+	c.Equal(domain.Approve, resp.Decision, "the company's own fallback applies")
+	c.Equal(1, rec.decided, "only the fallback is stored; nothing was claimed before")
 }
 
 func TestAuthorizeUsesTheRequestTime(t *testing.T) {
@@ -287,12 +340,29 @@ func TestAuthorizeSkipsTheSignalsForAnUnknownCard(t *testing.T) {
 	c.Empty(signals.got)
 }
 
-func TestAuthorizeFailsWhenTheSignalsCannotBeLoaded(t *testing.T) {
+func TestAuthorizeFallsBackWhenTheSignalsCannotBeLoaded(t *testing.T) {
 	c := require.New(t)
-	rec := &fakeRecorder{}
-	svc := NewService(rec, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New(failingStage{})).WithSignals(&fakeSignals{err: errBoom})
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{doc: newFailOpenPolicy(1000)}, pipeline.New(failingStage{})).
+		WithSignals(&fakeSignals{err: errBoom})
 
-	_, _, err := svc.Authorize(context.Background(), newRequest())
+	resp, _, err := svc.Authorize(context.Background(), newRequest())
 
-	c.ErrorIs(err, errBoom)
+	c.NoError(err)
+	c.True(resp.FallbackUsed)
+	c.Equal(domain.Decline, resp.Decision, "4500 is over the 1000 cap")
+}
+
+func newFailOpenPolicy(maxMinor int64) policy.Document {
+	return policy.Document{CompanyID: "acme-mx", Version: 3, Fallback: &policy.Fallback{
+		Mode: policy.FailOpenLimited, MaxAmount: &policy.Money{AmountMinor: maxMinor, Currency: "USD"},
+	}}
+}
+
+func listReasonCodes(resp domain.AuthResponse) []string {
+	out := []string{}
+	for _, reason := range resp.Reasons {
+		out = append(out, reason.Code)
+	}
+
+	return out
 }
