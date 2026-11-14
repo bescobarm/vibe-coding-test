@@ -74,6 +74,7 @@ type Service struct {
 
 	background sync.WaitGroup // decisions and fallback writes still running (D-033)
 	noSignals  sync.Once      // warns once when no signal reader is configured
+	doorbell   func()         // tells the explainer a decision was stored (D-034)
 }
 
 // NewService returns a Service with the default deadline, the real clock and no logging.
@@ -86,7 +87,14 @@ func NewService(r Recorder, c CardReader, p PolicyReader, pl *pipeline.Pipeline)
 		deadline: DefaultDeadline,
 		log:      slog.New(slog.DiscardHandler),
 		now:      time.Now,
+		doorbell: func() {},
 	}
+}
+
+// WithDoorbell calls ring after every stored decision. ring must not block.
+func (s *Service) WithDoorbell(ring func()) *Service {
+	s.doorbell = ring
+	return s
 }
 
 // WithSignals makes the service load the anomaly signals before each claim.
@@ -163,6 +171,10 @@ func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain
 	case result := <-done:
 		if result.err != nil {
 			return s.answerFallback(ctx, req, evaluation, start, result.err), false, nil
+		}
+
+		if !result.replayed {
+			s.doorbell()
 		}
 
 		return result.resp, result.replayed, nil
