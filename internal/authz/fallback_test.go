@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -196,4 +197,18 @@ func TestWithDeadlineChangesTheDeadline(t *testing.T) {
 		c.Equal(100*time.Millisecond, time.Since(start))
 		c.NoError(svc.Wait(context.Background()))
 	})
+}
+
+// Without a signal reader the score is almost blind; that is logged once, not per request.
+func TestAMissingSignalReaderIsLoggedOnce(t *testing.T) {
+	c := require.New(t)
+	var logs bytes.Buffer
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New()).WithLogger(newJSONLogger(&logs))
+
+	for range 3 {
+		_, _, err := svc.Authorize(context.Background(), newRequest())
+		c.NoError(err)
+	}
+
+	c.Equal(1, strings.Count(logs.String(), msgNoSignals))
 }

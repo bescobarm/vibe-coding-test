@@ -57,6 +57,7 @@ const (
 	slowDecisionWait = 5 * time.Second
 
 	logKeyAuthorizationID = "authorization_id"
+	msgNoSignals          = "anomaly signals are not configured: the score only sees the request"
 	logKeyDecision        = "decision"
 )
 
@@ -72,6 +73,7 @@ type Service struct {
 	now      func() time.Time
 
 	background sync.WaitGroup // decisions and fallback writes still running (D-033)
+	noSignals  sync.Once      // warns once when no signal reader is configured
 }
 
 // NewService returns a Service with the default deadline, the real clock and no logging.
@@ -227,8 +229,14 @@ func (s *Service) loadPolicy(ctx context.Context, e *pipeline.Evaluation) error 
 	return nil
 }
 
+// loadSignals reads the anomaly signals. Without a signal reader the score
+// only sees the request (only ROUND_AMOUNT can fire), so that is logged once.
 func (s *Service) loadSignals(ctx context.Context, e *pipeline.Evaluation) error {
 	if s.signals == nil {
+		s.noSignals.Do(func() {
+			s.log.Warn(msgNoSignals)
+		})
+
 		return nil
 	}
 
