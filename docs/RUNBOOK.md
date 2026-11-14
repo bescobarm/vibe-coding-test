@@ -160,7 +160,7 @@ In a third terminal, with the engine running:
 make dashboard
 ```
 
-Open http://localhost:8090. **Overview**: the metrics tiles update every second; **Run fraud scenarios** opens its form and shows each scenario's result and its seed (paste it back to replay the run); **Send a purchase** opens the purchase form, where the example buttons fill the fields (try *Card testing* on a fresh card: approved, then flagged from the 4th, declined on the 6th, each with its reason). **Activity & charts**: decisions per second by outcome, p50/p99 latency, decline reasons, risk scores, and the last 50 decisions, filterable by decision, source, reason and card; hover any chart for the numbers.
+Open http://localhost:8090. **Overview**: the metrics tiles update every second; **Run fraud scenarios** opens its form and shows each scenario's result and its seed (paste it back to replay the run); **Send a purchase** lists the demo company's rules in plain words, each with a *Try it* button that fills the form and the result to expect (e.g. *Card testing*: approved, then flagged from the 4th, declined from the 6th, each with its reason). **Activity & charts**: decisions per second by outcome, p50/p99 latency, decline reasons, risk scores, and the last 50 decisions, filterable by decision, source, reason and card; hover any chart for the numbers.
 
 ## 5. Publish a new policy version
 

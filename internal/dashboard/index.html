@@ -70,14 +70,18 @@
   .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .panel-head h2 { margin: 0; }
   button.link { font: inherit; font-size: 13px; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
-  .rules { list-style: none; margin: 0 0 12px; padding: 10px 12px; background: var(--wash); border-radius: 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 4px 16px; font-size: 12px; color: var(--text-2); }
-  .rules strong { color: var(--text); font-weight: 600; }
   .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px; }
   .filters label { font-size: 12px; }
   .filters input, .filters select { padding: 5px 8px; font-size: 13px; }
   .filters .count { color: var(--text-2); font-size: 12px; margin-left: auto; align-self: center; }
-  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-  .presets button { font: inherit; font-size: 12px; background: var(--wash); color: var(--text); border: 1px solid var(--ring); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+  .rules-table { margin-bottom: 12px; }
+  .rules-table { width: 100%; min-width: 640px; table-layout: fixed; }
+  .rules-table th, .rules-table td { white-space: normal; vertical-align: top; }
+  .rules-table th:nth-child(1) { width: 40%; }
+  .rules-table th:nth-child(2) { width: 24%; }
+  .rules-table th:nth-child(4) { width: 80px; }
+  .note.rules-note { margin: 0 0 16px; }
+  .rules-table button { font: inherit; font-size: 12px; background: var(--wash); color: var(--accent); border: 1px solid var(--ring); border-radius: 999px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
   .callout { background: var(--wash); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-2); margin-bottom: 12px; }
   .callout strong { color: var(--text); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -150,7 +154,7 @@
 
       <section class="cta" id="cta-purchase">
         <h2>Send a purchase</h2>
-        <p>Builds one purchase on a demo card and shows the decision and the reason.</p>
+        <p>Test one rule at a time: send a purchase that breaks it and see the decision and why.</p>
         <div class="actions"><button class="primary" type="button" data-open="panel-purchase">Send a purchase</button></div>
       </section>
 
@@ -194,24 +198,34 @@
           <h2>Send a purchase</h2>
           <button class="link" type="button" data-close>Close</button>
         </div>
-        <ul class="rules" aria-label="Demo company rules (acme-mx)">
-          <li><strong>≤ 500.00 USD</strong> per purchase</li>
-          <li><strong>≤ 2,000.00 USD</strong> per card per day</li>
-          <li><strong>Gambling</strong> (7995) blocked</li>
-          <li><strong>MX, US, CO</strong> only</li>
-          <li><strong>06:00–23:00</strong> Mexico City time</li>
-          <li><strong>No</strong> manual or swipe entry</li>
-          <li><strong>&gt; 5 charges ≤ 5.00 USD</strong> in 10 min = card testing</li>
-        </ul>
-        <div class="presets" aria-label="Examples">
-          <button type="button" data-preset="normal">Normal</button>
-          <button type="button" data-preset="gambling">Gambling</button>
-          <button type="button" data-preset="overLimit">Over the limit</button>
-          <button type="button" data-preset="executive">Executive card</button>
-          <button type="button" data-preset="frozen">Frozen card</button>
-          <button type="button" data-preset="cardTesting">Card testing</button>
-          <button type="button" data-preset="abroad">Country not allowed</button>
+        <p class="lead">The engine checks every purchase against the demo company's rules below. Click <strong>Try it</strong> to fill the form with a purchase that tests that rule, then press <strong>Send</strong>.</p>
+        <div class="scroll">
+          <table class="rules-table">
+            <thead><tr><th>Rule</th><th>Try it sends</th><th>Expected</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>A purchase that breaks no rule is approved.</td><td>45.00 USD online at a software shop in the US</td><td><span class="pill approve">Approved</span></td><td><button type="button" data-preset="normal">Try it</button></td></tr>
+              <tr><td>One purchase can be at most <strong>500.00 USD</strong>.</td><td>800.00 USD on card_123</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="overLimit">Try it</button></td></tr>
+              <tr><td>Executive cards can go up to <strong>1,000.00 USD</strong> per purchase.</td><td>800.00 USD on card_exec</td><td><span class="pill approve">Approved</span></td><td><button type="button" data-preset="executive">Try it</button></td></tr>
+              <tr><td>A card can spend at most <strong>2,000.00 USD per day</strong>, counting everything approved today.</td><td>3 × 700.00 USD on card_exec</td><td><span class="pill approve">Approved</span> until the card's total for today passes 2,000.00 USD, then <span class="pill decline">Declined</span></td><td><button type="button" data-preset="dailyLimit">Try it</button></td></tr>
+              <tr><td><strong>Gambling</strong> merchants are blocked.</td><td>50.00 USD at a casino</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="gambling">Try it</button></td></tr>
+              <tr><td>Purchases only in <strong>Mexico, the US or Colombia</strong>.</td><td>45.00 USD at a shop in France</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="abroad">Try it</button></td></tr>
+              <tr><td>The card must be inserted, tapped, in a phone wallet or used online. <strong>Swiped or typed</strong> cards are declined.</td><td>45.00 USD with a swiped card</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="swipe">Try it</button></td></tr>
+              <tr><td><strong>Frozen and terminated</strong> cards are always declined.</td><td>20.00 USD on card_frozen</td><td><span class="pill decline">Declined</span></td><td><button type="button" data-preset="frozen">Try it</button></td></tr>
+              <tr><td>Purchases only between <strong>06:00 and 23:00</strong> Mexico City time.</td><td colspan="3" id="hoursNow">Uses the real clock.</td></tr>
+            </tbody>
+          </table>
         </div>
+        <p class="lead"><strong>Risk score.</strong> Suspicious patterns add points from 0 to 100. At <strong>40</strong> or more the purchase is approved but flagged for a person to review; at <strong>70</strong> or more it is declined.</p>
+        <div class="scroll">
+          <table class="rules-table">
+            <thead><tr><th>Pattern</th><th>Try it sends</th><th>Expected</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><strong>Card testing:</strong> many tiny charges in minutes, like a thief checking that a stolen card works.</td><td>6 × 1.50 USD on card_456</td><td><span class="pill flag">Flagged</span> from the 4th, <span class="pill decline">Declined</span> from the 6th</td><td><button type="button" data-preset="cardTesting">Try it</button></td></tr>
+              <tr><td><strong>Split purchase:</strong> one big purchase cut into parts just under the 500.00 USD limit, at the same shop.</td><td>2 × 450.00 USD on card_123</td><td><span class="pill flag">Flagged</span> at the 2nd</td><td><button type="button" data-preset="splitPurchase">Try it</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note rules-note">The engine remembers what each card did: card testing looks at the last 10 minutes and the daily limit at today, so repeating an example soon can give a different result. Other signals (a new country, a new online shop, an unusual or round amount) only count after a cardholder's 5th approved purchase; the fraud scenarios show them.</p>
         <form id="txForm">
           <label class="full">Card
             <select name="card_id">
@@ -624,6 +638,19 @@
     renderRecent(latestRecent);
   });
 
+  // ---------- the hours rule uses the real clock, so say what it means right now ----------
+  const ALLOWED_FROM_HOUR = 6;
+  const ALLOWED_UNTIL_HOUR = 23;
+  function updateHoursNow() {
+    const now = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+    const hour = Number(now.slice(0, 2));
+    const open = hour >= ALLOWED_FROM_HOUR && hour < ALLOWED_UNTIL_HOUR;
+    $("hoursNow").textContent = "No example: it uses the real clock. It is " + now + " in Mexico City, so purchases are " +
+      (open ? "allowed right now." : "declined right now, whatever you send.");
+  }
+  updateHoursNow();
+  setInterval(updateHoursNow, 60000);
+
   // ---------- overview: call-to-action cards open one panel at a time ----------
   function openPanel(id) {
     ["panel-scenarios", "panel-purchase"].forEach((panel) => { $(panel).hidden = panel !== id; });
@@ -791,12 +818,18 @@
     frozen: { card_id: "card_frozen", amount: "20.00", currency: "USD", mcc: "5812", merchant_id: "m_lunch", country: "US", entry_mode: "contactless", count: 1 },
     cardTesting: { card_id: "card_456", amount: "1.50", currency: "USD", mcc: "5999", merchant_id: "m_tiny_shop", country: "US", entry_mode: "ecommerce", count: 6 },
     abroad: { card_id: "card_123", amount: "45.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "FR", entry_mode: "ecommerce", count: 1 },
+    swipe: { card_id: "card_123", amount: "45.00", currency: "USD", mcc: "5812", merchant_id: "m_lunch", country: "US", entry_mode: "swipe", count: 1 },
+    dailyLimit: { card_id: "card_exec", amount: "700.00", currency: "USD", mcc: "5734", merchant_id: "m_shop", country: "US", entry_mode: "chip", count: 3 },
+    splitPurchase: { card_id: "card_123", amount: "450.00", currency: "USD", mcc: "5999", merchant_id: "m_electronics", country: "US", entry_mode: "chip", count: 2 },
   };
   document.querySelectorAll("[data-preset]").forEach((button) => {
     button.addEventListener("click", () => {
       const preset = presets[button.dataset.preset];
       const form = $("txForm");
       for (const [name, value] of Object.entries(preset)) form.elements[name].value = value;
+      const send = form.querySelector("button[type=submit]");
+      send.scrollIntoView({ behavior: "smooth", block: "center" });
+      send.focus({ preventScroll: true });
     });
   });
 
