@@ -84,7 +84,10 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-058](#d-058-split-purchases-are-read-from-postgres-before-the-claim) | Split purchases are read from Postgres before the claim | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-059](#d-059-the-cardholder-history-is-one-query-over-90-days) | The cardholder history is one query over 90 days | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-060](#d-060-scoring-details) | Scoring details | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
-| [D-065](#d-065-score-weights-can-be-overridden-with-env-vars) | Score weights can be overridden with env vars | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-061](#d-061-fail-open-is-capped-by-amount-only) | Fail-open is capped by amount only | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
+| [D-062](#d-062-with-postgres-down-the-default-fallback-applies-and-is-logged) | With Postgres down, the default fallback applies and is logged | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
+| [D-063](#d-063-contents-of-the-default-policy) | Contents of the default policy | 🟢 Accepted | Risk | [05](../briefs/05-deadline-and-fallback-brief.md) |
+| [D-064](#d-064-the-engine-answers-at-the-deadline-even-if-a-stage-does-not) | The engine answers at the deadline, even if a stage does not | 🟢 Accepted | Reliability | [05](../briefs/05-deadline-and-fallback-brief.md) |
 
 ---
 
@@ -590,16 +593,36 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** As built.
 - **Why:** 📝
 
-### D-065: Score weights can be overridden with env vars
-- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (asked in the review of PR #10; analysis by AI) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
-- **Context:** I asked whether the weights could be env vars, to test changes easily.
-- **AI input and concerns:**
-  - **Weights: yes.** SP06 tunes them against the simulator (detection vs. false declines); env vars make that loop run without a rebuild. D-057 still holds: the defaults stay in code.
-  - **Per feature, not high/medium/low:** tuning moves one feature at a time.
-  - **Thresholds: no.** `flag_at` and `decline_at` are per company in the policy and change at runtime with `PUT`.
-  - **Feature parameters (≥ 3 small attempts, 80% split share, z ≥ 3, cold start 5): not now.** They define what a feature means; six more variables add surface for little tuning gain.
-  - A weight outside 0–100, or not a number, stops the engine at startup instead of scoring wrong. `scoring.Stage` gets a constructor, because a zero-value stage would score everything 0 silently.
-- **Decision:** `SCORE_WEIGHT_CARD_TESTING`, `SCORE_WEIGHT_SPLIT_PURCHASE`, `SCORE_WEIGHT_NEW_COUNTRY`, `SCORE_WEIGHT_NEW_MERCHANT_CNP`, `SCORE_WEIGHT_AMOUNT_ANOMALY`, `SCORE_WEIGHT_ROUND_AMOUNT`.
+### D-061: Fail-open is capped by amount only
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Context:** The SP05 brief also limited fail-open to "known merchants" (Q1). That history lives in Postgres, which may be what failed.
+- **Options:** A: amount cap only · B: cap plus an in-memory cache of known merchants.
+- **AI input and concerns:** A. The fallback must not depend on what failed. The cap becomes `fallback.max_amount {amount_minor, currency}` like every other limit; a request in another currency is declined (D-041, D-049).
+- **Decision:** A.
+- **Why:** 📝
+
+### D-062: With Postgres down, the default fallback applies and is logged
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Context:** With Postgres down the engine can't load the card, claim the `authorization_id` or store the decision (SP05 brief Q2, D-024).
+- **Options:** A: an unknown card means an unknown company, so the default policy's fallback (fail-closed) applies; the decision is logged, not stored · B: cache cards in memory so known cards get their company's fallback.
+- **AI input and concerns:** A. The fallback is a pure function of the request and the policy, so a retry gets the same answer even though nothing was stored. B approves more during an outage but adds another cache to keep fresh.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-063: Contents of the default policy
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Context:** D-042 left open what the embedded default contains.
+- **Options:** A: no money limit; block 7995 (gambling), 6051 (quasi-cash), 4829 (money transfer); risk 40/70; fallback fail-closed · B: the same plus a USD per-transaction limit.
+- **AI input and concerns:** A. A USD limit would decline every other currency (D-041). Every decision under the default carries `DEFAULT_POLICY_APPLIED`.
+- **Decision:** A.
+- **Why:** 📝
+
+### D-064: The engine answers at the deadline, even if a stage does not
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
+- **Context:** The 500 ms deadline is a context timeout. Redis and Postgres calls respect it; a stage stuck in CPU, or a call that ignores the context, doesn't.
+- **Options:** A: run the decision in a goroutine and answer the fallback when the deadline fires; store it in the background once the slow transaction ends (D-031), tracked so shutdown waits (D-033) · B: only check the context between stages.
+- **AI input and concerns:** A. The processor always gets an answer on time, and SP05 AC3 (a 2 s stage answered within the deadline + 20 ms) can pass.
+- **Decision:** A.
 - **Why:** 📝
 
 ## Proposed (waiting for my decision)

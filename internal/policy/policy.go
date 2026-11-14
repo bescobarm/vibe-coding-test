@@ -58,10 +58,11 @@ type Risk struct {
 	DeclineAt int `json:"decline_at"`
 }
 
-// Fallback is what to do when a dependency fails or the deadline is hit (D-006).
+// Fallback is what to do when a dependency fails or the deadline is hit
+// (D-006). fail_open_limited approves up to MaxAmount, in its currency (D-061).
 type Fallback struct {
-	Mode           string `json:"mode"`
-	MaxAmountMinor int64  `json:"max_amount_minor,omitempty"`
+	Mode      string `json:"mode"`
+	MaxAmount *Money `json:"max_amount,omitempty"`
 }
 
 const (
@@ -78,6 +79,7 @@ const (
 	msgRiskOrder       = "need 0 < flag_at < decline_at <= 100"
 	msgFallbackMode    = "must be " + FailClosed + " or " + FailOpenLimited
 	msgNotNegative     = "must not be negative"
+	msgFallbackMax     = "required when mode is " + FailOpenLimited
 	msgClock           = "must be HH:MM (24h)"
 	msgHoursMustDiffer = "start and end must differ"
 )
@@ -169,9 +171,11 @@ func validateFallback(f *Fallback, errs map[string]string) {
 		errs["fallback.mode"] = msgFallbackMode
 	}
 
-	if f.MaxAmountMinor < 0 {
-		errs["fallback.max_amount_minor"] = msgNotNegative
+	if f.Mode == FailOpenLimited && f.MaxAmount == nil {
+		errs["fallback.max_amount"] = msgFallbackMax
 	}
+
+	validateMoney(f.MaxAmount, "fallback.max_amount", errs)
 }
 
 // GetLocation is the company's time zone, UTC by default.

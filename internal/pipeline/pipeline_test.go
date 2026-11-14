@@ -183,3 +183,32 @@ func TestAFlaggedApprovalSaysSoInTheResponse(t *testing.T) {
 	c.Equal(domain.Approve, resp.Decision)
 	c.Equal(45, resp.RiskScore)
 }
+
+func TestRunStopsWhenTheDeadlineHasPassed(t *testing.T) {
+	c := require.New(t)
+	ran := false
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := New(stageFunc{"late", func(*Evaluation) error {
+		ran = true
+		return nil
+	}}).Run(ctx, NewEvaluation(newRequest()))
+
+	c.ErrorIs(err, context.Canceled)
+	c.False(ran)
+}
+
+// A failed stage undoes earlier reservations: no decision is stored, so none may stay held.
+func TestAFailedStageUndoesEarlierStages(t *testing.T) {
+	c := require.New(t)
+	var undone []string
+	failing := stageFunc{"redis", func(*Evaluation) error {
+		return errUndo
+	}}
+
+	err := New(registerUndo("velocity", &undone, nil), failing).Run(context.Background(), NewEvaluation(newRequest()))
+
+	c.ErrorIs(err, errUndo)
+	c.Equal([]string{"velocity"}, undone)
+}

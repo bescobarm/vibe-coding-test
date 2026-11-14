@@ -112,6 +112,23 @@ for i in 1 2 3 4 5 6; do auth ct$i card_123 $((50 + 50 * i)) 5734; done
 
 Expect 3 × `APPROVE`, then 2 × `APPROVE` with `"flagged": true` and `CARD_TESTING_PATTERN` (the score, 40 points), then `DECLINE` `CARD_TESTING_PATTERN` (the velocity rule: 5 small charges in 10 minutes). The helper prints `decision` and `reasons`; add `flagged, risk_score` to its `jq` to see the score.
 
+## 4f. Redis or Postgres down
+
+```bash
+docker compose stop redis
+auth f1 card_123 10000 5734
+auth f2 card_123 30000 5734
+docker compose start redis
+docker compose stop postgres
+auth f3 card_123 10000 5734
+docker compose start postgres
+```
+
+Expect:
+1. `f1`: `APPROVE` `FALLBACK_APPLIED` (acme-mx fails open up to 200.00 USD), in about 60 ms.
+2. `f2`: `DECLINE` `FALLBACK_APPLIED` (over the cap).
+3. `f3`: `DECLINE` `FALLBACK_APPLIED` and `DEFAULT_POLICY_APPLIED`: the card can't be loaded, so the default fail-closed fallback applies ([D-062](DECISIONS.md#d-062-with-postgres-down-the-default-fallback-applies-and-is-logged)). The engine log has `"msg":"fallback not stored"` with the decision.
+
 ## 5. Publish a new policy version
 
 ```bash

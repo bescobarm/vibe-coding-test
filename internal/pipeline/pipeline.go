@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -114,13 +115,20 @@ func New(stages ...Stage) *Pipeline {
 	return &Pipeline{stages: stages}
 }
 
-// Run evaluates the stages in order and stops at the first decline. On a
-// decline it undoes what earlier stages registered with OnDecline.
+// Run evaluates the stages in order and stops at the first decline. It
+// checks the deadline before each stage (D-031). On a decline, or when a stage
+// fails, it undoes what earlier stages registered with OnDecline, so a
+// reservation never outlives a decision that wasn't made.
 func (p *Pipeline) Run(ctx context.Context, e *Evaluation) error {
 	for _, stage := range p.stages {
-		err := stage.Evaluate(ctx, e)
+		err := ctx.Err()
+		if err == nil {
+			err = stage.Evaluate(ctx, e)
+		}
+
 		if err != nil {
-			return fmt.Errorf("stage %s: %w", stage.GetName(), err)
+			undoErr := e.runUndo(context.WithoutCancel(ctx))
+			return errors.Join(fmt.Errorf("stage %s: %w", stage.GetName(), err), undoErr)
 		}
 
 		if e.halted {
