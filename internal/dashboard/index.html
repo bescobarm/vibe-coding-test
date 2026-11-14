@@ -44,13 +44,17 @@
   nav { display: flex; gap: 4px; margin-top: 10px; }
   nav button { background: none; color: var(--text-2); border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
   nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
-  main { padding: 16px 24px 32px; max-width: 1400px; }
+  main { padding: 16px 24px 32px; max-width: 1280px; margin: 0 auto; }
+  header > * { max-width: 1232px; margin-left: auto; margin-right: auto; }
   [role="tabpanel"][hidden] { display: none; }
-  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
   section { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 16px; min-width: 0; }
   section.wide { grid-column: 1 / -1; }
   h2 { font-size: 15px; margin: 0 0 4px; }
   .lead { color: var(--text-2); margin: 0 0 14px; font-size: 13px; }
+  .empty-note { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--wash); color: var(--text); font-size: 13px; }
+  .empty-note[hidden] { display: none; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
   .tile { border: 1px solid var(--ring); border-radius: 8px; padding: 10px 12px; }
   .tile .label { color: var(--text-2); font-size: 12px; }
@@ -143,6 +147,7 @@
       <section class="wide">
         <h2>Live metrics</h2>
         <p class="lead">All decisions in the selected window. Updated every second.</p>
+        <p class="empty-note" id="tilesEmpty" hidden>No decisions yet. Run the fraud scenarios or send a purchase below to see numbers here.</p>
         <div class="tiles" id="tiles"></div>
       </section>
 
@@ -424,14 +429,16 @@
 
   // ---------- overview: tiles ----------
   function renderTiles(m) {
+    const none = m.decisions === 0;
+    $("tilesEmpty").hidden = !none;
     const tiles = [
       ["Decisions", m.decisions.toLocaleString(), "answered"],
-      ["Approval rate", (m.approval_rate * 100).toFixed(1) + "%", "approved / total"],
+      ["Approval rate", none ? "—" : (m.approval_rate * 100).toFixed(1) + "%", "approved / total"],
       ["Declined", m.declined.toLocaleString(), "by a rule or the score"],
       ["Flagged", m.flagged.toLocaleString(), "approved, score ≥ 40"],
       ["Fallbacks", m.fallback_used.toLocaleString(), "a dependency failed"],
-      ["Latency p50", m.latency_ms.p50.toFixed(1) + " ms", "median"],
-      ["Latency p99", m.latency_ms.p99.toFixed(1) + " ms", "goal < 100 ms"],
+      ["Latency p50", none ? "—" : m.latency_ms.p50.toFixed(1) + " ms", "median"],
+      ["Latency p99", none ? "—" : m.latency_ms.p99.toFixed(1) + " ms", "goal < 100 ms"],
       ["Explanations", m.explainer.explained.toLocaleString(), m.explainer.fallback_used + " by template"],
     ];
     $("tiles").replaceChildren(...tiles.map(([label, value, hint]) => el("div", { className: "tile" },
@@ -556,13 +563,13 @@
     entries.forEach(([code, count], i) => {
       const y = 4 + i * rowH;
       const name = svg("text", { x: 0, y: y + 15, "font-size": 12, fill: "var(--text)" });
-      name.textContent = code;
+      name.textContent = describeReason(code);
       const width = Math.max(2, (count / max) * trackW);
       const bar = svg("rect", { x: labelW, y: y + 4, width, height: 14, rx: 4, fill: "var(--series-1)" });
       const value = svg("text", { x: labelW + width + 6, y: y + 15, "font-size": 12, fill: "var(--text-2)" });
       value.textContent = count.toLocaleString();
       const hit = svg("rect", { x: 0, y, width: f.w, height: rowH, fill: "transparent" });
-      hit.addEventListener("mousemove", (event) => showTooltip(event, code, [["Declines", count.toLocaleString()]]));
+      hit.addEventListener("mousemove", (event) => showTooltip(event, describeReason(code), [["Declines", count.toLocaleString()], ["Code", code]]));
       hit.addEventListener("mouseleave", hideTooltip);
       f.root.append(name, bar, value, hit);
     });
@@ -603,10 +610,35 @@
     });
   }
 
+  // ---------- reason codes in plain words; the code stays in tooltips and the API ----------
+  const REASON_LABELS = {
+    CARD_INACTIVE: "Card frozen or terminated",
+    ENTRY_MODE_NOT_ALLOWED: "Swiped or typed card",
+    MCC_BLOCKED: "Blocked merchant category",
+    COUNTRY_NOT_ALLOWED: "Country not allowed",
+    OVER_TRANSACTION_LIMIT: "Over the per-purchase limit",
+    OUTSIDE_ALLOWED_HOURS: "Outside allowed hours",
+    OVER_DAILY_LIMIT: "Over the daily limit",
+    OVER_MONTHLY_LIMIT: "Over the monthly limit",
+    VELOCITY_EXCEEDED: "Too many purchases",
+    CARD_TESTING_PATTERN: "Card testing",
+    SPLIT_TRANSACTION_PATTERN: "Split purchase",
+    NEW_COUNTRY: "New country for this cardholder",
+    NEW_MERCHANT_CNP: "New online shop",
+    AMOUNT_ANOMALY: "Unusually large amount",
+    ROUND_AMOUNT: "Round amount",
+    DEFAULT_POLICY_APPLIED: "Default policy used",
+    FALLBACK_APPLIED: "Fallback answer",
+  };
+  function describeReason(code) {
+    return REASON_LABELS[code] || code;
+  }
+
   // ---------- recent decisions: filters survive the every-second refresh ----------
-  function fillOptions(select, values) {
+  function fillOptions(select, values, describe) {
     const current = select.value;
-    const options = [el("option", { value: "", textContent: "All" }), ...values.map((value) => el("option", { value, textContent: value }))];
+    const options = [el("option", { value: "", textContent: "All" }),
+      ...values.map((value) => el("option", { value, textContent: describe ? describe(value) : value }))];
     select.replaceChildren(...options);
     select.value = values.includes(current) ? current : "";
   }
@@ -622,14 +654,17 @@
   }
   function renderRecent(all) {
     fillOptions($("filterSource"), [...new Set(all.map((d) => d.source))].sort());
-    fillOptions($("filterReason"), [...new Set(all.flatMap((d) => d.reasons || []))].sort());
+    const reasonCodes = [...new Set(all.flatMap((d) => d.reasons || []))];
+    reasonCodes.sort((a, b) => describeReason(a).localeCompare(describeReason(b)));
+    fillOptions($("filterReason"), reasonCodes, describeReason);
     const items = all.filter(matchesFilters);
     $("filterCount").textContent = "Showing " + items.length + " of " + all.length;
     $("recent").replaceChildren(...items.map((d) => el("tr", {},
       cell(new Date(d.time).toLocaleTimeString()), cell(d.source), cell(d.card_id),
       cell(money(d.amount_minor, d.currency), "num"), cell(d.mcc), cell(d.country),
       el("td", {}, pill(d.decision, d.flagged)), cell(d.risk_score, "num"),
-      cell((d.reasons || []).join(", ") || "—", "wrap"), cell(d.latency_ms.toFixed(1), "num"))));
+      el("td", { className: "wrap", title: (d.reasons || []).join(", "), textContent: (d.reasons || []).map(describeReason).join(", ") || "—" }),
+      cell(d.latency_ms.toFixed(1), "num"))));
   }
 
   ["filterDecision", "filterSource", "filterReason", "filterCard"].forEach((id) =>
@@ -794,11 +829,11 @@
         "These purchases came from seed " + result.seed + ". ", useSeed, " to send exactly the same ones again.");
       const table = el("table", {},
         el("thead", {}, el("tr", {},
-          el("th", { textContent: "Scenario" }), el("th", { className: "num", textContent: "Purchases" }),
-          el("th", { textContent: "What happened" }), el("th", { textContent: "Verdict" }))),
+          el("th", { textContent: "Scenario" }), el("th", { textContent: "Verdict" }),
+          el("th", { textContent: "What happened" }), el("th", { className: "num", textContent: "Purchases" }))),
         el("tbody", {}, ...result.rows.map((r) => {
           const row = describeScenarioRow(r);
-          return el("tr", {}, cell(r.scenario), cell(r.requests, "num"), cell(row.text, "wrap"), el("td", {}, verdict(r, row.ok)));
+          return el("tr", {}, cell(r.scenario), el("td", {}, verdict(r, row.ok)), cell(row.text, "wrap"), cell(r.requests, "num"));
         })));
       box.replaceChildren(el("div", { className: "scroll" }, table), summary, seed);
     } catch (err) {
@@ -891,7 +926,7 @@
       const responses = await sendPurchase(values);
       const rows = responses.map((r, i) => el("tr", {},
         cell("#" + (i + 1)), el("td", {}, pill(r.decision, r.flagged)), cell(r.risk_score, "num"),
-        cell((r.reasons || []).map((reason) => reason.code + ": " + reason.message).join(" · ") || "Every check passed", "wrap")));
+        cell((r.reasons || []).map((reason) => describeReason(reason.code) + ": " + reason.message).join(" · ") || "Every check passed", "wrap")));
       const table = el("table", {},
         el("thead", {}, el("tr", {}, el("th", { textContent: "Purchase" }), el("th", { textContent: "Decision" }), el("th", { className: "num", textContent: "Risk" }), el("th", { textContent: "Why" }))),
         el("tbody", {}, ...rows));

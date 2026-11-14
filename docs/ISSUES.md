@@ -46,6 +46,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-038](#i-038-browser-screenshots-were-committed-by-mistake) | 2026-11-14 | Git | ✅ |
 | [I-039](#i-039-the-dashboard-was-hard-to-read-without-knowing-the-demo) | 2026-11-14 | Dashboard | ✅ |
 | [I-040](#i-040-reason-messages-showed-amounts-in-cents) | 2026-11-14 | API | ✅ |
+| [I-041](#i-041-the-dashboard-layout-and-labels-still-assumed-an-engineer) | 2026-11-14 | Dashboard | ✅ |
 
 ---
 
@@ -215,3 +216,6 @@ Every problem found while building: what happened, how it was found, and how it 
 - **Found:** testing the dashboard as a PM would: a split purchase said "total 90000, each above 80% of the 50000 USD limit" and a daily limit "175500 already spent plus 45000 is over the limit of 200000 USD per calendar_day". The numbers are cents, so they read 100 times too large.
 - **Fix:** seven messages (per-transaction limit, velocity amount, split purchase, unusual amount, round amount, two fallback messages) use `domain.FormatMoney`; the runbook and README examples match ([D-075](DECISIONS.md#d-075-reason-messages-show-readable-amounts)).
 
+### I-041: The dashboard layout and labels still assumed an engineer
+- **Found:** a screenshot review at desktop and phone widths. The page was pinned left with an empty band on wide screens; the action cards and two charts filled two thirds of a three-column grid; with no traffic the tiles read "0.0%" and "0.0 ms" as if measured; the table, filter and decline chart showed raw codes like `NEW_MERCHANT_CNP`; on a phone the scenario verdict was the last column and got cut off.
+- **Fix:** a centered 1280 px page with a two-column grid (one column under 860 px); "—" and a "No decisions yet" hint before the first decision; one map from reason code to plain words used by the table, the filter (sorted by label) and the chart, with the code kept in tooltips; the verdict column moved next to the scenario name.
