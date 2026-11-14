@@ -3,4 +3,5 @@ coverage.out
 /bin/
 .DS_Store
 .env
+.private/
 .playwright-mcp/

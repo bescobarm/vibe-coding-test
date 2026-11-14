@@ -43,6 +43,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-035](#i-035-the-default-connection-pool-queued-requests-under-load) | 2026-11-14 | Performance | ✅ |
 | [I-036](#i-036-the-dashboard-showed-a-seed-that-could-not-replay-its-run) | 2026-11-14 | Dashboard | ✅ |
 | [I-037](#i-037-a-concurrency-test-raced-its-own-probe) | 2026-11-14 | Tests | ✅ |
+| [I-038](#i-038-browser-screenshots-were-committed-by-mistake) | 2026-11-14 | Git | ✅ |
 
 ---
 
@@ -199,4 +200,8 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-037: A concurrency test raced its own probe
 - **Found:** running the dashboard tests 10 times, `TestOnlyOneScenarioRunAtATime` failed 8 times. The test started a run and then probed for 409, but the probe could take the lock first and then block forever inside the fake engine.
 - **Fix:** the fake engine signals when a run is inside it; the test probes only after that. 50 runs pass. Lesson: run concurrency tests many times before trusting one green run.
+
+### I-038: Browser screenshots were committed by mistake
+- **Found:** moving the video script out of the repo, `git add -A` on PR #18's branch also committed `.playwright-mcp/` (dashboard screenshots and page snapshots from the browser check, about 0.8 MB). Its ignore rule existed only on PR #19's branch.
+- **Fix:** a follow-up commit untracked the folder and ignored it on both branches; PR #18's diff is back to `README.md` and `.gitignore`. The files stay in that branch's history (no force-push); a squash merge of #18 keeps them out of `main`. Lesson: stage files by name, not with `-A`, when tools write into the repo.
 
