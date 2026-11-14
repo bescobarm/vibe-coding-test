@@ -84,6 +84,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-058](#d-058-split-purchases-are-read-from-postgres-before-the-claim) | Split purchases are read from Postgres before the claim | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-059](#d-059-the-cardholder-history-is-one-query-over-90-days) | The cardholder history is one query over 90 days | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-060](#d-060-scoring-details) | Scoring details | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-065](#d-065-score-weights-can-be-overridden-with-env-vars) | Score weights can be overridden with env vars | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
 
 ---
 
@@ -379,6 +380,10 @@ Entries marked 📝 need my own words before the interview (for example, what th
   4. No magic numbers or hardcoded texts: use named `const`/`var`.
   5. Doc comments are required on exported identifiers only. Unexported ones get a comment only when they need extra context.
   6. Errors are specific `errors.New` values (one per failure case), and no error is discarded with `_`.
+  7. *(added 2026-11-14, review of PR #10)* A function body is never on one line.
+  8. *(added 2026-11-14)* A map or slice literal with 3 or more items has one item per line.
+  9. *(added 2026-11-14)* No single-letter variables (`s :=`, `z :=`, `for _, r := range`). Exceptions: `c := require.New(t)` in tests (D-030) and the loop counter `i`. Parameters and method receivers keep Go's short names.
+  10. *(added 2026-11-14)* Every function name says its goal with a verb: `GetSignals`, `BuildSignalQuery`, `detectCardTesting`, not `Signals`, `Query`, `cardTesting`. Predicates read as questions (`IsSame`, `Applies`).
 - **How it is enforced (`make lint`, config in `.golangci.yml`, golangci-lint v2):**
 
   | Rule | Tool | Note |
@@ -389,6 +394,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
   | 4 | `mnd` (numbers) + `goconst` (repeated strings) | no linter bans every string literal, so messages, SQL, error codes and JSON keys were moved to constants by hand |
   | 5 | `revive`, only the `exported` rule | it can't flag a comment that isn't needed; obvious comments on unexported code were removed by hand |
   | 6 | by hand in `internal/api` | `errcheck` (on by default) already fails on an unchecked error; it allows an explicit `_ =` |
+  | 7, 8, 9 | [`tools/stylecheck`](../tools/stylecheck/main.go), run by `make lint` | no golangci-lint linter covers them; `-fix` rewrites 7 and 8; 9 is renamed with `gopls` |
+  | 10 | by hand (renamed with `gopls`) | a verb can't be checked reliably by a tool |
 
   `mnd` and `goconst` are off for `_test.go`: expected values in a test read better inline.
 - **Consequences:** `validateControls` (15) and `Migrate` (13) were split into small functions. API error bodies are typed structs instead of `map[string]string`. The API's `"error"` field is now the message of a specific error (e.g. `"policy is not valid JSON or has an unknown field"`, `"another policy version was published at the same time, retry"`) instead of a shared code like `invalid_json` or `internal`. A body over 64 KiB now gets 413 instead of 400. A response that fails to encode is logged. Validation messages shared by requests and policies live in `domain` (`domain.MsgRequired`, …). Log keys stay inline.
@@ -581,6 +588,18 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - **Card-testing rule reason (D-025):** a velocity rule may set `"reason": "CARD_TESTING_PATTERN"` (only that or `VELOCITY_EXCEEDED`); the demo seed does.
   - **D-023 as built:** when the score declines, the velocity reservation is cancelled entirely, count included: the authorization was never approved, and this matches what a rebuild restores.
 - **Decision:** As built.
+- **Why:** 📝
+
+### D-065: Score weights can be overridden with env vars
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (asked in the review of PR #10; analysis by AI) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Context:** I asked whether the weights could be env vars, to test changes easily.
+- **AI input and concerns:**
+  - **Weights: yes.** SP06 tunes them against the simulator (detection vs. false declines); env vars make that loop run without a rebuild. D-057 still holds: the defaults stay in code.
+  - **Per feature, not high/medium/low:** tuning moves one feature at a time.
+  - **Thresholds: no.** `flag_at` and `decline_at` are per company in the policy and change at runtime with `PUT`.
+  - **Feature parameters (≥ 3 small attempts, 80% split share, z ≥ 3, cold start 5): not now.** They define what a feature means; six more variables add surface for little tuning gain.
+  - A weight outside 0–100, or not a number, stops the engine at startup instead of scoring wrong. `scoring.Stage` gets a constructor, because a zero-value stage would score everything 0 silently.
+- **Decision:** `SCORE_WEIGHT_CARD_TESTING`, `SCORE_WEIGHT_SPLIT_PURCHASE`, `SCORE_WEIGHT_NEW_COUNTRY`, `SCORE_WEIGHT_NEW_MERCHANT_CNP`, `SCORE_WEIGHT_AMOUNT_ANOMALY`, `SCORE_WEIGHT_ROUND_AMOUNT`.
 - **Why:** 📝
 
 ## Proposed (waiting for my decision)

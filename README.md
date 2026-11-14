@@ -11,6 +11,8 @@
 | Decision log (for the interview) | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | Trade-offs in short (for the interview) | [docs/TRADEOFFS.md](docs/TRADEOFFS.md) |
 | Issues found while building | [docs/ISSUES.md](docs/ISSUES.md) |
+| Glossary (CNP, MCC, hold, outbox…) | [docs/CONCEPTS.md](docs/CONCEPTS.md) |
+| SQL review | [docs/SQL_REVIEW.md](docs/SQL_REVIEW.md) |
 | Problem briefs (one per sub-project) | [briefs/](briefs/) |
 | One-page write-up | `WRITEUP.md` 🚧 (Day 3) |
 | 5-minute video | Link added on submission 🚧 |
@@ -769,7 +771,8 @@ The full log, including the options the AI suggested, the concerns raised and wh
 
 - **Unit tests:** each control, velocity rule and anomaly feature in isolation (table-driven tests in Go).
 - **Coverage gate:** `/check-tests -cov 80` before every commit. Every changed Go file must reach 80% line coverage.
-- **Lint gate:** `make lint` must report 0 issues: blank line after blocks, no init statement in `if`, cyclomatic complexity ≤ 10, no magic numbers or hardcoded texts, doc comments on exported code, specific errors ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)).
+- **Integration tests:** `make test` fails, instead of skipping, when Postgres or Redis is down ([I-028](docs/ISSUES.md#i-028-skipped-integration-tests-looked-like-a-pass)).
+- **Lint gate:** `make lint` must report 0 issues: blank line after blocks, no init statement in `if`, cyclomatic complexity ≤ 10, no magic numbers or hardcoded texts, doc comments on exported code, specific errors, no one-line bodies, one item per line in literals of 3+, no single-letter variables, function names with a verb ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)).
 - **Concurrency test:** 100 parallel authorizations on one card with a limit that only allows 10. Exactly 10 must be approved.
 - **Idempotency test:** the same request sent twice returns the same decision and counts once.
 - **Failure tests:** Redis unavailable or a slow dependency → fallback applied within the deadline, and flagged.
