@@ -17,7 +17,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-009](#i-009-the-audit-cannot-say-which-companys-policy-decided) | 2026-11-13 | Data | ⏭️ |
 | [I-010](#i-010-a-company-without-a-policy-hits-postgres-on-every-request) | 2026-11-13 | Performance | 🟠 |
 | [I-011](#i-011-a-policy-stored-before-a-schema-change-becomes-invalid) | 2026-11-13 | Data | ✅ (workaround) |
-| [I-012](#i-012-redis-down-returns-500-until-the-fallback-exists) | 2026-11-13 | Reliability | 🟠 |
+| [I-012](#i-012-redis-down-returns-500-until-the-fallback-exists) | 2026-11-13 | Reliability | ✅ |
 | [I-013](#i-013-the-stage-name-appeared-twice-in-error-logs) | 2026-11-13 | Observability | ✅ |
 | [I-014](#i-014-one-event_id-on-two-authorizations-could-release-twice) | 2026-11-13 | Concurrency | ✅ |
 | [I-015](#i-015-a-live-check-ran-before-the-engine-was-ready) | 2026-11-13 | Tooling | ✅ |
@@ -30,9 +30,9 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-022](#i-022-the-link-to-d-003-was-broken) | 2026-11-13 | Docs | ✅ |
 | [I-023](#i-023-card-testing-approvals-end-the-cold-start) | 2026-11-13 | Risk | ⏭️ |
 | [I-024](#i-024-a-test-expected-a-wrong-mean) | 2026-11-13 | Tests | ✅ |
-| [I-028](#i-028-skipped-integration-tests-looked-like-a-pass) | 2026-11-14 | Tests | ✅ |
-| [I-029](#i-029-the-cardholder-history-scanned-every-card) | 2026-11-14 | Performance | ✅ |
-| [I-030](#i-030-lifecycle-calls-have-no-deadline) | 2026-11-14 | Reliability | 🟠 |
+| [I-025](#i-025-the-default-policy-reason-said-the-company-had-no-policy) | 2026-11-14 | API | ✅ |
+| [I-026](#i-026-a-fallback-before-the-hard-controls-skips-them) | 2026-11-14 | Risk | ⏭️ |
+| [I-027](#i-027-a-synctest-bubble-cannot-end-with-blocked-goroutines) | 2026-11-14 | Tests | ✅ |
 
 ---
 
@@ -86,7 +86,7 @@ Every problem found while building: what happened, how it was found, and how it 
 
 ### I-012: Redis down returns 500 until the fallback exists
 - **Found:** live check of SP03 with Redis stopped: `500` in 54 ms (`reserve: context deadline exceeded`). The 50 ms timeout works (D-048).
-- **Plan:** SP05 maps this error to the company fallback (AC4 of the parent brief).
+- **Fix (SP05, 2026-11-14):** the error now leads to the company fallback. Live: with Redis stopped, 100.00 is approved and 300.00 declined with `FALLBACK_APPLIED` (fail-open up to 200.00), in 56 ms.
 
 ### I-013: The stage name appeared twice in error logs
 - **Found:** the same live check logged `stage velocity: velocity: reserve: ...`. The pipeline already adds the stage name.
@@ -138,15 +138,15 @@ Every problem found while building: what happened, how it was found, and how it 
 - **Found:** `TestSignalsReadTheCardholderHistory` failed: my expected mean (3898.6) was miscalculated; the query's 3921.4 (27450 / 7) was right.
 - **Fix:** the test now states the sum it expects (`27450.0/7`), so the number explains itself.
 
-### I-028: Skipped integration tests looked like a pass
-- **Found:** applying the PR #10 review, `go test ./...` printed `ok` for every package, but the velocity tests took 43 s instead of 3 s: Redis was down (the Docker runtime had restarted), and every Redis test was **skipped** after a 1.8 s timeout. `ok` hid that they never ran.
-- **Fix:** [`internal/testenv`](../internal/testenv/testenv.go): with `TEST_REQUIRE_SERVICES=true`, which `make test` and `make cover` set, a missing Postgres or Redis fails the test. A plain `go test` still skips, for quick local runs. Verified by stopping Redis: the test failed.
+### I-025: The default-policy reason said the company had no policy
+- **Found:** SP05 live check with Postgres stopped. The fallback answered `DEFAULT_POLICY_APPLIED` "The company has no policy", but the company was unknown, not policy-less.
+- **Fix:** a fallback under the default says "The card or its company's policy could not be loaded".
 
-### I-029: The cardholder history scanned every card
-- **Found:** SQL review of PR #10 ([SQL_REVIEW.md](SQL_REVIEW.md)). `EXPLAIN` on the signals query, which runs on every authorization, showed `Seq Scan on cards`: no index on `cards(cardholder_id)`, so the cost grows with every card issued.
-- **Fix:** migration `0003` adds the index; the plan becomes an `Index Scan` (cost 8.3 instead of 99.5 at 5,000 cards, flat as cards grow).
+### I-026: A fallback before the hard controls skips them
+- **Found:** reviewing SP05. Hard controls run before velocity, so with Redis down a blocked MCC is still declined normally (tested). But when the failure is earlier (the signals query) or the deadline passes during loading, fail-open approves up to the cap without checking blocked MCCs or countries.
+- **Plan (next steps):** run the hard controls, which need no dependency, inside the fallback whenever the card and policy were loaded.
 
-### I-030: Lifecycle calls have no deadline
-- **Found:** SQL review. Authorizations run under the 500 ms deadline, but reversal, capture and the other lifecycle calls use the request context with no timeout. A call waiting on the row lock (`FOR UPDATE`) behind a slow transaction waits as long as that transaction does.
-- **Plan:** give lifecycle calls their own deadline (for example 2 s) in the handler, so a stuck lock answers 500 and the caller retries with the same `event_id` (D-050).
+### I-027: A synctest bubble cannot end with blocked goroutines
+- **Found:** `TestWaitGivesUpWhenItsContextEnds` panicked: after `Wait` gave up, the late decision was still sleeping inside the bubble.
+- **Fix:** the test waits for the background work at the end. It also shows the point of D-033: background work has to be waited for, or it outlives its owner.
 
