@@ -152,7 +152,7 @@ func TestFallbackDeclinesOverTheCap(t *testing.T) {
 
 	c.Equal(domain.Decline, resp.Decision)
 	c.Zero(resp.ApprovedAmountMinor)
-	c.Equal("Fallback fail_open_limited: amount 4500 is over 4499 USD", resp.Reasons[0].Message)
+	c.Equal("Fallback fail_open_limited: amount 45.00 USD is over 44.99 USD", resp.Reasons[0].Message)
 }
 
 func TestFallbackApprovesExactlyAtTheCap(t *testing.T) {

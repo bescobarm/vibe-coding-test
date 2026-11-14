@@ -51,8 +51,6 @@ const (
 	actionDefault    = "Review the transaction with the cardholder."
 	actionConfirm    = "Confirm with the cardholder that they made this purchase before retrying it."
 	actionRaiseLimit = "If the spend is expected, ask a policy admin to raise the limit."
-	minorPerUnit     = 100
-	digitsPerGroup   = 3
 	notPresentNote   = ", card not present"
 )
 
@@ -113,7 +111,7 @@ func BuildPrompt(decision Decision) string {
 	prompt.WriteString("Use ONLY the facts below. Do not invent amounts, merchants or reasons.\n\n")
 	fmt.Fprintf(&prompt, "Decision: %s (risk score %d, policy v%d)\n", describeDecision(decision), decision.RiskScore, decision.PolicyVersion)
 	fmt.Fprintf(&prompt, "Merchant: %s (MCC %s, %s)%s\n", merchant.Name, merchant.MCC, merchant.Country, presence)
-	fmt.Fprintf(&prompt, "Amount: %s\n", FormatMoney(request.AmountMinor, request.Currency))
+	fmt.Fprintf(&prompt, "Amount: %s\n", domain.FormatMoney(request.AmountMinor, request.Currency))
 	prompt.WriteString("Facts:\n")
 
 	for _, reason := range decision.Reasons {
@@ -123,24 +121,6 @@ func BuildPrompt(decision Decision) string {
 	prompt.WriteString("\nWrite 2 sentences of summary and 1 suggested action.\n")
 
 	return prompt.String()
-}
-
-// FormatMoney writes minor units as "1,350.00 USD".
-func FormatMoney(amountMinor int64, currency string) string {
-	units, cents := amountMinor/minorPerUnit, amountMinor%minorPerUnit
-	digits := fmt.Sprint(units)
-
-	var grouped strings.Builder
-
-	for index, digit := range digits {
-		if index > 0 && (len(digits)-index)%digitsPerGroup == 0 {
-			grouped.WriteByte(',')
-		}
-
-		grouped.WriteRune(digit)
-	}
-
-	return fmt.Sprintf("%s.%02d %s", grouped.String(), cents, currency)
 }
 
 func describeDecision(decision Decision) string {

@@ -45,6 +45,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-037](#i-037-a-concurrency-test-raced-its-own-probe) | 2026-11-14 | Tests | ✅ |
 | [I-038](#i-038-browser-screenshots-were-committed-by-mistake) | 2026-11-14 | Git | ✅ |
 | [I-039](#i-039-the-dashboard-was-hard-to-read-without-knowing-the-demo) | 2026-11-14 | Dashboard | ✅ |
+| [I-040](#i-040-reason-messages-showed-amounts-in-cents) | 2026-11-14 | API | ✅ |
 
 ---
 
@@ -209,4 +210,8 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-039: The dashboard was hard to read without knowing the demo
 - **Found:** my review of the first dashboard: what a card means, why repeat a purchase, and what a seed is were not explained, and decisions and charts competed for one page. Screenshots of the redesign then showed chart text scaling with the panel width (6 px in half-width charts), uneven axis ticks (63, 188), and a single decline drawn below the baseline.
 - **Fix:** two tabs (Overview, Activity & charts); a description per demo card, the company's policy, help on Repeat and Seed, per-scenario descriptions and example buttons; a "Why" column per purchase. Charts draw at their real pixel width with round ticks and a minimum bar height, in validated status and series colors for light and dark (checked in screenshots of both).
+
+### I-040: Reason messages showed amounts in cents
+- **Found:** testing the dashboard as a PM would: a split purchase said "total 90000, each above 80% of the 50000 USD limit" and a daily limit "175500 already spent plus 45000 is over the limit of 200000 USD per calendar_day". The numbers are cents, so they read 100 times too large.
+- **Fix:** seven messages (per-transaction limit, velocity amount, split purchase, unusual amount, round amount, two fallback messages) use `domain.FormatMoney`; the runbook and README examples match ([D-075](DECISIONS.md#d-075-reason-messages-show-readable-amounts)).
 

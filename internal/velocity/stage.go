@@ -3,6 +3,7 @@ package velocity
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/bescobarm/card-auth-engine/internal/domain"
 	"github.com/bescobarm/card-auth-engine/internal/pipeline"
@@ -14,7 +15,7 @@ const (
 
 	fmtCurrencyMismatch = "Rule %s limit is in %s, request is in %s"
 	fmtOverCount        = "Rule %s allows %d authorizations per %s; %d already approved"
-	fmtOverAmount       = "Rule %s: %d already spent plus %d is over the limit of %d %s per %s"
+	fmtOverAmount       = "Rule %s: %s already spent plus %s is over the limit of %s per %s"
 )
 
 // Reserver holds an amount against a card's windows, and cancels it when a
@@ -121,11 +122,18 @@ func buildReservation(e *pipeline.Evaluation, rules []policy.VelocityRule) Reser
 func describeLimitHit(r policy.VelocityRule, res Result, amountMinor int64) (string, string) {
 	countFull := r.MaxCount != nil && res.Count >= int64(*r.MaxCount)
 	if countFull || r.MaxAmount == nil {
-		return getCountReason(r), fmt.Sprintf(fmtOverCount, r.ID, *r.MaxCount, r.Window, res.Count)
+		return getCountReason(r), fmt.Sprintf(fmtOverCount, r.ID, *r.MaxCount, describeWindow(r.Window), res.Count)
 	}
 
-	return getAmountReason(r), fmt.Sprintf(fmtOverAmount, r.ID, res.SpentMinor, amountMinor,
-		r.MaxAmount.AmountMinor, r.MaxAmount.Currency, r.Window)
+	currency := r.MaxAmount.Currency
+
+	return getAmountReason(r), fmt.Sprintf(fmtOverAmount, r.ID, domain.FormatMoney(res.SpentMinor, currency),
+		domain.FormatMoney(amountMinor, currency), domain.FormatMoney(r.MaxAmount.AmountMinor, currency), describeWindow(r.Window))
+}
+
+// describeWindow reads a window name as words: "calendar_day" is "calendar day".
+func describeWindow(window string) string {
+	return strings.ReplaceAll(window, "_", " ")
 }
 
 // getCountReason lets a rule name its own reason, e.g. CARD_TESTING_PATTERN (D-025, D-060).

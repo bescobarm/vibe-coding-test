@@ -14,7 +14,7 @@ const (
 	fmtMCCBlocked       = "Merchant category %s is blocked"
 	fmtCountry          = "Merchant country %s is not allowed"
 	fmtCurrencyMismatch = "Limit is in %s, request is in %s"
-	fmtOverLimit        = "Amount %d is over the per-transaction limit of %d %s"
+	fmtOverLimit        = "Amount %s is over the per-transaction limit of %s"
 	fmtOutsideHours     = "%s is outside allowed hours %s–%s (%s)"
 	clockLayout         = "15:04"
 )
@@ -109,7 +109,7 @@ func (TransactionLimit) Evaluate(_ context.Context, e *pipeline.Evaluation) erro
 	case e.Request.AmountMinor > limit.AmountMinor:
 		e.Decline(domain.ReasonOverTransactionLimit,
 			fmt.Sprintf(fmtOverLimit,
-				e.Request.AmountMinor, limit.AmountMinor, limit.Currency))
+				domain.FormatMoney(e.Request.AmountMinor, e.Request.Currency), domain.FormatMoney(limit.AmountMinor, limit.Currency)))
 	}
 
 	return nil

@@ -55,7 +55,7 @@ func TestTheWorkerExplainsAStoredDecline(t *testing.T) {
 	explanation := harness.readExplanation("too-big")
 	c.True(explanation.Validated)
 	c.Equal([]string{domain.ReasonOverTransactionLimit}, explanation.ReasonCodes)
-	c.Contains(explanation.Summary, "Amount 60000 is over the per-transaction limit")
+	c.Contains(explanation.Summary, "Amount 600.00 USD is over the per-transaction limit")
 	c.Nil(harness.readExplanation("fine"))
 
 	pending, err := harness.st.ListPendingDecisions(harness.ctx, 100)

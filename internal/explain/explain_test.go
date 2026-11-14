@@ -66,14 +66,6 @@ func TestAFlagIsDescribedAsAFlag(t *testing.T) {
 	c.Contains(prompt, "Merchant: ACME SOFTWARE (MCC 5734, US)\n", "a chip purchase has no card-not-present note")
 }
 
-func TestMoneyIsGroupedByThousands(t *testing.T) {
-	c := require.New(t)
-
-	c.Equal("1,350.00 USD", FormatMoney(135000, "USD"))
-	c.Equal("1,234,567.89 MXN", FormatMoney(123456789, "MXN"))
-	c.Equal("0.05 USD", FormatMoney(5, "USD"))
-}
-
 func TestOnlyDeclinesAndFlagsNeedAnExplanation(t *testing.T) {
 	c := require.New(t)
 
@@ -100,7 +92,7 @@ func TestTheTemplateListsEveryReason(t *testing.T) {
 func TestAnUnknownReasonGetsTheDefaultAction(t *testing.T) {
 	c := require.New(t)
 	decision := newSplitDecision()
-	decision.Reasons = []domain.Reason{{Code: domain.ReasonRoundAmount, Message: "Round amount 20000"}}
+	decision.Reasons = []domain.Reason{{Code: domain.ReasonRoundAmount, Message: "Round amount 200.00 USD"}}
 
 	explanation, err := TemplateExplainer{}.Explain(context.Background(), decision)
 

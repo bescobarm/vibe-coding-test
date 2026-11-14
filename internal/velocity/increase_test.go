@@ -48,7 +48,7 @@ func TestIncreaseRaisesTheHoldUntilTheBudgetIsFull(t *testing.T) {
 
 	c.False(first.Exceeded)
 	c.Equal(lifecycle.Limit{Exceeded: true, Code: domain.ReasonOverDailyLimit,
-		Message: "Rule daily: 450 already spent plus 100 is over the limit of 500 USD per calendar_day"}, second)
+		Message: "Rule daily: 4.50 USD already spent plus 1.00 USD is over the limit of 5.00 USD per calendar day"}, second)
 	c.Equal("450", rdb.HGet(context.Background(), "vel:{"+card+"}:daily:amt", "hotel").Val())
 	c.Equal("450", rdb.HGet(context.Background(), "hold:{"+card+"}:hotel", "amount").Val())
 }

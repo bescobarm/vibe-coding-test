@@ -184,7 +184,7 @@ func TestTransactionLimitDeclinesAnAmountOverTheLimit(t *testing.T) {
 
 	c.Equal([]domain.Reason{{
 		Code:    domain.ReasonOverTransactionLimit,
-		Message: "Amount 50001 is over the per-transaction limit of 50000 USD",
+		Message: "Amount 500.01 USD is over the per-transaction limit of 500.00 USD",
 	}}, evaluation.GetReasons())
 }
 

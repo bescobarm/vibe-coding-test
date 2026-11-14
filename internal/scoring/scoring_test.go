@@ -110,7 +110,7 @@ func TestSplitPurchaseFiresWhenPartsJustUnderTheLimitAddUpOverIt(t *testing.T) {
 	runScore(c, evaluation)
 
 	c.Equal([]domain.Reason{{Code: domain.ReasonSplitTransaction,
-		Message: "3 purchases today at this merchant total 147000, each above 80% of the 50000 USD limit"}}, evaluation.GetReasons())
+		Message: "3 purchases today at this merchant total 1,470.00 USD, each above 80% of the 500.00 USD limit"}}, evaluation.GetReasons())
 	c.True(evaluation.Flagged)
 }
 
@@ -220,7 +220,7 @@ func TestAmountAnomalyMessageShowsTheDeviation(t *testing.T) {
 	runScore(c, evaluation)
 
 	c.Equal([]domain.Reason{{Code: domain.ReasonAmountAnomaly,
-		Message: "Amount 6000 is 3.0 standard deviations above this cardholder's mean of 4500 for MCC 5734"}}, evaluation.GetReasons())
+		Message: "Amount 60.00 USD is 3.0 standard deviations above this cardholder's mean of 45.00 USD for MCC 5734"}}, evaluation.GetReasons())
 }
 
 // A cardholder who always pays exactly the same has no deviation; the 10% floor
@@ -244,7 +244,7 @@ func TestRoundAmountFiresOnWholeHundreds(t *testing.T) {
 	evaluation := newEvaluation(t, 20000, sig)
 	runScore(c, evaluation)
 
-	c.Equal([]domain.Reason{{Code: domain.ReasonRoundAmount, Message: "Round amount 20000"}}, evaluation.GetReasons())
+	c.Equal([]domain.Reason{{Code: domain.ReasonRoundAmount, Message: "Round amount 200.00 USD"}}, evaluation.GetReasons())
 	c.Equal(WeightLow, evaluation.RiskScore)
 	c.False(evaluation.Flagged)
 }

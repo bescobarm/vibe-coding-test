@@ -14,8 +14,8 @@ const (
 	msgDefaultPolicy  = "The company has no policy; the default policy applies"
 	msgDefaultUnknown = "The card or its company's policy could not be loaded; the default policy applies"
 	msgFailClosed     = "Fallback fail_closed: a dependency failed or the deadline passed"
-	fmtFailOpenOK     = "Fallback fail_open_limited: approved up to %d %s"
-	fmtFailOpenOver   = "Fallback fail_open_limited: amount %d is over %d %s"
+	fmtFailOpenOK     = "Fallback fail_open_limited: approved up to %s"
+	fmtFailOpenOver   = "Fallback fail_open_limited: amount %s is over %s"
 	fmtFailOpenOtherC = "Fallback fail_open_limited: limit is in %s, request is in %s"
 )
 
@@ -56,9 +56,10 @@ func decideFallback(req domain.AuthRequest, f *policy.Fallback) (domain.Decision
 	case req.Currency != limit.Currency:
 		return domain.Decline, fmt.Sprintf(fmtFailOpenOtherC, limit.Currency, req.Currency)
 	case req.AmountMinor > limit.AmountMinor:
-		return domain.Decline, fmt.Sprintf(fmtFailOpenOver, req.AmountMinor, limit.AmountMinor, limit.Currency)
+		return domain.Decline, fmt.Sprintf(fmtFailOpenOver, domain.FormatMoney(req.AmountMinor, req.Currency),
+			domain.FormatMoney(limit.AmountMinor, limit.Currency))
 	default:
-		return domain.Approve, fmt.Sprintf(fmtFailOpenOK, limit.AmountMinor, limit.Currency)
+		return domain.Approve, fmt.Sprintf(fmtFailOpenOK, domain.FormatMoney(limit.AmountMinor, limit.Currency))
 	}
 }
 
