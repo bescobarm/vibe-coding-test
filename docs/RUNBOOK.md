@@ -142,6 +142,16 @@ Expect:
 2. Counts by reason and p50/p95/p99 for all traffic so far.
 3. `PASS (p99 < 100 ms)` at 200 req/s; `make load` exits non-zero on `FAIL`.
 
+## 4h. Explanations
+
+```bash
+auth x1 card_456 5000 7995
+sleep 1
+curl -s localhost:8080/v1/authorizations/x1 | jq .explanation
+```
+
+Expect `"provider": "mock-llm"`, `"mocked": true`, `"validated": true` and a summary like "Declined at …: merchant category 7995 is blocked." An approval gets no explanation. To see the safety net, restart with `MOCK_LLM_FAILURE_RATE=1 make run`: the next explanation has `"validated": false, "fallback_used": true` and the template text.
+
 ## 5. Publish a new policy version
 
 ```bash

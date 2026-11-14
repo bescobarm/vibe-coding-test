@@ -94,6 +94,8 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-068](#d-068-the-report-has-no-target-rates) | The report has no target rates | 🟢 Accepted | Product | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-069](#d-069-load-is-tested-by-the-go-simulator) | Load is tested by the Go simulator | 🟢 Accepted | Testing | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-070](#d-070-metrics-are-read-from-the-audit-log) | Metrics are read from the audit log | 🟢 Accepted | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-071](#d-071-the-engine-keeps-32-postgres-connections) | The engine keeps 32 Postgres connections | 🟡 Proposed (implemented) | Performance | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-072](#d-072-how-the-explainer-worker-drains-the-outbox) | How the explainer worker drains the outbox | 🟡 Proposed (implemented) | Architecture | [07](../briefs/07-mock-llm-explainer-brief.md) |
 
 ---
 
@@ -665,6 +667,22 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Why:** 📝
 
 ## Proposed (waiting for my decision)
+
+### D-071: The engine keeps 32 Postgres connections
+- **Status:** 🟡 Proposed, **already implemented** in SP07. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
+- **Context:** An A/B load test at 1,000 req/s showed p99 spikes (up to 165 ms) with and without the explainer ([I-035](ISSUES.md#i-035-the-default-connection-pool-queued-requests-under-load)). The pgx default pool is `max(4, CPUs)`, 12 here, shared by 64 concurrent requests.
+- **AI recommendation (as built):** `DATABASE_MAX_CONNS`, default 32: three runs passed at p99 4.1, 3.8 and 9.9 ms with it, and stays well under Postgres's `max_connections` (100), leaving room for the simulator and tests.
+- **Decision:** _pending my review_
+
+### D-072: How the explainer worker drains the outbox
+- **Status:** 🟡 Proposed, **already implemented** in SP07. Needs my review. · **Brief:** [07](../briefs/07-mock-llm-explainer-brief.md)
+- **Context:** D-028 and D-034 put a worker in the engine, woken by a doorbell. Under load it fell behind and queried Postgres back to back ([I-034](ISSUES.md#i-034-the-explainer-worker-fell-behind-and-never-paused)).
+- **AI recommendation (as built):**
+  - Approvals that need no explanation are published in **one bulk `UPDATE`** per pass; only declines and flags are listed.
+  - A batch is explained **8 at a time**, so one slow model call doesn't hold up the rest.
+  - Passes are at least **200 ms apart**; a ring during the gap is kept, so an explanation still arrives in well under a second (AC2).
+  - Each job runs detached from the worker's context with a 3 s timeout, so shutdown lets it finish (D-033); a panic becomes a failed explanation (D-032).
+- **Decision:** _pending my review_
 
 ### D-066: The simulator creates its own cards in Postgres
 - **Status:** 🟡 Proposed, **already implemented** in SP06. Needs my review. · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)

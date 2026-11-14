@@ -1,6 +1,6 @@
 # SP07 Mocked LLM Explainer: Brief
 
-> **Status:** Draft v1 · **Last updated:** 2026-11-12 · **Owner:** Brayan Escobar · **Parent:** [00](00-card-auth-engine-brief.md) · **Generated with:** `/problem-brief-creator`
+> **Status:** v2, built (D-072) · **Last updated:** 2026-11-14 · **Owner:** Brayan Escobar · **Parent:** [00](00-card-auth-engine-brief.md) · **Generated with:** `/problem-brief-creator`
 
 ## TL;DR
 After a DECLINE or FLAG, an async worker reads the outbox, builds the prompt a real LLM would get, calls a **local mocked LLM**, checks the answer against the reason codes and stores a plain-language explanation on the authorization. A real LLM connection is explicitly out of scope ([D-013](../docs/DECISIONS.md#d-013-mock-the-llm-explainer)).
@@ -26,14 +26,14 @@ After a DECLINE or FLAG, an async worker reads the outbox, builds the prompt a r
 - R4. The mock is deterministic for the same input (stable demo and tests), with a simulated latency of 300–800 ms.
 
 ### 4. Acceptance criteria
-- **AC1 (R1):** Authorization latency is unchanged with the explainer on vs. off (within noise).
-- **AC2:** Given the split-purchase decline, then within ~1 s `GET /v1/authorizations/{id}` shows an explanation like README §13.
-- **AC3 (R3):** Given `MOCK_LLM_FAILURE_RATE=1`, then every explanation has `validated: false, fallback_used: true` and template text.
-- **AC4 (R4):** Same decision twice → same explanation text.
-- **AC5:** `/check-tests -cov 80` passes.
-- **AC6 ([D-032](../docs/DECISIONS.md#d-032-every-background-goroutine-recovers-its-own-panics)):** Given the mocked LLM panics, then the engine keeps serving authorizations, the panic is logged with its stack trace, and that explanation is marked failed.
-- **AC7 ([D-033](../docs/DECISIONS.md#d-033-every-goroutine-has-a-known-stop-and-shutdown-happens-in-order)):** On SIGTERM, the worker finishes its current job and has stopped before the Postgres pool closes.
-- **AC8 ([D-034](../docs/DECISIONS.md#d-034-the-explainer-worker-wakes-on-a-doorbell-with-polling-as-the-backup)):** A decline rings the doorbell without blocking; with the doorbell disabled, the backup poll still produces the explanation.
+- **AC1 (R1):** Authorization latency is unchanged with the explainer on vs. off (within noise). ✅ an A/B load test shows the same tail with and without the explainer (I-035); ringing never blocks
+- **AC2:** Given the split-purchase decline, then within ~1 s `GET /v1/authorizations/{id}` shows an explanation like README §13. ✅ live: explained in under a second
+- **AC3 (R3):** Given `MOCK_LLM_FAILURE_RATE=1`, then every explanation has `validated: false, fallback_used: true` and template text. ✅ live and tested
+- **AC4 (R4):** Same decision twice → same explanation text. ✅ same facts, same text and latency
+- **AC5:** `/check-tests -cov 80` passes. ✅ explain 97.2%, authz 100%
+- **AC6 ([D-032](../docs/DECISIONS.md#d-032-every-background-goroutine-recovers-its-own-panics)):** Given the mocked LLM panics, then the engine keeps serving authorizations, the panic is logged with its stack trace, and that explanation is marked failed. ✅ tested; the next job still runs
+- **AC7 ([D-033](../docs/DECISIONS.md#d-033-every-goroutine-has-a-known-stop-and-shutdown-happens-in-order)):** On SIGTERM, the worker finishes its current job and has stopped before the Postgres pool closes. ✅ tested under `synctest`; live SIGTERM stops cleanly
+- **AC8 ([D-034](../docs/DECISIONS.md#d-034-the-explainer-worker-wakes-on-a-doorbell-with-polling-as-the-backup)):** A decline rings the doorbell without blocking; with the doorbell disabled, the backup poll still produces the explanation. ✅ tested under `synctest`
 
 ### 5. Open questions
 | # | Question | Who | Blocks |
@@ -52,8 +52,8 @@ After a DECLINE or FLAG, an async worker reads the outbox, builds the prompt a r
 ---
 
 ## Part 3: Suggested breakdown
-1. Interface + template explainer + tests.
-2. Prompt builder + mock + validator.
-3. Outbox worker + persistence.
-4. Failure-rate switch + AC3.
-5. `/check-tests -cov 80`.
+1. ✅ Interface + template explainer + tests.
+2. ✅ Prompt builder + mock + validator.
+3. ✅ Outbox worker + persistence (bulk publish, 8 in parallel, 200 ms gap: D-072).
+4. ✅ Failure-rate switch + AC3.
+5. ✅ `/check-tests -cov 80`.
