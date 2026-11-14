@@ -58,7 +58,7 @@ The trade-offs I accepted for this challenge, in short form for the interview. E
 | Trade-off | I chose | I gave up | Why it's right here | |
 |---|---|---|---|---|
 | Velocity scope ([D-044](DECISIONS.md#d-044-velocity-limits-are-per-card-only)) | Per-card limits | Company-wide limits | Keeps each Lua call on one card's keys; company keys would serialize every card | ✅ |
-| Cuts ([D-011](DECISIONS.md#d-011-mvp-scope-cuts)) | Cut shadow mode, dashboard UI, partial approval | Those features | Depth on the core decision instead of breadth | ✅ |
+| Cuts ([D-011](DECISIONS.md#d-011-mvp-scope-cuts), [D-073](DECISIONS.md#d-073-a-dashboard-is-a-future-task)) | Cut shadow mode, dashboard UI, partial approval | Those features | Depth on the core decision instead of breadth; the dashboard is the next task, on top of the metrics and simulator that now exist | ✅ |
 | Full lifecycle ([D-012](DECISIONS.md#d-012-keep-the-full-lifecycle-in-the-mvp)) | Kept capture, refund, increment | A day of other work | "Approve" is not the end; budgets are wrong without the lifecycle | ✅ |
 | Policy cache ([D-037](DECISIONS.md#d-037-how-policies-are-cached)) | In-memory, swapped on publish | Multi-instance freshness | One engine process; a TTL cache is the next step for several | ✅ |
 | Policy format ([D-004](DECISIONS.md#d-004-rules-as-versioned-json-policies)) | Versioned JSON | A rule language (CEL) | No deploy per customer, every decision replayable; CEL is a next step | ✅ |

@@ -107,6 +107,7 @@ func (s *Service) buildFallbackResponse(req domain.AuthRequest, e *pipeline.Eval
 
 	s.log.Warn("fallback applied",
 		logKeyAuthorizationID, req.AuthorizationID,
+		logKeyCompanyID, e.Card.CompanyID,
 		logKeyDecision, resp.Decision,
 		"policy", doc.CompanyID,
 		"cause", cause.Error(),

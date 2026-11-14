@@ -41,3 +41,28 @@ func TestMetricsWithNoDecisionsAreZero(t *testing.T) {
 	c.Empty(metrics.DeclineReasons)
 	c.Zero(metrics.LatencyMS.P99)
 }
+
+// README §15: the metrics count explanations by how they were written.
+func TestMetricsCountTheExplanations(t *testing.T) {
+	c := require.New(t)
+	harness := newFixtureWith(t, riskPolicy)
+	since := time.Now().Add(-time.Minute)
+	harness.authorize("by-model", 60000)
+	harness.authorize("by-template", 61000)
+	harness.authorize("crashed", 62000)
+	explanations := map[string]string{
+		"by-model":    `{"validated": true, "fallback_used": false}`,
+		"by-template": `{"validated": false, "fallback_used": true}`,
+		"crashed":     `{"failed": true}`,
+	}
+	for name, explanation := range explanations {
+		_, err := harness.pool.Exec(harness.ctx, `UPDATE authorizations SET explanation = $2 WHERE authorization_id = $1`,
+			harness.buildID(name), explanation)
+		c.NoError(err)
+	}
+
+	metrics, err := harness.st.GetMetrics(harness.ctx, since)
+
+	c.NoError(err)
+	c.Equal(domain.ExplainerMetrics{Explained: 3, FallbackUsed: 1, Failed: 1}, metrics.Explainer)
+}

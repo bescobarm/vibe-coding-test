@@ -47,7 +47,8 @@ func TestMetricsReturnsCountsReasonsAndPercentiles(t *testing.T) {
 	c.Equal(since, metrics.since)
 	c.JSONEq(`{"since": "2026-11-14T15:00:00Z", "decisions": 10, "approved": 8, "declined": 2, "flagged": 1,
 		"fallback_used": 0, "approval_rate": 0.8, "decline_reasons": {"MCC_BLOCKED": 2},
-		"latency_ms": {"p50": 2.1, "p95": 3.4, "p99": 5.6}}`, recorder.Body.String())
+		"latency_ms": {"p50": 2.1, "p95": 3.4, "p99": 5.6},
+		"explainer": {"explained": 0, "fallback_used": 0, "failed": 0}}`, recorder.Body.String())
 }
 
 func TestMetricsDefaultsToTheLast24Hours(t *testing.T) {

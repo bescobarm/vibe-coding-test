@@ -59,6 +59,7 @@ const (
 	logKeyAuthorizationID = "authorization_id"
 	msgNoSignals          = "anomaly signals are not configured: the score only sees the request"
 	logKeyDecision        = "decision"
+	logKeyCompanyID       = "company_id"
 )
 
 // Service decides authorizations: it loads the card and policy, then runs the pipeline once per authorization_id.
@@ -177,6 +178,8 @@ func (s *Service) Authorize(ctx context.Context, req domain.AuthRequest) (domain
 			s.doorbell()
 		}
 
+		s.logDecision(evaluation, result.resp, result.replayed)
+
 		return result.resp, result.replayed, nil
 	case <-ctx.Done():
 		return s.answerLateFallback(ctx, req, evaluation, start, done), false, nil
@@ -195,6 +198,28 @@ func (s *Service) decide(e *pipeline.Evaluation, start time.Time) DecideFunc {
 
 		return resp, nil
 	}
+}
+
+// logDecision writes the structured decision line (README §15): who, what
+// and why, so a decline can be traced from the logs alone.
+func (s *Service) logDecision(evaluation *pipeline.Evaluation, resp domain.AuthResponse, replayed bool) {
+	codes := make([]string, len(resp.Reasons))
+	for index, reason := range resp.Reasons {
+		codes[index] = reason.Code
+	}
+
+	s.log.Info("decision",
+		logKeyAuthorizationID, resp.AuthorizationID,
+		logKeyCompanyID, evaluation.Card.CompanyID,
+		"card_id", evaluation.Request.CardID,
+		logKeyDecision, resp.Decision,
+		"flagged", resp.Flagged,
+		"risk_score", resp.RiskScore,
+		"reasons", codes,
+		"latency_ms", resp.LatencyMS,
+		"fallback_used", resp.FallbackUsed,
+		"replayed", replayed,
+	)
 }
 
 // load reads the card, policy and signals. An unknown card is not an error:

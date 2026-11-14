@@ -96,6 +96,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-070](#d-070-metrics-are-read-from-the-audit-log) | Metrics are read from the audit log | 🟢 Accepted | Architecture | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-071](#d-071-the-engine-keeps-32-postgres-connections) | The engine keeps 32 Postgres connections | 🟢 Accepted | Performance | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-072](#d-072-how-the-explainer-worker-drains-the-outbox) | How the explainer worker drains the outbox | 🟢 Accepted | Architecture | [07](../briefs/07-mock-llm-explainer-brief.md) |
+| [D-073](#d-073-a-dashboard-is-a-future-task) | A dashboard is a future task | 🟢 Accepted | Scope | [06](../briefs/06-simulator-and-report-brief.md) |
 
 ---
 
@@ -697,6 +698,13 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - Passes are at least **200 ms apart**; a ring during the gap is kept, so an explanation still arrives in well under a second (AC2).
   - Each job runs detached from the worker's context with a 3 s timeout, so shutdown lets it finish (D-033); a panic becomes a failed explanation (D-032).
 - **Decision:** As built.
+- **Why:** 📝
+
+### D-073: A dashboard is a future task
+- **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after reviewing the metrics) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Revisits:** [D-011](#d-011-mvp-scope-cuts)
+- **Context:** D-011 cut the dashboard UI and kept a CLI report and `GET /v1/metrics`. With the metrics and the simulator built, a dashboard is the natural next step.
+- **Decision:** A simple frontend, as a future task in this implementation: send random or specific transactions (one or a batch) and watch the metrics in real time. Not built in the MVP.
+- **AI input and concerns:** it can reuse what exists: the simulator's scenarios and seeded random cases for "random", the authorization API for "specific", and `GET /v1/metrics` for the numbers. "Real time" can start as polling `/v1/metrics` every second; a push channel (server-sent events) is only needed beyond that.
 - **Why:** 📝
 
 ## Proposed (waiting for my decision)

@@ -140,15 +140,6 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.log.Info("decision",
-		"authorization_id", resp.AuthorizationID,
-		"card_id", req.CardID,
-		"decision", resp.Decision,
-		"reasons", listReasonCodes(resp.Reasons),
-		"latency_ms", resp.LatencyMS,
-		"replayed", replayed,
-	)
-
 	if replayed {
 		w.Header().Set(headerReplay, "true")
 	}
@@ -265,13 +256,4 @@ func (h *handler) writeJSON(w http.ResponseWriter, status int, v any) {
 	if err != nil {
 		h.log.Error("write response failed", "status", status, "err", err)
 	}
-}
-
-func listReasonCodes(rs []domain.Reason) []string {
-	codes := make([]string, len(rs))
-	for i, reason := range rs {
-		codes[i] = reason.Code
-	}
-
-	return codes
 }
