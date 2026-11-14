@@ -138,7 +138,7 @@ make load
 ```
 
 Expect:
-1. The report: 6 scenarios, `12/12 fraud cards caught`, `False declines: 0/160`. A second `make simulate` prints the same scenario results (same seed).
+1. The report: 6 scenarios, `12/12 fraud cards caught`, `False declines: 0/…`. Each run plays new random cases; to replay one, copy its seed: `go run ./cmd/simulator -seed <seed>`.
 2. Counts by reason and p50/p95/p99 for all traffic so far.
 3. `PASS (p99 < 100 ms)` at 200 req/s; `make load` exits non-zero on `FAIL`.
 

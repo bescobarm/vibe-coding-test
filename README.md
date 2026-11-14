@@ -788,10 +788,10 @@ The full log, including the options the AI suggested, the concerns raised and wh
 | Card testing: 8 × $1–$5 CNP in 3 minutes at different merchants | Declined from the N-th attempt (`CARD_TESTING_PATTERN`) |
 | Split purchase: 3 × $490 same merchant same day, $500 limit | Flagged/declined (`SPLIT_TRANSACTION_PATTERN`) |
 | Stolen card: new country + new merchant + high amount CNP | Declined (`NEW_COUNTRY`, `NEW_MERCHANT_CNP`, `AMOUNT_ANOMALY`) |
-| Gambling MCC | Declined (`MCC_BLOCKED`) |
+| Blocked MCC (gambling, quasi-cash or money transfer) | Declined (`MCC_BLOCKED`) |
 | Hotel incremental auth | Approved within budget, hold increased |
 
-The report shows the **detection rate per scenario** and the **false-decline rate** on normal traffic.
+The report shows the **detection rate per scenario** and the **false-decline rate** on normal traffic. Each run draws new cases (how many purchases, attempts and parts, amounts, countries, categories) from a random seed printed in the report; `-seed` replays a run exactly ([D-066](docs/DECISIONS.md#d-066-the-simulator-creates-its-own-cards-in-postgres)).
 
 ### Observability
 

@@ -143,7 +143,7 @@ func (r Report) Render(out io.Writer) error {
 	table := tabwriter.NewWriter(out, 0, 0, columnPad, ' ', 0)
 	printer := &errWriter{out: table}
 
-	printer.printf("Simulator report · seed %d · run %s\n\n", r.Seed, r.RunID)
+	printer.printf("Simulator report · seed %d (replay with -seed %d) · run %s\n\n", r.Seed, r.Seed, r.RunID)
 	printer.printf("%s\n", reportHeader)
 
 	for _, outcome := range r.Outcomes {

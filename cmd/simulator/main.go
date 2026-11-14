@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	_ "embed"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -39,7 +40,7 @@ const (
 	readyPause         = 300 * time.Millisecond
 	exitFailure        = 1
 
-	defaultSeed        = 42
+	seedBytes          = 8
 	defaultNormalCards = 20
 	defaultFraudCards  = 3
 	defaultRate        = 200
@@ -68,7 +69,7 @@ func main() {
 	flag.StringVar(&opts.engineURL, "engine", defaultEngineURL, "engine base URL")
 	flag.StringVar(&opts.databaseURL, "database", getEnv("DATABASE_URL", defaultDatabaseURL), "engine database, to create the run's cards")
 	flag.StringVar(&opts.mode, "mode", modeReport, "report or load")
-	flag.Uint64Var(&opts.seed, "seed", defaultSeed, "random seed: the same seed sends the same traffic")
+	flag.Uint64Var(&opts.seed, "seed", 0, "random seed; 0 (default) picks a new one each run. The same seed sends the same traffic")
 	flag.IntVar(&opts.normalCards, "normal-cards", defaultNormalCards, "cards with normal traffic")
 	flag.IntVar(&opts.fraudCards, "fraud-cards", defaultFraudCards, "cards per fraud scenario")
 	flag.IntVar(&opts.rate, "rate", defaultRate, "load: requests per second")
@@ -107,7 +108,12 @@ func run(opts options) error {
 		return err
 	}
 
-	sim := simulator.NewRun(runID, opts.seed, simulator.NewHTTPEngine(opts.engineURL, client))
+	seed, err := pickSeed(opts.seed)
+	if err != nil {
+		return err
+	}
+
+	sim := simulator.NewRun(runID, seed, simulator.NewHTTPEngine(opts.engineURL, client))
 	cards := simulator.NewPostgresCards(pool)
 
 	switch opts.mode {
@@ -201,4 +207,21 @@ func getEnv(key, fallback string) string {
 	}
 
 	return fallback
+}
+
+// pickSeed keeps a seed that was given, or draws a new one, so each run plays
+// different cases (D-066). The report prints it to replay the run.
+func pickSeed(given uint64) (uint64, error) {
+	if given != 0 {
+		return given, nil
+	}
+
+	random := make([]byte, seedBytes)
+
+	_, err := rand.Read(random)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.BigEndian.Uint64(random), nil
 }
