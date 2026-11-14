@@ -412,7 +412,10 @@ SELECT count(*),
        count(*) FILTER (WHERE fallback_used),
        round(coalesce(percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8,
        round(coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8,
-       round(coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8
+       round(coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::numeric, 2)::float8,
+       count(*) FILTER (WHERE explanation IS NOT NULL),
+       count(*) FILTER (WHERE (explanation->>'fallback_used')::boolean),
+       count(*) FILTER (WHERE (explanation->>'failed')::boolean)
 FROM authorizations
 WHERE created_at >= $1 AND decision <> 'PENDING'`
 
@@ -428,7 +431,8 @@ func (s *Store) GetMetrics(ctx context.Context, since time.Time) (domain.Metrics
 	metrics := domain.Metrics{Since: since, DeclineReasons: map[string]int{}}
 
 	err := s.pool.QueryRow(ctx, metricsSQL, since).Scan(&metrics.Decisions, &metrics.Approved, &metrics.Declined,
-		&metrics.Flagged, &metrics.FallbackUsed, &metrics.LatencyMS.P50, &metrics.LatencyMS.P95, &metrics.LatencyMS.P99)
+		&metrics.Flagged, &metrics.FallbackUsed, &metrics.LatencyMS.P50, &metrics.LatencyMS.P95, &metrics.LatencyMS.P99,
+		&metrics.Explainer.Explained, &metrics.Explainer.FallbackUsed, &metrics.Explainer.Failed)
 	if err != nil {
 		return domain.Metrics{}, fmt.Errorf("read metrics: %w", err)
 	}

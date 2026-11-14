@@ -125,6 +125,15 @@ type Metrics struct {
 	ApprovalRate   float64            `json:"approval_rate"`
 	DeclineReasons map[string]int     `json:"decline_reasons"`
 	LatencyMS      LatencyPercentiles `json:"latency_ms"`
+	Explainer      ExplainerMetrics   `json:"explainer"`
+}
+
+// ExplainerMetrics count the explanations written for the decisions in the
+// window: by the model, by the template after a rejected answer, or failed.
+type ExplainerMetrics struct {
+	Explained    int `json:"explained"`
+	FallbackUsed int `json:"fallback_used"`
+	Failed       int `json:"failed"`
 }
 
 // LatencyPercentiles are the engine's processing time, in milliseconds.

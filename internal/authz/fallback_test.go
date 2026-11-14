@@ -255,3 +255,26 @@ func TestAStoredFallbackRingsTheDoorbell(t *testing.T) {
 	c.True(resp.FallbackUsed)
 	c.Equal(1, rings)
 }
+
+// README §15: the decision line says which company, so a decline can be traced from the logs.
+func TestTheDecisionLogNamesTheCompany(t *testing.T) {
+	c := require.New(t)
+	var logs bytes.Buffer
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New()).WithLogger(newJSONLogger(&logs))
+
+	_, _, err := svc.Authorize(context.Background(), newRequest())
+
+	c.NoError(err)
+	c.Contains(logs.String(), `"msg":"decision","authorization_id":"auth_1","company_id":"acme-mx","card_id":"card_123","decision":"APPROVE"`)
+}
+
+func TestTheFallbackLogNamesTheCompany(t *testing.T) {
+	c := require.New(t)
+	var logs bytes.Buffer
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{err: errBoom}, pipeline.New()).WithLogger(newJSONLogger(&logs))
+
+	_, _, err := svc.Authorize(context.Background(), newRequest())
+
+	c.NoError(err)
+	c.Contains(logs.String(), `"msg":"fallback applied","authorization_id":"auth_1","company_id":"acme-mx"`)
+}
