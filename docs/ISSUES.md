@@ -33,7 +33,12 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-025](#i-025-the-default-policy-reason-said-the-company-had-no-policy) | 2026-11-14 | API | ✅ |
 | [I-026](#i-026-a-fallback-before-the-hard-controls-skips-them) | 2026-11-14 | Risk | ⏭️ |
 | [I-027](#i-027-a-synctest-bubble-cannot-end-with-blocked-goroutines) | 2026-11-14 | Tests | ✅ |
+| [I-028](#i-028-skipped-integration-tests-looked-like-a-pass) | 2026-11-14 | Tests | ✅ |
+| [I-029](#i-029-the-cardholder-history-scanned-every-card) | 2026-11-14 | Performance | ✅ |
+| [I-030](#i-030-lifecycle-calls-have-no-deadline) | 2026-11-14 | Reliability | ✅ |
 | [I-031](#i-031-a-stacked-pr-merged-into-its-base-branch-instead-of-main) | 2026-11-14 | Git | ✅ |
+| [I-032](#i-032-the-simulator-report-counted-another-runs-decisions) | 2026-11-14 | Tests | ✅ |
+| [I-033](#i-033-a-rebase-dropped-pr-10s-documentation) | 2026-11-14 | Git | ✅ |
 
 ---
 
@@ -151,7 +156,27 @@ Every problem found while building: what happened, how it was found, and how it 
 - **Found:** `TestWaitGivesUpWhenItsContextEnds` panicked: after `Wait` gave up, the late decision was still sleeping inside the bubble.
 - **Fix:** the test waits for the background work at the end. It also shows the point of D-033: background work has to be waited for, or it outlives its owner.
 
+### I-028: Skipped integration tests looked like a pass
+- **Found:** applying the PR #10 review, `go test ./...` printed `ok` for every package, but the velocity tests took 43 s instead of 3 s: Redis was down (the Docker runtime had restarted), and every Redis test was **skipped** after a 1.8 s timeout. `ok` hid that they never ran.
+- **Fix:** [`internal/testenv`](../internal/testenv/testenv.go): with `TEST_REQUIRE_SERVICES=true`, which `make test` and `make cover` set, a missing Postgres or Redis fails the test. A plain `go test` still skips, for quick local runs. Verified by stopping Redis: the test failed.
+
+### I-029: The cardholder history scanned every card
+- **Found:** SQL review of PR #10 ([SQL_REVIEW.md](SQL_REVIEW.md)). `EXPLAIN` on the signals query, which runs on every authorization, showed `Seq Scan on cards`: no index on `cards(cardholder_id)`, so the cost grows with every card issued.
+- **Fix:** migration `0003` adds the index; the plan becomes an `Index Scan` (cost 8.3 instead of 99.5 at 5,000 cards, flat as cards grow).
+
+### I-030: Lifecycle calls have no deadline
+- **Found:** SQL review. Authorizations run under the 500 ms deadline, but reversal, capture and the other lifecycle calls use the request context with no timeout. A call waiting on the row lock (`FOR UPDATE`) behind a slow transaction waits as long as that transaction does.
+- **Fix:** lifecycle calls run under a 2 s deadline in the handler; a stuck lock answers 500 and the caller retries with the same `event_id` (D-050). Tested under `synctest`: the answer comes at exactly 2 s.
+
 ### I-031: A stacked PR merged into its base branch instead of main
 - **Found:** after "everything is merged", `main` had no `internal/authz/fallback.go`. PR #11's base was `VCT-10-anomaly-scoring`; after #10 merged, that branch stayed on GitHub (I-008), so GitHub didn't retarget #11 to `main`, and its merge landed on the old branch.
 - **Fix:** PR #12 brought the merge into `main`; "Automatically delete head branches" is now on, so GitHub retargets a stacked PR when its base merges. Lesson: after merging, check for a file from the latest PR on `main`.
+
+### I-032: The simulator report counted another run's decisions
+- **Found:** the first live SP06 run printed 220 decisions; a second run with the same seed printed 440. The report read latency from `/v1/metrics` "since the run started minus 1 second", and the first run had finished inside that second.
+- **Fix:** the report computes latency and fallbacks from its own answers (each carries `latency_ms` and `fallback_used`), so other traffic can't skew it. `/v1/metrics` stays the operator's view of all traffic.
+
+### I-033: A rebase dropped PR #10's documentation
+- **Found:** writing SP06's decisions, D-065 was missing from `main`. Rebasing PR #11 onto the reviewed PR #10 used `git rebase -X theirs`, which keeps the replayed commit's side of every conflicting hunk: #11's older DECISIONS.md, ISSUES.md and README.md silently replaced #10's additions (D-065, D-043 rules 7–10, I-028 to I-030, the `SCORE_WEIGHT_*` rows). The code went through the same rebase but was intact, because it was re-checked by the compiler and the tests; the docs had no such check.
+- **Fix:** restored from PR #10's commit (`d01d8e3`) into the current files, each insertion asserting its anchor exists. Lesson: `-X theirs` is not a merge strategy for files both branches edited; after a conflicted rebase, diff the docs against both parents.
 

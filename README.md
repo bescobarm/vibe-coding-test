@@ -52,7 +52,6 @@
 | Go | 1.25+ (built with 1.27) | Engine, simulator and tests | `brew install go` |
 | Docker runtime | Any with `docker compose` | Runs Postgres and Redis | `brew install --cask orbstack` (or Docker Desktop) |
 | make | Any | Shortcuts below | Comes with Xcode Command Line Tools |
-| k6 *(optional)* | Any | Load test and latency percentiles | `brew install k6` |
 
 No API keys are needed. The LLM explainer is **mocked** (see [§13](#13-mocked-llm-explainer)).
 
@@ -74,7 +73,7 @@ make simulate            # runs the fraud scenarios and prints the detection rep
 make test                # unit, concurrency and idempotency tests
 make cover               # test coverage per package (target: 80% on changed files)
 make lint                # golangci-lint + style rules (D-043), needs golangci-lint v2
-make load                # optional, needs k6: p50/p95/p99 latency
+make load                # load test at 200 req/s: p50/p95/p99, fails if p99 >= 100 ms
 ```
 
 For a short step-by-step test of what is built so far, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
@@ -105,6 +104,12 @@ Send the same request again: you get the same decision, and the amount is counte
 | `REDIS_ADDR` | `localhost:6379` | Redis (velocity counters and holds) |
 | `REDIS_TIMEOUT_MS` | `50` | Timeout of every Redis call, so a slow Redis fails fast ([D-048](docs/DECISIONS.md#d-048-redis-calls-have-a-fixed-timeout)) |
 | `SEED_DEMO` | `true` | Insert the demo company, policy and cards on start |
+| `SCORE_WEIGHT_CARD_TESTING` | `40` | Points for `CARD_TESTING_PATTERN` (0–100). The six weights tune the score without a rebuild ([D-065](docs/DECISIONS.md#d-065-score-weights-can-be-overridden-with-env-vars)) |
+| `SCORE_WEIGHT_SPLIT_PURCHASE` | `40` | Points for `SPLIT_TRANSACTION_PATTERN` |
+| `SCORE_WEIGHT_NEW_COUNTRY` | `25` | Points for `NEW_COUNTRY` |
+| `SCORE_WEIGHT_NEW_MERCHANT_CNP` | `25` | Points for `NEW_MERCHANT_CNP` |
+| `SCORE_WEIGHT_AMOUNT_ANOMALY` | `25` | Points for `AMOUNT_ANOMALY` |
+| `SCORE_WEIGHT_ROUND_AMOUNT` | `10` | Points for `ROUND_AMOUNT` |
 | `INTERNAL_DEADLINE_MS` | `500` | Hard budget per decision. After it, the company's fallback answers ([D-064](docs/DECISIONS.md#d-064-the-engine-answers-at-the-deadline-even-if-a-stage-does-not)) |
 | `EXPLAINER` | `mock` | `mock` (simulated LLM) or `template` (no LLM at all) |
 
@@ -771,7 +776,7 @@ The full log, including the options the AI suggested, the concerns raised and wh
 - **Idempotency test:** the same request sent twice returns the same decision and counts once.
 - **Failure tests:** Redis unavailable or a slow dependency → fallback applied within the deadline, and flagged.
 - **Explainer tests:** the mock's output is validated; an invalid response falls back to the template.
-- **Load test:** p50/p95/p99 latency with `k6`.
+- **Load test:** `make load` paces requests with a worker pool (D-035, D-069) and fails if the engine's p99 is 100 ms or more. Measured locally: p99 4.3 ms at 200 req/s, 6.4 ms at 1,000 req/s.
 
 ### Scenario simulator
 

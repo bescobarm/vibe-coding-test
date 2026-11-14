@@ -27,6 +27,7 @@ Every query the engine runs, reviewed for injection, cost, locking and data expo
 | `storedEventSQL` | `event_id` | Parameterized | Primary key | None |
 | `holdSQL` (`GetHold`) | `authorization_id` | Parameterized | Primary key | None (read before the transaction, D-029) |
 | `approvedSinceSQL` (rebuild) | `since` | Parameterized | Full scan of recent authorizations | Startup only, before serving (D-055) |
+| `metricsSQL`, `declineReasonsSQL` (`GET /v1/metrics`) | `since` | Parameterized | Scan of the window (no index on `created_at`); operator endpoint, not the hot path (D-070) | None |
 | Migrations, `seed_demo.sql` | none | Embedded files, not user input | — | Advisory lock so two engines don't migrate twice |
 | Tests: `"CREATE SCHEMA " + schema` | random hex | Test code only; the name is generated, never input | — | — |
 

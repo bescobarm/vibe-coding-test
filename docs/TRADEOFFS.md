@@ -69,5 +69,7 @@ The trade-offs I accepted for this challenge, in short form for the interview. E
 |---|---|---|---|---|
 | Real dependencies in tests ([D-047](DECISIONS.md#d-047-lua-tests-run-against-the-compose-redis)) | Tests on the Compose Redis and Postgres | In-memory fakes (faster, no Docker) | Fakes could hide Lua and SQL bugs; concurrency tests need the real thing | ✅ |
 | Standard library ([D-021](DECISIONS.md#d-021-http-routing-with-the-standard-library)) | `net/http`, embedded migrations | A framework and a migration tool | Fewer dependencies to explain and to break | ✅ |
+| Load tool ([D-069](DECISIONS.md#d-069-load-is-tested-by-the-go-simulator)) | The Go simulator's load mode | k6 | Nothing extra to install; the same tool runs the scenarios. Measured: p99 6.4 ms at 1,000 req/s | ✅ |
+| Metrics ([D-070](DECISIONS.md#d-070-metrics-are-read-from-the-audit-log)) | SQL over the audit log | In-memory counters | No new state, survives restarts; a scan per call is fine for an operator endpoint | ✅ |
 | Quality gates ([D-015](DECISIONS.md#d-015-coverage-threshold-80), [D-043](DECISIONS.md#d-043-code-style-rules-enforced-by-linters)) | 80% coverage per file, linters for style | Speed on each change | AI writes fast; gates keep that speed from becoming debt | ✅ |
 | Decisions log ([D-017](DECISIONS.md#d-017-log-every-decision)) | Every choice logged, AI suggestions separated | Time spent writing | It shows where the AI helped and where I decided differently | ✅ |
