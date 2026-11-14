@@ -182,7 +182,7 @@ flowchart LR
 | Frame | **`/problem-brief-creator`** | Reads the design, **asks about any gap before writing** (it never assumes facts), then writes a brief with scope, acceptance criteria, insights, decisions with options, and a breakdown. | Answer its questions, accept or reject each recommendation. Briefs live in [briefs/](briefs/). |
 | Decide | Decision log | Every decision is written as context → options (AI-suggested and mine) → concerns → **my decision** → why. | Own every entry. An AI suggestion stays `Proposed` until I accept it. See [docs/DECISIONS.md](docs/DECISIONS.md). |
 | Build | Claude Code | Writes code against the brief's acceptance criteria. | Review diffs, run the demo, push back. |
-| Verify | **`/check-tests -cov 80`** | Finds every file changed vs `main` (including uncommitted ones), measures Go coverage per file, and writes the missing table-driven tests for any file below 80%. Then it runs coverage again to confirm. | Read every generated test before committing. A test that runs code without checking a real result gets deleted. |
+| Verify | **`/check-tests -cov 80`** | Finds every file changed vs `main` (including uncommitted ones), measures Go coverage per file, and writes the missing tests (one per scenario, D-030) for any file below 80%. Then it runs coverage again to confirm. | Read every generated test before committing. A test that runs code without checking a real result gets deleted. |
 
 ---
 
@@ -763,7 +763,7 @@ The full log, including the options the AI suggested, the concerns raised and wh
 
 ### Testing
 
-- **Unit tests:** each control, velocity rule and anomaly feature in isolation (table-driven tests in Go).
+- **Unit tests:** each control, velocity rule and anomaly feature in isolation, one test per scenario with testify `require` ([D-030](docs/DECISIONS.md#d-030-test-style-one-test-per-scenario-with-testify-require)).
 - **Coverage gate:** `/check-tests -cov 80` before every commit. Every changed Go file must reach 80% line coverage.
 - **Integration tests:** `make test` fails, instead of skipping, when Postgres or Redis is down ([I-028](docs/ISSUES.md#i-028-skipped-integration-tests-looked-like-a-pass)).
 - **Lint gate:** `make lint` must report 0 issues: blank line after blocks, no init statement in `if`, cyclomatic complexity ≤ 10, no magic numbers or hardcoded texts, doc comments on exported code, specific errors, no one-line bodies, one item per line in literals of 3+, no single-letter variables, function names with a verb ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)).
