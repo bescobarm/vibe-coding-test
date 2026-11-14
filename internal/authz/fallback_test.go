@@ -212,3 +212,46 @@ func TestAMissingSignalReaderIsLoggedOnce(t *testing.T) {
 
 	c.Equal(1, strings.Count(logs.String(), msgNoSignals))
 }
+
+// D-034: a stored decision rings the explainer's doorbell; a replay doesn't.
+func TestAStoredDecisionRingsTheDoorbell(t *testing.T) {
+	c := require.New(t)
+	rings := 0
+	svc := NewService(&fakeRecorder{}, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New()).WithDoorbell(func() {
+		rings++
+	})
+
+	_, _, err := svc.Authorize(context.Background(), newRequest())
+
+	c.NoError(err)
+	c.Equal(1, rings)
+}
+
+func TestAReplayDoesNotRingTheDoorbell(t *testing.T) {
+	c := require.New(t)
+	stored := domain.AuthResponse{AuthorizationID: "auth_1", Decision: domain.Decline}
+	rings := 0
+	svc := NewService(&fakeRecorder{replay: &stored}, fakeCards{card: activeCard}, fakePolicies{}, pipeline.New()).WithDoorbell(func() {
+		rings++
+	})
+
+	_, replayed, err := svc.Authorize(context.Background(), newRequest())
+
+	c.NoError(err)
+	c.True(replayed)
+	c.Zero(rings)
+}
+
+func TestAStoredFallbackRingsTheDoorbell(t *testing.T) {
+	c := require.New(t)
+	rings := 0
+	svc := NewService(&fakeRecorder{}, fakeCards{err: errBoom}, fakePolicies{}, pipeline.New()).WithDoorbell(func() {
+		rings++
+	})
+
+	resp, _, err := svc.Authorize(context.Background(), newRequest())
+
+	c.NoError(err)
+	c.True(resp.FallbackUsed)
+	c.Equal(1, rings)
+}

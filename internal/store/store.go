@@ -16,6 +16,7 @@ import (
 
 	"github.com/bescobarm/card-auth-engine/internal/authz"
 	"github.com/bescobarm/card-auth-engine/internal/domain"
+	"github.com/bescobarm/card-auth-engine/internal/explain"
 	"github.com/bescobarm/card-auth-engine/internal/lifecycle"
 	"github.com/bescobarm/card-auth-engine/internal/policy"
 	"github.com/bescobarm/card-auth-engine/internal/velocity"
@@ -458,4 +459,88 @@ func (s *Store) GetMetrics(ctx context.Context, since time.Time) (domain.Metrics
 	}
 
 	return metrics, rows.Err()
+}
+
+// pendingDecisionsSQL reads decision events not yet published, oldest first,
+// with the request each one answered (the explainer needs the merchant).
+const pendingDecisionsSQL = `
+SELECT o.id, o.payload, a.request
+FROM outbox o JOIN authorizations a ON a.authorization_id = o.payload->>'authorization_id'
+WHERE o.published_at IS NULL AND o.topic = 'authorization.decided' AND ` + needsExplanationSQL + `
+ORDER BY o.id
+LIMIT $1`
+
+// needsExplanationSQL matches declines and flags (explain.NeedsExplanation).
+const needsExplanationSQL = `(o.payload->>'decision' = 'DECLINE' OR coalesce((o.payload->>'flagged')::boolean, false))`
+
+// publishUnexplainedSQL publishes every decision event that needs no
+// explanation in one statement, so approvals never wait behind slow ones.
+const publishUnexplainedSQL = `
+UPDATE outbox o SET published_at = now()
+WHERE o.published_at IS NULL AND o.topic = 'authorization.decided' AND NOT ` + needsExplanationSQL
+
+const (
+	// saveExplanationSQL never overwrites: the outbox delivers at least once.
+	saveExplanationSQL = `UPDATE authorizations SET explanation = $2 WHERE authorization_id = $1 AND explanation IS NULL`
+	publishEventSQL    = `UPDATE outbox SET published_at = now() WHERE id = $1`
+)
+
+// PublishUnexplained implements explain.Outbox.
+func (s *Store) PublishUnexplained(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, publishUnexplainedSQL)
+	if err != nil {
+		return 0, fmt.Errorf("publish unexplained: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
+// ListPendingDecisions implements explain.Outbox.
+func (s *Store) ListPendingDecisions(ctx context.Context, limit int) ([]explain.Pending, error) {
+	rows, err := s.pool.Query(ctx, pendingDecisionsSQL, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query pending decisions: %w", err)
+	}
+
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (explain.Pending, error) {
+		var (
+			pending           explain.Pending
+			response, request []byte
+		)
+
+		err := row.Scan(&pending.OutboxID, &response, &request)
+		if err != nil {
+			return explain.Pending{}, err
+		}
+
+		err = json.Unmarshal(response, &pending.Response)
+		if err != nil {
+			return explain.Pending{}, fmt.Errorf("decode response: %w", err)
+		}
+
+		return pending, json.Unmarshal(request, &pending.Request)
+	})
+}
+
+// CompleteDecision implements explain.Outbox.
+func (s *Store) CompleteDecision(ctx context.Context, outboxID int64, authorizationID string, explanation *explain.Explanation) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	if explanation != nil {
+		_, err = tx.Exec(ctx, saveExplanationSQL, authorizationID, explanation)
+		if err != nil {
+			return fmt.Errorf("save explanation: %w", err)
+		}
+	}
+
+	_, err = tx.Exec(ctx, publishEventSQL, outboxID)
+	if err != nil {
+		return fmt.Errorf("publish event: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }

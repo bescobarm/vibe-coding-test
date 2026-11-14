@@ -158,5 +158,7 @@ func (s *Service) storeFallback(ctx context.Context, req domain.AuthRequest, res
 		return domain.AuthResponse{}, false
 	}
 
+	s.doorbell()
+
 	return stored, true
 }

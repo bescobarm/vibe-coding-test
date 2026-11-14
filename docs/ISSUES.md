@@ -39,6 +39,8 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-031](#i-031-a-stacked-pr-merged-into-its-base-branch-instead-of-main) | 2026-11-14 | Git | ✅ |
 | [I-032](#i-032-the-simulator-report-counted-another-runs-decisions) | 2026-11-14 | Tests | ✅ |
 | [I-033](#i-033-a-rebase-dropped-pr-10s-documentation) | 2026-11-14 | Git | ✅ |
+| [I-034](#i-034-the-explainer-worker-fell-behind-and-never-paused) | 2026-11-14 | Performance | ✅ |
+| [I-035](#i-035-the-default-connection-pool-queued-requests-under-load) | 2026-11-14 | Performance | ✅ |
 
 ---
 
@@ -179,4 +181,12 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-033: A rebase dropped PR #10's documentation
 - **Found:** writing SP06's decisions, D-065 was missing from `main`. Rebasing PR #11 onto the reviewed PR #10 used `git rebase -X theirs`, which keeps the replayed commit's side of every conflicting hunk: #11's older DECISIONS.md, ISSUES.md and README.md silently replaced #10's additions (D-065, D-043 rules 7–10, I-028 to I-030, the `SCORE_WEIGHT_*` rows). The code went through the same rebase but was intact, because it was re-checked by the compiler and the tests; the docs had no such check.
 - **Fix:** restored from PR #10's commit (`d01d8e3`) into the current files, each insertion asserting its anchor exists. Lesson: `-X theirs` is not a merge strategy for files both branches edited; after a conflicted rebase, diff the docs against both parents.
+
+### I-034: The explainer worker fell behind and never paused
+- **Found:** the first SP07 load test (1,000 req/s for 10 s): 3 s after it ended, 10,005 of 10,220 decision events were still pending. The worker handled one event at a time, so approvals waited behind 300–800 ms explanations; and with every decision ringing the doorbell, it ran its queries back to back.
+- **Fix:** approvals are published in one bulk `UPDATE`, declines and flags are explained 8 at a time, and passes are at least 200 ms apart (D-072). Afterwards: 0 pending one second after the run. A test checks the gap under `synctest` while the doorbell rings every 10 ms.
+
+### I-035: The default connection pool queued requests under load
+- **Found:** an A/B test to check SP07 AC1 ("latency unchanged with the explainer on"): at 1,000 req/s, the engine *without* the explainer also spiked (p99 147.5 ms in one of three runs), so the explainer wasn't the cause. SP06's single 6.4 ms run had been a good one. The pgx default pool, `max(4, CPUs)` = 12 here, was shared by 64 concurrent requests: any pause queued them for a connection.
+- **Fix:** `DATABASE_MAX_CONNS`, default 32 (D-071): three runs at p99 4.1, 3.8 and 9.9 ms. With the final build, three more runs passed at 43.0, 43.2 and 1.5 ms: the tail still varies on a laptop, but stays under the 100 ms goal. Lesson: one good run is not a measurement; compare A and B, several times.
 

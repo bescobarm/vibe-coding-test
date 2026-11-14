@@ -112,6 +112,8 @@ Send the same request again: you get the same decision, and the amount is counte
 | `SCORE_WEIGHT_ROUND_AMOUNT` | `10` | Points for `ROUND_AMOUNT` |
 | `INTERNAL_DEADLINE_MS` | `500` | Hard budget per decision. After it, the company's fallback answers ([D-064](docs/DECISIONS.md#d-064-the-engine-answers-at-the-deadline-even-if-a-stage-does-not)) |
 | `EXPLAINER` | `mock` | `mock` (simulated LLM) or `template` (no LLM at all) |
+| `MOCK_LLM_FAILURE_RATE` | `0` | 0–1: how often the mock invents a reason code; the validator rejects it and the template answers |
+| `DATABASE_MAX_CONNS` | `32` | Postgres connections ([D-071](docs/DECISIONS.md#d-071-the-engine-keeps-32-postgres-connections)) |
 
 ### Troubleshooting
 
@@ -806,9 +808,9 @@ Each sub-project has a brief in [briefs/](briefs/) (generated with `/problem-bri
 | Day | Date | Sub-projects |
 |---|---|---|
 | **Day 1** | Thu 2026-11-12 | ✅ [01 Walking skeleton](briefs/01-walking-skeleton-brief.md) (compose, migrations, endpoint, idempotency, audit) · ✅ [02 Policy and hard controls](briefs/02-policy-and-hard-controls-brief.md) |
-| **Day 2** | Fri 2026-11-13 | ✅ Lint rules ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)) · [03 Velocity, budget and lifecycle](briefs/03-velocity-budget-lifecycle-brief.md) |
-| **Day 3** | Sat 2026-11-14 | [04 Anomaly scoring](briefs/04-anomaly-scoring-brief.md) · [05 Deadline and fallback](briefs/05-deadline-and-fallback-brief.md) |
-| **Day 4** | Sun 2026-11-15 | [06 Simulator and report](briefs/06-simulator-and-report-brief.md) · [07 Mocked LLM explainer](briefs/07-mock-llm-explainer-brief.md) · `WRITEUP.md` |
+| **Day 2** | Fri 2026-11-13 | ✅ Lint rules ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)) · ✅ [03 Velocity, budget and lifecycle](briefs/03-velocity-budget-lifecycle-brief.md) |
+| **Day 3** | Sat 2026-11-14 | ✅ [04 Anomaly scoring](briefs/04-anomaly-scoring-brief.md) · ✅ [05 Deadline and fallback](briefs/05-deadline-and-fallback-brief.md) |
+| **Day 4** | Sun 2026-11-15 | ✅ [06 Simulator and report](briefs/06-simulator-and-report-brief.md) · ✅ [07 Mocked LLM explainer](briefs/07-mock-llm-explainer-brief.md) · `WRITEUP.md` |
 | **Delivery** | Mon 2026-11-16 | Video, final README pass, submission |
 
 Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-brief.md).

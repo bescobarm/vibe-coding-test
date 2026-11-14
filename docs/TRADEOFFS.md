@@ -51,7 +51,7 @@ The trade-offs I accepted for this challenge, in short form for the interview. E
 | Card testing ([D-025](DECISIONS.md#d-025-who-owns-card-testing-velocity-rule-or-anomaly-feature)) | A hard rule and a score feature | Only one of them | The feature flags from the 4th small charge, the rule declines from the 6th | ✅ |
 | Increments ([D-054](DECISIONS.md#d-054-lifecycle-details-for-increment-capture-and-refund)) | Re-run the hard controls on the new total | Trusting the original approval | A hotel can't grow a hold past what one purchase may cost | ✅ |
 | New cardholders ([D-056](DECISIONS.md#d-056-new-cardholders-skip-the-novelty-features)) | Skip the novelty features until 5 approved purchases | Catching fraud on a card's very first swipes | Otherwise every new card is flagged; the hard rules still apply from the first swipe | ✅ |
-| No LLM in the hot path ([D-009](DECISIONS.md#d-009-no-llm-in-the-hot-path), [D-013](DECISIONS.md#d-013-mock-the-llm-explainer)) | LLM only explains after the decision, mocked | A real LLM call | Latency and determinism; the interface is ready for a real model | ⏳ SP07 |
+| No LLM in the hot path ([D-009](DECISIONS.md#d-009-no-llm-in-the-hot-path), [D-013](DECISIONS.md#d-013-mock-the-llm-explainer)) | LLM only explains after the decision, mocked | A real LLM call | Latency and determinism; the validator rejects any invented reason and the template takes over | ✅ |
 
 ## Scope (a 4-day test)
 
@@ -71,5 +71,7 @@ The trade-offs I accepted for this challenge, in short form for the interview. E
 | Standard library ([D-021](DECISIONS.md#d-021-http-routing-with-the-standard-library)) | `net/http`, embedded migrations | A framework and a migration tool | Fewer dependencies to explain and to break | ✅ |
 | Load tool ([D-069](DECISIONS.md#d-069-load-is-tested-by-the-go-simulator)) | The Go simulator's load mode | k6 | Nothing extra to install; the same tool runs the scenarios. Measured: p99 6.4 ms at 1,000 req/s | ✅ |
 | Metrics ([D-070](DECISIONS.md#d-070-metrics-are-read-from-the-audit-log)) | SQL over the audit log | In-memory counters | No new state, survives restarts; a scan per call is fine for an operator endpoint | ✅ |
+| Explainer worker ([D-072](DECISIONS.md#d-072-how-the-explainer-worker-drains-the-outbox)) | Bulk-publish approvals, explain 8 at a time, 200 ms between passes | Explaining the instant a decision lands | Under load the worker kept up (0 pending after 1 s) without competing with the hot path | ✅ |
+| Connection pool ([D-071](DECISIONS.md#d-071-the-engine-keeps-32-postgres-connections)) | 32 connections | The library default (12 here) | Found by an A/B load test: the default queued requests and spiked p99 | ✅ |
 | Quality gates ([D-015](DECISIONS.md#d-015-coverage-threshold-80), [D-043](DECISIONS.md#d-043-code-style-rules-enforced-by-linters)) | 80% coverage per file, linters for style | Speed on each change | AI writes fast; gates keep that speed from becoming debt | ✅ |
 | Decisions log ([D-017](DECISIONS.md#d-017-log-every-decision)) | Every choice logged, AI suggestions separated | Time spent writing | It shows where the AI helped and where I decided differently | ✅ |
