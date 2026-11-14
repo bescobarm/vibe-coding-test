@@ -50,7 +50,7 @@ Compute a 0–100 score from six explainable features using Redis counters and t
 
 ### Key decisions
 - D-023, D-025: see the decision log.
-- D-056 to D-059 accepted 2026-11-13; D-060 (details) Proposed, implemented.
+- D-056 to D-060 accepted 2026-11-13.
 
 ---
 

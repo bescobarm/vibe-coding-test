@@ -83,7 +83,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-057](#d-057-score-weights-are-defaults-in-code) | Score weights are defaults in code | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-058](#d-058-split-purchases-are-read-from-postgres-before-the-claim) | Split purchases are read from Postgres before the claim | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
 | [D-059](#d-059-the-cardholder-history-is-one-query-over-90-days) | The cardholder history is one query over 90 days | 🟢 Accepted | Architecture | [04](../briefs/04-anomaly-scoring-brief.md) |
-| [D-060](#d-060-scoring-details) | Scoring details | 🟡 Proposed (implemented) | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
+| [D-060](#d-060-scoring-details) | Scoring details | 🟢 Accepted | Risk | [04](../briefs/04-anomaly-scoring-brief.md) |
 
 ---
 
@@ -572,16 +572,17 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** As built: rebuild at startup, before serving, when the marker key is missing; failures are logged and retried on the next start.
 - **Why:** 📝
 
-## Proposed (waiting for my decision)
-
 ### D-060: Scoring details
-- **Status:** 🟡 Proposed, **already implemented** in SP04. Needs my review. · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
+- **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
 - **Context:** D-005, D-023, D-025 and D-056 to D-059 set the approach. Building it needed smaller choices.
-- **AI recommendation (as built):**
+- **AI input and concerns (as built):**
   - **Feature parameters:** card testing = an amount ≤ 5.00 after ≥ 3 small attempts on the card in 10 minutes (declined attempts count); split = every purchase today at the merchant above 80% of the per-transaction limit and the total over it; amount anomaly = ≥ 3 deviations above the cardholder's mean for the MCC, with the deviation floored at 10% of the mean; round amount = a multiple of 100.00 from 100.00 up.
   - **Thresholds:** `risk.flag_at` / `risk.decline_at` from the policy, 40 / 70 when it has none. A flagged approval answers `"flagged": true` with the fired features as reasons.
   - **Card-testing rule reason (D-025):** a velocity rule may set `"reason": "CARD_TESTING_PATTERN"` (only that or `VELOCITY_EXCEEDED`); the demo seed does.
   - **D-023 as built:** when the score declines, the velocity reservation is cancelled entirely, count included: the authorization was never approved, and this matches what a rebuild restores.
-- **Decision:** _pending my review_
+- **Decision:** As built.
+- **Why:** 📝
 
+## Proposed (waiting for my decision)
 
+None right now.
