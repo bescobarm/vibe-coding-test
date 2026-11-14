@@ -160,7 +160,7 @@ In a third terminal, with the engine running:
 make dashboard
 ```
 
-Open http://localhost:8090. Expect the metrics tiles to update every second. **Run** (all six scenarios) fills the report table and the live feed, tagged by scenario; sending a specific transaction (try MCC 7995, batch 3) adds 3 `DECLINE` `MCC_BLOCKED` lines tagged `manual`, and the decline-reason bars grow. A seed shown under the report replays that run exactly when typed back.
+Open http://localhost:8090. **Overview**: the metrics tiles update every second; **Run scenarios** shows each scenario's result and its seed (type it back to replay the run); the example buttons fill the purchase form (try *Card testing*: approved, then flagged from the 4th, declined on the 6th, each with its reason). **Activity & charts**: decisions per second by outcome, p50/p99 latency, decline reasons, risk scores, and the last 50 decisions; hover any chart for the numbers.
 
 ## 5. Publish a new policy version
 
