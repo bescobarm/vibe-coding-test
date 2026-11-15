@@ -54,6 +54,17 @@ func TestThePromptCarriesOnlyTheFacts(t *testing.T) {
 	c.Contains(prompt, "Use ONLY the facts below.")
 }
 
+func TestAMerchantWithNoNameIsCalledByItsID(t *testing.T) {
+	c := require.New(t)
+	decision := newSplitDecision()
+	decision.Request.Merchant.Name = ""
+	decision.Request.Merchant.ID = "m_987"
+
+	prompt := BuildPrompt(decision)
+
+	c.Contains(prompt, "Merchant: m_987 (MCC 5734, US), card not present")
+}
+
 func TestAFlagIsDescribedAsAFlag(t *testing.T) {
 	c := require.New(t)
 	decision := newSplitDecision()

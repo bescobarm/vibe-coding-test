@@ -110,7 +110,7 @@ func BuildPrompt(decision Decision) string {
 	prompt.WriteString("You explain card authorization decisions to a company's finance team.\n")
 	prompt.WriteString("Use ONLY the facts below. Do not invent amounts, merchants or reasons.\n\n")
 	fmt.Fprintf(&prompt, "Decision: %s (risk score %d, policy v%d)\n", describeDecision(decision), decision.RiskScore, decision.PolicyVersion)
-	fmt.Fprintf(&prompt, "Merchant: %s (MCC %s, %s)%s\n", merchant.Name, merchant.MCC, merchant.Country, presence)
+	fmt.Fprintf(&prompt, "Merchant: %s (MCC %s, %s)%s\n", nameMerchant(merchant), merchant.MCC, merchant.Country, presence)
 	fmt.Fprintf(&prompt, "Amount: %s\n", domain.FormatMoney(request.AmountMinor, request.Currency))
 	prompt.WriteString("Facts:\n")
 
@@ -121,6 +121,16 @@ func BuildPrompt(decision Decision) string {
 	prompt.WriteString("\nWrite 2 sentences of summary and 1 suggested action.\n")
 
 	return prompt.String()
+}
+
+// nameMerchant returns the merchant's name, or its ID when the processor sent
+// no name, so an explanation never reads "Declined at : ...".
+func nameMerchant(merchant domain.Merchant) string {
+	if merchant.Name != "" {
+		return merchant.Name
+	}
+
+	return merchant.ID
 }
 
 func describeDecision(decision Decision) string {
