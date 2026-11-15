@@ -49,6 +49,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-041](#i-041-the-dashboard-layout-and-labels-still-assumed-an-engineer) | 2026-11-14 | Dashboard | ✅ |
 | [I-042](#i-042-the-charts-could-only-show-the-last-minute-and-latency-was-a-flat-line) | 2026-11-14 | Dashboard | ✅ |
 | [I-043](#i-043-send-a-purchase-had-the-right-information-in-the-wrong-order) | 2026-11-14 | Dashboard | ✅ |
+| [I-044](#i-044-a-rehearsal-of-the-demo-found-results-off-screen-and-a-misleading-why) | 2026-11-15 | Dashboard | ✅ |
 
 ---
 
@@ -230,3 +231,8 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-043: "Send a purchase" had the right information in the wrong order
 - **Found:** my review of the panel. The risk score thresholds, which explain half of the engine, were one sentence between two tables, and the form to build a purchase sat collapsed at the bottom where it was easy to miss.
 - **Fix:** the panel opens with three choices: company rules (step 1), risk score (step 2) and build your own purchase, each also reachable from the Overview card. The risk score has its own view with a 0–100 scale showing the three zones; the form is a full view, and every Try it answer links to it ("Change it and resend").
+
+### I-044: A rehearsal of the demo found results off-screen and a misleading "Why"
+- **Found:** a full run of the video script on a fresh clone with its own empty database. Every step gave the expected decision, but after "Run all scenarios now" the result tiles landed at the bottom edge of the window and the table below it; and an approved purchase with a small risk signal read "Approved · Why: Round amount 800.00 USD", as if something were wrong.
+- **Cause:** two smooth scrolls cancelled each other (opening the panel, then the "running" note), and nothing scrolled when the results replaced the note. The page labeled every reason "Why", but on a clean approval a reason is only a note.
+- **Fix:** the page scrolls to the results once they exist; reasons on a clean approval read "Noted, did not change the decision: …". The video script also warms up the engine first with one small purchase (the first request took about 13 ms, later ones 2–3 ms).
