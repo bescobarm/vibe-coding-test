@@ -38,7 +38,7 @@ The domain and engineering terms used in the code and docs, in alphabetical orde
 | **Fail-closed / fail-open** | When a dependency fails: decline everything, or approve up to a cap | `fallback.mode`, D-006 |
 | **Fallback** | The answer when the engine can't decide normally (Redis or Postgres down, deadline passed) | `FALLBACK_APPLIED`, `authz.BuildFallback` |
 | **Flagged** | Approved, but the risk score passed `flag_at`; someone should look at it | `"flagged": true` |
-| **Hard control** | A rule that always declines: blocked MCC, country, entry mode, per-transaction limit, allowed hours | `controls.ListHardControls` |
+| **Hard control** | A rule that always declines: inactive card, blocked MCC, country, entry mode, per-transaction limit, allowed hours | `controls.ListHardControls` |
 | **Internal deadline** | The time the engine gives itself to decide (500 ms), well inside the processor's limit | `INTERNAL_DEADLINE_MS`, D-064 |
 | **Override** | A card-level value that replaces the company's control, e.g. a higher limit for an executive | `cards.overrides`, `policy.MergeOverrides` |
 | **Policy (version)** | A company's rules as a JSON document; every change is a new version, never edited in place (D-004) | `policies` table, `policy_version` |

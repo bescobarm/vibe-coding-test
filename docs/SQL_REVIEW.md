@@ -1,6 +1,6 @@
 # SQL review
 
-Every query the engine runs, reviewed for injection, cost, locking and data exposure (review of PR #10, 2026-11-14). Queries are constants in [store.go](../internal/store/store.go) and [migrate.go](../internal/store/migrate.go).
+Every query the engine runs, reviewed for injection, cost, locking and data exposure (review of PR #10, 2026-11-14; later queries added as they were built). Queries are constants in [store.go](../internal/store/store.go) and [migrate.go](../internal/store/migrate.go).
 
 ## Summary
 
@@ -8,7 +8,7 @@ Every query the engine runs, reviewed for injection, cost, locking and data expo
 |---|---|
 | SQL injection | ✅ None. Every value is a `$n` parameter sent separately by pgx; no query is built from request data |
 | Cost per request | ✅ Fixed: the cardholder history scanned the whole `cards` table on every request; migration `0003` adds an index ([I-029](ISSUES.md#i-029-the-cardholder-history-scanned-every-card)) |
-| Lock waits without a deadline | 🟠 Open: lifecycle calls have no internal deadline ([I-030](ISSUES.md#i-030-lifecycle-calls-have-no-deadline)) |
+| Lock waits without a deadline | ✅ Fixed: lifecycle calls run under a 2 s deadline ([I-030](ISSUES.md#i-030-lifecycle-calls-have-no-deadline)) |
 | Data exposure | ⏭️ Known: the API has no authentication (out of scope); errors never return database messages |
 
 ## Every query
@@ -26,6 +26,10 @@ Every query the engine runs, reviewed for injection, cost, locking and data expo
 | `claimEventSQL`, `recordEventSQL`, `updateHoldSQL` | event and hold fields | Parameterized | Primary keys | Same transaction as the row lock; lock order is always row, then event id, so two calls can't deadlock |
 | `storedEventSQL` | `event_id` | Parameterized | Primary key | None |
 | `holdSQL` (`GetHold`) | `authorization_id` | Parameterized | Primary key | None (read before the transaction, D-029) |
+| `GetAuthorization` (`GET /v1/authorizations/{id}`) | `authorization_id` | Parameterized | Primary key | None |
+| `pendingDecisionsSQL` (explainer worker) | batch size | Parameterized | Partial index `outbox_unpublished_idx`; joins `authorizations` by primary key | None; the worker is the only reader |
+| `publishUnexplainedSQL` (explainer worker) | none | No inputs | The same partial index: only unpublished events | Row locks on the events it publishes, held for one statement |
+| `saveExplanationSQL`, `publishEventSQL` (explainer worker) | `authorization_id`, explanation; outbox `id` | Parameterized | Primary keys | One row each; the explanation is never overwritten |
 | `approvedSinceSQL` (rebuild) | `since` | Parameterized | Full scan of recent authorizations | Startup only, before serving (D-055) |
 | `metricsSQL`, `declineReasonsSQL` (`GET /v1/metrics`) | `since` | Parameterized | Scan of the window (no index on `created_at`); operator endpoint, not the hot path (D-070) | None |
 | `metricsSeriesSQL` (`GET /v1/metrics/series`) | `since`, `bucket_seconds` | Parameterized; the handler accepts 1–86400 seconds and at most 1500 buckets | Same scan of the window, grouped by bucket; operator endpoint (D-076) | None |

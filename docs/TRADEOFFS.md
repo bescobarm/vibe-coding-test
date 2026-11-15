@@ -2,7 +2,7 @@
 
 The trade-offs I accepted for this challenge, in short form for the interview. Each one says what I chose, what I gave up, and why that is right for a 4-day build. The full reasoning is in [DECISIONS.md](DECISIONS.md).
 
-**Status:** ✅ built · ⏳ planned (SP04–SP07)
+**Status:** ✅ built. Every row below is built.
 
 ## The 30-second version
 
@@ -36,7 +36,6 @@ The trade-offs I accepted for this challenge, in short form for the interview. E
 | Score data ([D-058](DECISIONS.md#d-058-split-purchases-are-read-from-postgres-before-the-claim), [D-059](DECISIONS.md#d-059-the-cardholder-history-is-one-query-over-90-days)) | One Postgres query before the claim, not atomic | Strict consistency for score signals | A race costs one slightly low score, never money; limits stay atomic in Redis. About 2 ms | ✅ |
 | Fallback ([D-006](DECISIONS.md#d-006-per-company-limited-fail-open), [D-031](DECISIONS.md#d-031-deadline-propagation-and-the-fallback-is-saved-even-after-the-deadline)) | Per-company fail-closed or capped fail-open, stored even after the deadline | One global mode | A retry gets the same answer, even when the system is under stress | ✅ |
 | No policy ([D-042](DECISIONS.md#d-042-a-company-with-no-policy)) | A conservative default embedded in the binary | A versioned default in the database (exact replay) | Fails at build time, works with Postgres down; a third of the work | ✅ |
-
 | Answer on time ([D-064](DECISIONS.md#d-064-the-engine-answers-at-the-deadline-even-if-a-stage-does-not)) | The decision runs in a goroutine; at 500 ms the fallback answers | Simpler code that trusts every stage | The processor always gets an answer in time; the fallback is stored once the slow decision ends | ✅ |
 | Postgres down ([D-062](DECISIONS.md#d-062-with-postgres-down-the-default-fallback-applies-and-is-logged)) | Default fail-closed fallback, logged, not stored | Approving known cards from an in-memory cache | The fallback is a pure function, so a retry gets the same answer with nothing stored | ✅ |
 | Fail-open cap ([D-061](DECISIONS.md#d-061-fail-open-is-capped-by-amount-only)) | Amount cap in one currency | "Known merchants only" | The fallback can't depend on what failed; fail-open doesn't reserve budget, so it can exceed limits (audited with `fallback_used`) | ✅ |
@@ -69,7 +68,7 @@ The trade-offs I accepted for this challenge, in short form for the interview. E
 |---|---|---|---|---|
 | Real dependencies in tests ([D-047](DECISIONS.md#d-047-lua-tests-run-against-the-compose-redis)) | Tests on the Compose Redis and Postgres | In-memory fakes (faster, no Docker) | Fakes could hide Lua and SQL bugs; concurrency tests need the real thing | ✅ |
 | Standard library ([D-021](DECISIONS.md#d-021-http-routing-with-the-standard-library)) | `net/http`, embedded migrations | A framework and a migration tool | Fewer dependencies to explain and to break | ✅ |
-| Load tool ([D-069](DECISIONS.md#d-069-load-is-tested-by-the-go-simulator)) | The Go simulator's load mode | k6 | Nothing extra to install; the same tool runs the scenarios. Measured: p99 6.4 ms at 1,000 req/s | ✅ |
+| Load tool ([D-069](DECISIONS.md#d-069-load-is-tested-by-the-go-simulator)) | The Go simulator's load mode | k6 | Nothing extra to install; the same tool runs the scenarios. Measured: p99 from 1.5 to 43 ms across runs at 1,000 req/s (I-035) | ✅ |
 | Metrics ([D-070](DECISIONS.md#d-070-metrics-are-read-from-the-audit-log)) | SQL over the audit log | In-memory counters | No new state, survives restarts; a scan per call is fine for an operator endpoint | ✅ |
 | Explainer worker ([D-072](DECISIONS.md#d-072-how-the-explainer-worker-drains-the-outbox)) | Bulk-publish approvals, explain 8 at a time, 200 ms between passes | Explaining the instant a decision lands | Under load the worker kept up (0 pending after 1 s) without competing with the hot path | ✅ |
 | Connection pool ([D-071](DECISIONS.md#d-071-the-engine-keeps-32-postgres-connections)) | 32 connections | The library default (12 here) | Found by an A/B load test: the default queued requests and spiked p99 | ✅ |
