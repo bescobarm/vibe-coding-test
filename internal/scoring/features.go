@@ -21,12 +21,26 @@ const (
 
 // Weights are the points each feature adds when it fires.
 type Weights struct {
-	CardTesting    int
-	SplitPurchase  int
-	NewCountry     int
+	// CardTesting: a charge of 5.00 or less when the card already had 3 or more
+	// small charges in the last 10 minutes, like a thief checking a stolen card.
+	CardTesting int
+	// SplitPurchase: a purchase over 80% of the per-transaction limit at a
+	// merchant where the card already paid over 80% of it today, adding up to
+	// more than the limit: one purchase cut in parts to dodge it.
+	SplitPurchase int
+	// NewCountry: the cardholder's first purchase in this country. Only counts
+	// after ColdStart approved purchases.
+	NewCountry int
+	// NewMerchantCNP: the first purchase at this merchant with the card not
+	// present (online or typed in). Only counts after ColdStart approved purchases.
 	NewMerchantCNP int
-	AmountAnomaly  int
-	RoundAmount    int
+	// AmountAnomaly: the amount is 3 or more standard deviations above what this
+	// cardholder usually spends in this merchant category. Needs ColdStart
+	// purchases in the category.
+	AmountAnomaly int
+	// RoundAmount: a round amount of 100.00 or more (a multiple of 100.00),
+	// common in fraud and gift-card abuse. A weak signal on its own.
+	RoundAmount int
 }
 
 // ErrInvalidWeight means a weight is outside 0–100.

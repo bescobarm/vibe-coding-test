@@ -60,6 +60,7 @@ var (
 type Config struct {
 	Engine    simulator.Engine      // where transactions go
 	Cards     simulator.CardCreator // creates each scenario run's cards (D-066)
+	Services  Services              // stops and starts Redis for the outage demo; nil turns it off
 	EngineURL string                // for the metrics pass-through
 	Client    *http.Client
 	Log       *slog.Logger
@@ -98,6 +99,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/recent", s.listRecent)
 	mux.HandleFunc("POST /api/transactions", s.sendTransactions)
 	mux.HandleFunc("POST /api/scenarios", s.runScenarios)
+	mux.HandleFunc("GET /api/services/{service}", s.getService)
+	mux.HandleFunc("POST /api/services/{service}/{action}", s.changeService)
 
 	return mux
 }

@@ -748,4 +748,12 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Alternatives not built:** loading the font from a CDN (breaks offline use); the system font or Inter; a free-text merchant with suggestions; the browser's local time.
 - **Why:** 📝
 
+### D-078: The dashboard can stop and start Redis
+- **Date:** 2026-11-16 · **Status:** 🟢 Accepted (my decision, for the demo) · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md) · **Amends:** [D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)
+- **Context:** showing the fallback needed a second terminal (`docker compose stop redis`). I asked for a button on the page.
+- **Decision:** the dashboard process runs `docker compose stop redis` and `docker compose up -d --wait redis` behind `POST /api/services/redis/{stop|start}`, and reports the state with `GET /api/services/redis`. The **Simulate an outage** card shows the state, the button, and two purchases (45.00 and 300.00 USD) to see the fallback approve and decline. The engine is not touched: it has no endpoint to break itself.
+- **AI input and concerns:** the page has no login, so the service name is checked against a fixed list with Redis only; Postgres is left out because the dashboard needs it to create scenario cards. It only works where the dashboard runs next to `docker-compose.yml` (`-compose-dir`, default the current folder); elsewhere the card says the status is unknown and the button stays off. The state is polled every 5 seconds, one `docker compose ps` each.
+- **Alternatives not built:** a "pretend Redis is down" switch inside the engine (not a real outage, and test code in the decision path); stopping Postgres too.
+- **Why:** 📝
+
 ## Proposed (waiting for my decision)
