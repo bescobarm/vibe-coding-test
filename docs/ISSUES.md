@@ -50,6 +50,7 @@ Every problem found while building: what happened, how it was found, and how it 
 | [I-042](#i-042-the-charts-could-only-show-the-last-minute-and-latency-was-a-flat-line) | 2026-11-14 | Dashboard | ✅ |
 | [I-043](#i-043-send-a-purchase-had-the-right-information-in-the-wrong-order) | 2026-11-14 | Dashboard | ✅ |
 | [I-044](#i-044-a-rehearsal-of-the-demo-found-results-off-screen-and-a-misleading-why) | 2026-11-15 | Dashboard | ✅ |
+| [I-045](#i-045-the-docs-had-drifted-from-the-build) | 2026-11-15 | Docs | ✅ |
 
 ---
 
@@ -94,7 +95,7 @@ Every problem found while building: what happened, how it was found, and how it 
 ### I-010: A company without a policy hits Postgres on every request
 - **Found:** researching D-042. `Cache.Policy` caches documents but not "not found" ([cache.go](../internal/policy/cache.go)).
 - **Impact:** one extra Postgres read per request for those companies; may matter for the p99 < 100 ms load test (SP06).
-- **Plan:** cache the miss when the D-042 default is built (SP05), so a later publish replaces it.
+- **Plan:** cache the miss, so a later publish replaces it. It was not done with the D-042 default in SP05; it stays a next step.
 
 ### I-011: A policy stored before a schema change becomes invalid
 - **Found:** SP03 changed `daily-spend` from `max_amount_minor` to `max_amount {amount_minor, currency}` (D-049, D-052). The local database still held the old seed, which now fails `policy.Load`: every `acme-mx` request would get a 500.
@@ -236,3 +237,9 @@ Every problem found while building: what happened, how it was found, and how it 
 - **Found:** a full run of the video script on a fresh clone with its own empty database. Every step gave the expected decision, but after "Run all scenarios now" the result tiles landed at the bottom edge of the window and the table below it; and an approved purchase with a small risk signal read "Approved · Why: Round amount 800.00 USD", as if something were wrong.
 - **Cause:** two smooth scrolls cancelled each other (opening the panel, then the "running" note), and nothing scrolled when the results replaced the note. The page labeled every reason "Why", but on a clean approval a reason is only a note.
 - **Fix:** the page scrolls to the results once they exist; reasons on a clean approval read "Noted, did not change the decision: …". The video script also warms up the engine first with one small purchase (the first request took about 13 ms, later ones 2–3 ms).
+
+### I-045: The docs had drifted from the build
+- **Found:** an audit of every doc against the code, and a full run of the runbook on a fresh database. Two expected answers in the runbook were wrong (row h named `VELOCITY_EXCEEDED`; step 4d expected a decline that is an approval once 4b has run), and step 4h printed `null` when run right after the simulator. The README still described the first design in places: a response example the engine can't produce, Redis keys and a data model from before the build, the dashboard listed as cut, and a p99 figure that I-035 had already called one lucky run.
+- **Cause:** the README was written as the design before the code; later changes updated the code, the decisions and the runbook's new sections, but nothing checks prose against the build.
+- **Fix:** the runbook's expectations are what a fresh run printed; README examples are real engine output; the data model, Redis keys, requirements and scope match the code; the p99 claim is the measured range. An explanation for a merchant with no name now uses its ID instead of leaving a gap ("Declined at : …").
+

@@ -1,8 +1,8 @@
 # Runbook: test the current build
 
-The shortest path to see what is built so far (SP01 walking skeleton, SP02 policies and hard controls, SP03 velocity and daily budget) working end to end.
+The shortest path to see every feature working end to end: decisions, lifecycle, recovery, fallbacks, the simulator, explanations and the dashboard. Every expected answer below was checked on a fresh database on 2026-11-15.
 
-**Needs:** Docker running, Go 1.25+, `jq`. Optional: `golangci-lint` v2 for step 7.
+**Needs:** Docker running, Go 1.26+, `jq`. Optional: `golangci-lint` v2 for step 7.
 
 ## 1. Start from a clean database
 
@@ -30,7 +30,7 @@ Paste once. `auth ID CARD AMOUNT MCC [CREATED_AT]` sends one authorization and p
 auth() {
   curl -s -D /tmp/auth_headers localhost:8080/v1/authorizations -d "{
     \"authorization_id\": \"$1\", \"card_id\": \"$2\", \"amount_minor\": $3, \"currency\": \"USD\",
-    \"merchant\": {\"id\": \"m_1\", \"mcc\": \"$4\", \"country\": \"US\"},
+    \"merchant\": {\"id\": \"m_1\", \"name\": \"ACME SHOP\", \"mcc\": \"$4\", \"country\": \"US\"},
     \"entry_mode\": \"ecommerce\", \"created_at\": \"${5:-2026-11-12T15:04:05Z}\"}" |
     jq -c '{decision, reasons: [.reasons[]?.code], policy_version}'
 }
@@ -44,15 +44,17 @@ auth() {
 | b | `auth a1 card_123 4500 5734; grep -i replay /tmp/auth_headers` | same answer + `Idempotent-Replay: true` (decided once) |
 | c | `auth a2 card_123 4500 7995` | `DECLINE` `MCC_BLOCKED` (gambling) |
 | d | `auth a3 card_frozen 4500 5734` | `DECLINE` `CARD_INACTIVE` |
-| e | `auth a4 card_123 80000 5734` | `DECLINE` `OVER_TRANSACTION_LIMIT` (limit 50000) |
-| f | `auth a5 card_exec 80000 5734` | `APPROVE` (card override raises the limit to 100000) |
+| e | `auth a4 card_123 80000 5734` | `DECLINE` `OVER_TRANSACTION_LIMIT` (800.00 USD is over the 500.00 USD limit) |
+| f | `auth a5 card_exec 80000 5734` | `APPROVE` (the card's override raises the limit to 1,000.00 USD) |
 | g | `auth a6 card_123 4500 5734 2026-11-12T09:00:00Z` | `DECLINE` `OUTSIDE_ALLOWED_HOURS` (04:00 in Colombia) |
-| h | `for i in 1 2 3 4 5 6; do auth v$i card_456 300 5734; done` | 5 × `APPROVE`, then `DECLINE` `VELOCITY_EXCEEDED` (card testing: at most 5 charges ≤ 500 in 10 min) |
-| i | `for i in 1 2 3 4; do auth b$i card_456 50000 5734; done` | 3 × `APPROVE`, then `DECLINE` `OVER_DAILY_LIMIT` (1500 + 150000 + 50000 > 200000 USD per day) |
+| h | `for i in 1 2 3 4 5 6; do auth v$i card_456 300 5734; done` | 5 × `APPROVE` (the 4th and 5th list `CARD_TESTING_PATTERN`: flagged by the score), then `DECLINE` `CARD_TESTING_PATTERN` (the velocity rule: at most 5 charges of 5.00 USD or less in 10 minutes) |
+| i | `for i in 1 2 3 4; do auth b$i card_456 50000 5734; done` | 3 × `APPROVE`, then `DECLINE` `OVER_DAILY_LIMIT` (15.00 + 1,500.00 already spent, plus 500.00, is over 2,000.00 USD per day) |
+
+An approval can also list score signals that added a few points without changing the decision, e.g. `ROUND_AMOUNT` on rows f and i.
 
 ## 4b. Reversal and expiry
 
-Run after 4i (card_456 has used its daily budget).
+Run after row i of the table (card_456 has used its daily budget).
 
 ```bash
 ev() { curl -s -X POST localhost:8080/v1/authorizations/$1/$2 -d "$3" | jq -c .; }
@@ -95,14 +97,16 @@ Expect, in order:
 
 ## 4d. Redis loses its data
 
-After 4i, stop the engine (Ctrl-C), then:
+After 4b, stop the engine (Ctrl-C), then:
 
 ```bash
 docker compose exec redis redis-cli flushall
 make run
+auth b9 card_456 50000 5734
+auth b10 card_456 50000 5734
 ```
 
-Expect `"msg":"velocity counters ready","rebuilt_authorizations":N` in the log before `engine listening`, then `auth b9 card_456 50000 5734` is still `DECLINE` `OVER_DAILY_LIMIT`: the budget was rebuilt from Postgres ([D-055](DECISIONS.md#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost)).
+Expect `"msg":"velocity counters ready","rebuilt_authorizations":N` in the log before `engine listening`. Then `b9` is `APPROVE` and `b10` is `DECLINE` `OVER_DAILY_LIMIT`: the budget was rebuilt from Postgres ([D-055](DECISIONS.md#d-055-rebuild-the-redis-counters-at-startup-when-they-are-lost)). With empty counters both would be approved; the decline's message says 1,815.00 USD was already spent, which is what 4b left (1,315.00 USD) plus `b9`.
 
 ## 4e. Card testing
 
@@ -146,11 +150,11 @@ Expect:
 
 ```bash
 auth x1 card_456 5000 7995
-sleep 1
+sleep 2
 curl -s localhost:8080/v1/authorizations/x1 | jq .explanation
 ```
 
-Expect `"provider": "mock-llm"`, `"mocked": true`, `"validated": true` and a summary like "Declined at …: merchant category 7995 is blocked." An approval gets no explanation. To see the safety net, restart with `MOCK_LLM_FAILURE_RATE=1 make run`: the next explanation has `"validated": false, "fallback_used": true` and the template text.
+Expect `"provider": "mock-llm"`, `"mocked": true`, `"validated": true` and the summary "Declined at ACME SHOP: merchant category 7995 is blocked." If it prints `null`, wait a few seconds and ask again: explanations are written in the background, and right after `make simulate` or `make load` the worker still has a queue. An approval gets no explanation. To see the safety net, restart with `MOCK_LLM_FAILURE_RATE=1 make run`: the next explanation has `"validated": false, "fallback_used": true` and the template text.
 
 ## 4i. Dashboard
 
@@ -191,7 +195,7 @@ Expect the stored request and the decline reason.
 ## 7. Tests and lint
 
 ```bash
-make test    # unit + Postgres integration tests, race detector on
+make test    # unit + Postgres and Redis integration tests, race detector on
 make lint    # 0 issues expected
 ```
 

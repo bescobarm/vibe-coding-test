@@ -38,7 +38,7 @@
 14. [Key decisions and trade-offs](#14-key-decisions-and-trade-offs)
 15. [Testing, simulation and observability](#15-testing-simulation-and-observability)
 16. [Implementation plan](#16-implementation-plan)
-17. [Demo script](#17-demo-script)
+17. [Demo script](#17-demo-script-5-minutes)
 18. [What I'd do next](#18-what-id-do-next)
 19. [References](#19-references)
 
@@ -50,7 +50,7 @@
 
 | Tool | Version | Why | Install (macOS) |
 |---|---|---|---|
-| Go | 1.25+ (built with 1.27) | Engine, simulator and tests | `brew install go` |
+| Go | 1.26+ (built with 1.27) | Engine, simulator and tests | `brew install go` |
 | Docker runtime | Any with `docker compose` | Runs Postgres and Redis | `brew install --cask orbstack` (or Docker Desktop) |
 | make | Any | Shortcuts below | Comes with Xcode Command Line Tools |
 | jq | Any | Pretty JSON in the curl examples and the runbook | `brew install jq` |
@@ -74,13 +74,13 @@ Then, in a second terminal:
 ```bash
 make simulate            # runs the fraud scenarios and prints the detection report
 make test                # unit, concurrency and idempotency tests
-make cover               # test coverage per package (target: 80% on changed files)
+make cover               # test coverage per function (target: 80% on changed files)
 make lint                # golangci-lint + style rules (D-043), needs golangci-lint v2
 make load                # load test at 200 req/s: p50/p95/p99, fails if p99 >= 100 ms
 make dashboard           # web dashboard on http://localhost:8090: send transactions, watch metrics live
 ```
 
-For a short step-by-step test of what is built so far, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
+For a step-by-step test of every feature, with the expected answers, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ### Try a single authorization
 
@@ -125,7 +125,6 @@ Send the same request again: you get the same decision, and the amount is counte
 |---|---|
 | `zsh: command not found: docker` | Install a Docker runtime (`brew install --cask orbstack`), **open the app once** so it installs the `docker` CLI, then open a new terminal. |
 | `password authentication failed for user "auth"` or `port already in use` | Another Postgres is on the same host port. The compose file uses **55432** on purpose so it doesn't clash with local installs on 5432/5433. Check with `lsof -nP -iTCP:55432 -sTCP:LISTEN`. |
-| `no Go files in ./cmd/engine` | The engine isn't built yet in your checkout. Pull the latest `main`. |
 | Demo data looks outdated (e.g. no `card_exec`, no allowed hours) | The seed never overwrites existing rows. Run `make reset && make run` to start from a fresh database. |
 
 ---
@@ -161,7 +160,8 @@ The deadline is short (due Mon 2026-11-16). The brief says *"a focused problem s
 | 10 | ✅ Internal deadline + per-company fallback + failure tests | [05](briefs/05-deadline-and-fallback-brief.md) |
 | 11 | ✅ Traffic simulator + scenario report + `GET /v1/metrics` | [06](briefs/06-simulator-and-report-brief.md) |
 | 12 | ✅ Mocked LLM explainer fed by the outbox, with template fallback | [07](briefs/07-mock-llm-explainer-brief.md) |
-| 13 | ✅ `WRITEUP.md` · ✅ final README pass · 🎬 5-minute video | — |
+| 13 | ✅ Web dashboard (`make dashboard`) and `GET /v1/metrics/series` | [06](briefs/06-simulator-and-report-brief.md) |
+| 14 | ✅ `WRITEUP.md` · ✅ final README pass · 🎬 5-minute video | — |
 
 ---
 
@@ -328,9 +328,9 @@ stateDiagram-v2
 ### 8.1 Functional
 
 - **FR1.** Evaluate an authorization request and return `APPROVE` or `DECLINE`, with reason codes. *(`APPROVE_PARTIAL` is cut from the MVP, see [D-011](docs/DECISIONS.md#d-011-mvp-scope-cuts).)*
-- **FR2.** Per-company (tenant) **configurable policies**: MCC allow/block, country allow/block, per-transaction limit, daily/monthly limits per card and per company, allowed entry modes, allowed hours. Overrides at the card level.
-- **FR3.** **Velocity rules**: max count and/or max amount within a window (fixed or rolling), scoped to card / cardholder / company, with optional filters (MCC, country).
-- **FR4.** **Anomaly score (0–100)** with explainable features: card-testing burst, split-transaction pattern, new country, new merchant, amount vs. the cardholder's baseline, round amount, odd hour.
+- **FR2.** Per-company (tenant) **configurable policies**: MCC allow/block, country allow/block, per-transaction limit, daily/monthly limits per card, allowed entry modes, allowed hours. Overrides at the card level. *(Company-wide limits are not built: limits are per card, [D-044](docs/DECISIONS.md#d-044-velocity-limits-are-per-card-only).)*
+- **FR3.** **Velocity rules**: max count and/or max amount within a window (fixed or rolling), per card, with optional filters (maximum amount, MCCs). *(Cardholder and company scopes and a country filter are not built, [D-044](docs/DECISIONS.md#d-044-velocity-limits-are-per-card-only).)*
+- **FR4.** **Anomaly score (0–100)** with explainable features: card-testing burst, split-transaction pattern, new country, new merchant, amount vs. the cardholder's baseline, round amount. *("Odd hour" became a hard control, allowed hours, instead of a score feature: [D-038](docs/DECISIONS.md#d-038-is-outside-allowed-hours-a-hard-control-or-a-score-signal).)*
 - **FR5.** A **risk policy** that maps the score to an action: approve, approve + flag for review, or decline.
 - **FR6.** **Lifecycle events**: reversal, expiry, capture, refund and incremental auth update holds and counters.
 - ~~**FR7.** Shadow mode~~: *cut from the MVP, see [D-011](docs/DECISIONS.md#d-011-mvp-scope-cuts).*
@@ -364,7 +364,8 @@ The goal is a **focused, working feature** by Mon 2026-11-16 (started 2026-11-12
 - Idempotency, internal deadline and fail-open/closed fallback.
 - Audit log of decisions.
 - **Traffic simulator** that generates normal behavior plus fraud scenarios (card testing, split transactions, stolen card) for the demo and for evaluation.
-- **CLI scenario report** and a `GET /v1/metrics` JSON endpoint (approval rate, decline reasons, latency percentiles).
+- **CLI scenario report** and a `GET /v1/metrics` JSON endpoint (approval rate, decline reasons, latency percentiles), plus `GET /v1/metrics/series` for the same numbers over time.
+- **Web dashboard** (`make dashboard`), added after the MVP: run the scenarios, send purchases and watch the metrics live ([D-074](docs/DECISIONS.md#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)).
 - **Mocked LLM explainer**, run asynchronously from the outbox.
 
 ### Out of scope (and why)
@@ -372,7 +373,7 @@ The goal is a **focused, working feature** by Mon 2026-11-16 (started 2026-11-12
 - **A real LLM connection:** the explainer runs against a mock with the same interface, prompt and response shape. Plugging in a provider is one new adapter ([§13](#13-mocked-llm-explainer)).
 - A real ML model: a rule-based plus statistical score is explainable and enough to show the architecture; the interface allows plugging in a model later.
 - A full ledger and settlement: only holds and counters needed for the decision.
-- UI for editing policies or a metrics dashboard: JSON files, an admin endpoint and a CLI report.
+- A UI for editing policies: JSON files and an admin endpoint. (A metrics dashboard was out of scope for the MVP and built afterwards.)
 - Shadow mode and partial approval (cut for time, see [D-011](docs/DECISIONS.md#d-011-mvp-scope-cuts)).
 - PCI-DSS compliance: no real PANs are handled, only card tokens.
 
@@ -408,13 +409,12 @@ flowchart LR
     subgraph ASYNC["🐢 Async · never blocks a swipe"]
         direction TB
         X["🤖 Explainer<br/>(mocked LLM)"] --> FIN["📨 Plain-language<br/>note for finance"]
-        REP["📈 Simulator report<br/>+ /v1/metrics"]
+        REP["📈 Simulator report,<br/>/v1/metrics, dashboard"]
     end
 
     PROC -- "auth request" --> G
     D -- "✅ / ❌ + reasons" --> PROC
     V <--> R
-    S <--> R
     S <--> P
     D -- "audit + outbox event" --> P
     P -.->|"outbox"| X
@@ -472,10 +472,10 @@ flowchart TD
 
 | Stage | Where it runs | Typical cost | Short-circuits on failure? |
 |---|---|---|---|
-| 1. Gate: idempotency + deadline | Postgres lookup by primary key, Go `context` timeout | ~1 ms | Yes: replays the stored decision |
+| 1. Gate: idempotency + deadline | Postgres `INSERT … ON CONFLICT` claim on the primary key, Go `context` timeout | ~1 ms | Yes: replays the stored decision |
 | 2. Hard controls | In memory, from the cached policy | microseconds | Yes: `DECLINE` with a reason code |
 | 3. Velocity and budget | One Redis Lua script per card (check + reserve) | under 1 ms | Yes: `DECLINE` |
-| 4. Anomaly score | Redis counters + cardholder baseline | 1–5 ms | No: produces a score and reasons |
+| 4. Anomaly score | One Postgres query for the cardholder's recent history ([D-059](docs/DECISIONS.md#d-059-the-cardholder-history-is-one-query-over-90-days)) | 1–5 ms | No: produces a score and reasons |
 | 5. Decision + persist | Policy thresholds, then audit row + outbox event in one Postgres transaction | 1–3 ms | — |
 
 ### 10.3 Anomaly features
@@ -502,7 +502,7 @@ Score = weighted sum, capped at 100. Each feature that fires is returned as a re
 | Risk | Blocks legitimate spend | Lets fraud through |
 | Good fit | High-risk MCCs, new cards, high amounts | Low amounts, trusted recurring merchants |
 
-Instead of one global choice, the fallback is **configurable per company, with a maximum fail-open amount**. Example: approve up to $200 at known merchants if Redis is down; decline everything else. The fallback decision still gets audited and reconciled afterward.
+Instead of one global choice, the fallback is **configurable per company, with a maximum fail-open amount**. Example: approve up to $200 if Redis is down; decline everything else. The cap is by amount only ([D-061](docs/DECISIONS.md#d-061-fail-open-is-capped-by-amount-only)). The fallback decision still gets audited and reconciled afterward.
 
 ### 10.5 Concurrency and consistency
 
@@ -555,15 +555,31 @@ CREATE TABLE authorizations (
   merchant_id      TEXT,
   merchant_country CHAR(2),
   entry_mode       TEXT,
-  decision         TEXT NOT NULL,     -- APPROVE | DECLINE
+  decision         TEXT NOT NULL,     -- APPROVE | DECLINE (PENDING only inside the claiming transaction)
   approved_minor   BIGINT,
-  status           TEXT NOT NULL,     -- pending | reversed | expired | captured | refunded
+  status           TEXT NOT NULL,     -- pending | declined | reversed | expired | captured | refunded
+  held_minor       BIGINT NOT NULL DEFAULT 0,  -- still on hold; goes down with reversals
+  captured_minor   BIGINT NOT NULL DEFAULT 0,
+  refunded_minor   BIGINT NOT NULL DEFAULT 0,
   risk_score       INT,
   reasons          JSONB NOT NULL,    -- every rule/feature result
   policy_version   INT NOT NULL,
   fallback_used    BOOLEAN NOT NULL DEFAULT false,
-  latency_ms       NUMERIC,
+  latency_ms       DOUBLE PRECISION,
+  request          JSONB NOT NULL,    -- full input, so every decision can be reproduced
+  response         JSONB,             -- exact response, returned unchanged on replays
   explanation      JSONB,             -- filled asynchronously by the explainer
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per lifecycle call; event_id makes every call idempotent (D-050)
+CREATE TABLE lifecycle_events (
+  event_id         TEXT PRIMARY KEY,
+  authorization_id TEXT NOT NULL REFERENCES authorizations (authorization_id),
+  type             TEXT NOT NULL,     -- reversal | expiry | increment | capture | refund
+  amount_minor     BIGINT,
+  response         JSONB NOT NULL,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -579,37 +595,16 @@ CREATE TABLE cardholder_profiles (
 
 -- Transactional outbox for decision events
 CREATE TABLE outbox (
-  id BIGSERIAL PRIMARY KEY, topic TEXT, payload JSONB, published_at TIMESTAMPTZ
+  id BIGSERIAL PRIMARY KEY, topic TEXT, payload JSONB, created_at TIMESTAMPTZ, published_at TIMESTAMPTZ
 );
 ```
 
-**Redis keys:**
-- `vel:{card_id}:{rule_id}`: sorted set of `authorization_id` → timestamp, for rolling windows.
-- `spend:{card_id}:{day|month}`: reserved + captured amount.
-- `hold:{card_id}:{authorization_id}`: reserved amount and applied `event_id`s, released on reversal or expiry.
+The exact schema, with constraints and indexes, is in [migrations/](migrations/).
 
-### Example policy document
-
-```json
-{
-  "company_id": "acme-mx",
-  "version": 3,
-  "timezone": "America/Bogota",
-  "controls": {
-    "blocked_mccs": ["7995", "5933"],
-    "allowed_countries": ["MX", "US", "CO"],
-    "max_per_transaction": { "amount_minor": 50000, "currency": "USD" },
-    "allowed_entry_modes": ["chip", "contactless", "ecommerce", "wallet"],
-    "allowed_hours": { "start": "06:00", "end": "23:00" }
-  },
-  "velocity": [
-    { "id": "card-testing", "scope": "card", "window": "10m", "max_count": 5, "filter": { "max_amount_minor": 500 }, "reason": "CARD_TESTING_PATTERN" },
-    { "id": "daily-spend", "scope": "card", "window": "calendar_day", "max_amount": { "amount_minor": 200000, "currency": "USD" } }
-  ],
-  "risk": { "flag_at": 40, "decline_at": 70 },
-  "fallback": { "mode": "fail_open_limited", "max_amount": { "amount_minor": 20000, "currency": "USD" } }
-}
-```
+**Redis keys** (one hash tag per card, so a card's keys live on one node):
+- `vel:{card_id}:{rule_id}:ts`: sorted set of `authorization_id` → timestamp, for the rule's window.
+- `vel:{card_id}:{rule_id}:amt`: the amount each of those authorizations holds. Daily and monthly budgets are velocity rules with a calendar window, so they use the same two keys.
+- `hold:{card_id}:{authorization_id}`: what an authorization reserved in each rule, released or adjusted by lifecycle events.
 
 ---
 
@@ -640,19 +635,20 @@ Response:
 ```json
 {
   "authorization_id": "auth_01H...",
-  "decision": "DECLINE",
-  "approved_amount_minor": 0,
-  "risk_score": 78,
+  "decision": "APPROVE",
+  "approved_amount_minor": 45000,
+  "risk_score": 40,
   "reasons": [
-    { "code": "SPLIT_TRANSACTION_PATTERN", "message": "3 purchases today at this merchant total 1,350.00 USD, each above 80% of the 500.00 USD limit" },
-    { "code": "NEW_MERCHANT_CNP", "message": "First purchase at merchant m_987, card not present (ecommerce)" }
+    { "code": "SPLIT_TRANSACTION_PATTERN", "message": "2 purchases today at this merchant total 900.00 USD, each above 80% of the 500.00 USD limit" }
   ],
   "policy_version": 3,
-  "flagged": false,
+  "flagged": true,
   "fallback_used": false,
-  "latency_ms": 7.4
+  "latency_ms": 3.8
 }
 ```
+
+This is a real answer: the second 450.00 USD purchase at one merchant on the same day. It is approved and flagged for review (score 40). `flagged` is left out when it is false.
 
 ### Lifecycle and admin
 
@@ -666,11 +662,12 @@ Response:
 | `PUT` | `/v1/companies/{id}/policy` | Publish a new policy version (validated) |
 | `GET` | `/v1/authorizations/{id}` | Full audit record, including the explanation once ready |
 | `GET` | `/v1/metrics` | Approval rate, decline reasons, latency percentiles |
+| `GET` | `/healthz` | `{"status":"ok"}` when the engine and its database answer |
 | `GET` | `/v1/metrics/series` | The same outcomes and latency percentiles per time bucket: `?since=&bucket_seconds=` (default 60; at most 1500 buckets) |
 
-### Reason codes (initial set)
+### Reason codes
 
-`CARD_INACTIVE` · `MCC_BLOCKED` · `COUNTRY_NOT_ALLOWED` · `ENTRY_MODE_NOT_ALLOWED` · `OVER_TRANSACTION_LIMIT` · `OVER_DAILY_LIMIT` · `OVER_MONTHLY_LIMIT` · `VELOCITY_EXCEEDED` · `CARD_TESTING_PATTERN` · `SPLIT_TRANSACTION_PATTERN` · `NEW_COUNTRY` · `NEW_MERCHANT_CNP` · `AMOUNT_ANOMALY` · `ROUND_AMOUNT` · `OUTSIDE_ALLOWED_HOURS` · `FALLBACK_APPLIED`
+`CARD_INACTIVE` · `MCC_BLOCKED` · `COUNTRY_NOT_ALLOWED` · `ENTRY_MODE_NOT_ALLOWED` · `OVER_TRANSACTION_LIMIT` · `OVER_DAILY_LIMIT` · `OVER_MONTHLY_LIMIT` · `VELOCITY_EXCEEDED` · `CARD_TESTING_PATTERN` · `SPLIT_TRANSACTION_PATTERN` · `NEW_COUNTRY` · `NEW_MERCHANT_CNP` · `AMOUNT_ANOMALY` · `ROUND_AMOUNT` · `OUTSIDE_ALLOWED_HOURS` · `FALLBACK_APPLIED` · `DEFAULT_POLICY_APPLIED`· `FALLBACK_APPLIED`
 
 ---
 
@@ -713,7 +710,7 @@ type Explainer interface {
 }
 
 // Implementations in the MVP:
-//   MockLLMExplainer  - EXPLAINER=mock (default): simulated LLM, marked "mocked": true
+//   LLMExplainer      - EXPLAINER=mock (default): calls the simulated model (MockLLM), marked "mocked": true
 //   TemplateExplainer - EXPLAINER=template, and the fallback when the mock "fails"
 // Out of scope:  a real provider adapter (same interface, real HTTP call)
 ```
@@ -724,11 +721,11 @@ type Explainer interface {
 You explain card authorization decisions to a company's finance team.
 Use ONLY the facts below. Do not invent amounts, merchants or reasons.
 
-Decision: DECLINE (risk score 78, policy v3)
+Decision: APPROVE + FLAG (risk score 40, policy v3)
 Merchant: ACME SOFTWARE (MCC 5734, US), card not present
+Amount: 450.00 USD
 Facts:
-- SPLIT_TRANSACTION_PATTERN: 3 charges at this merchant today totaling 1,350.00 USD, each above 80% of the 500.00 USD per-transaction limit
-- NEW_MERCHANT_CNP: first purchase at this merchant, card not present
+- SPLIT_TRANSACTION_PATTERN: 2 purchases today at this merchant total 900.00 USD, each above 80% of the 500.00 USD limit
 
 Write 2 sentences of summary and 1 suggested action.
 ```
@@ -742,10 +739,10 @@ Write 2 sentences of summary and 1 suggested action.
   "provider": "mock-llm",
   "model": "mock-llm-v0",
   "mocked": true,
-  "latency_ms": 642,
-  "summary": "Declined: 3 charges at ACME SOFTWARE today totaling 1,350.00 USD, each above 80% of the 500.00 USD per-transaction limit, which is consistent with splitting one purchase to stay under the limit. It was also the first purchase at this merchant, made online.",
+  "latency_ms": 619.9,
+  "summary": "Flagged for review at ACME SOFTWARE: 2 purchases today at this merchant total 900.00 USD, each above 80% of the 500.00 USD limit.",
   "suggested_action": "Ask the cardholder whether these charges are one purchase. If they are, request a limit exception instead of splitting it.",
-  "reason_codes": ["SPLIT_TRANSACTION_PATTERN", "NEW_MERCHANT_CNP"],
+  "reason_codes": ["SPLIT_TRANSACTION_PATTERN"],
   "validated": true,
   "fallback_used": false
 }
@@ -764,12 +761,12 @@ The full log, including the options the AI suggested, the concerns raised and wh
 | Language | **Go** | Python, Node | Low and predictable latency, simple concurrency, my strongest language |
 | Hot-path state | **Redis + Lua** | Postgres locks, in-memory | Atomic check-and-reserve in < 1 ms; Postgres stays the source of truth |
 | Rules format | **Versioned JSON policies** | Code per client, DSL, CEL | No deploy per client, auditable versions, easy to validate; a DSL like CEL is a natural next step |
-| Scoring | **Explainable weighted features** | ML model | Explainable for finance teams and auditors; no labeled data in 3 days; behind an interface so a model can replace it |
+| Scoring | **Explainable weighted features** | ML model | Explainable for finance teams and auditors; no labeled data in 4 days; behind an interface so a model can replace it |
 | AI usage | **Async explanations only, mocked** | LLM in the decision, real LLM call | Deadlines of 2–3 s and auditability rule it out of the hot path; a real connection adds keys and cost without changing the design |
 | Failure handling | **Per-company limited fail-open** | Global fail-closed / fail-open | Balances blocked legitimate spend against fraud exposure per customer |
 | Money | **Integer minor units** | Floats / decimals | Avoids rounding errors |
 | Idempotency key | **Processor's `authorization_id`** | Request hash | Processors resend the same ID on retry |
-| MVP cuts | **Shadow mode, dashboard UI, partial approval** | Keep everything | Protects the 3-day deadline; none of them is needed for the demo |
+| MVP cuts | **Shadow mode, dashboard UI, partial approval** | Keep everything | Protected the deadline; the dashboard was built afterwards, on top of the metrics and the simulator ([D-074](docs/DECISIONS.md#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)) |
 | Quality gates | **`/problem-brief-creator` + `/check-tests -cov 80`** | Ad-hoc prompting | Frame before building, verify before committing |
 
 ---
@@ -786,15 +783,15 @@ The full log, including the options the AI suggested, the concerns raised and wh
 - **Idempotency test:** the same request sent twice returns the same decision and counts once.
 - **Failure tests:** Redis unavailable or a slow dependency → fallback applied within the deadline, and flagged.
 - **Explainer tests:** the mock's output is validated; an invalid response falls back to the template.
-- **Load test:** `make load` paces requests with a worker pool (D-035, D-069) and fails if the engine's p99 is 100 ms or more. Measured locally: p99 4.3 ms at 200 req/s, 6.4 ms at 1,000 req/s.
+- **Load test:** `make load` paces requests with a worker pool (D-035, D-069) and fails if the engine's p99 is 100 ms or more. Measured locally: p99 4 to 5 ms at 200 req/s. At 1,000 req/s (`go run ./cmd/simulator -mode load -rate 1000`) p99 ranged from 1.5 to 43 ms across runs, always under the goal ([I-035](docs/ISSUES.md#i-035-the-default-connection-pool-queued-requests-under-load)).
 
 ### Scenario simulator
 
 | Scenario | Expected outcome |
 |---|---|
 | Normal employee behavior (meals, SaaS, travel) | Approved, low score |
-| Card testing: 8 × $1–$5 CNP in 3 minutes at different merchants | Declined from the N-th attempt (`CARD_TESTING_PATTERN`) |
-| Split purchase: 3 × $490 same merchant same day, $500 limit | Flagged/declined (`SPLIT_TRANSACTION_PATTERN`) |
+| Card testing: 6–10 small online charges at different merchants | Flagged from the 4th, declined from the 6th (`CARD_TESTING_PATTERN`) |
+| Split purchase: 2–4 purchases of $410–$499 at one merchant on one day, $500 limit | Flagged from the 2nd (`SPLIT_TRANSACTION_PATTERN`) |
 | Stolen card: new country + new merchant + high amount CNP | Declined (`NEW_COUNTRY`, `NEW_MERCHANT_CNP`, `AMOUNT_ANOMALY`) |
 | Blocked MCC (gambling, quasi-cash or money transfer) | Declined (`MCC_BLOCKED`) |
 | Hotel incremental auth | Approved within budget, hold increased |
@@ -804,7 +801,7 @@ The report shows the **detection rate per scenario** and the **false-decline rat
 ### Observability
 
 - **Structured logs** (JSON) with `authorization_id`, `company_id`, decision, reasons, latency.
-- **Metrics** (`GET /v1/metrics`, from the audit log, D-070): decisions by outcome, approval rate, flags, fallbacks, decline reasons, p50/p95/p99 latency, and explanations written by the model, by the template, or failed.
+- **Metrics** (`GET /v1/metrics`, from the audit log, D-070; `GET /v1/metrics/series` gives outcomes and latency per time bucket, D-076; the dashboard charts both): decisions by outcome, approval rate, flags, fallbacks, decline reasons, p50/p95/p99 latency, and explanations written by the model, by the template, or failed.
 - **Not built yet:** per-stage latency histograms and an idempotent-replay count (replays write nothing to the audit log, so they need in-memory counters).
 - **Alerts (described, not built):** fallback rate > X%, p99 > budget, sudden spike in a decline reason (a misconfigured policy).
 
@@ -818,9 +815,9 @@ Each sub-project has a brief in [briefs/](briefs/) (generated with `/problem-bri
 |---|---|---|
 | **Day 1** | Thu 2026-11-12 | ✅ [01 Walking skeleton](briefs/01-walking-skeleton-brief.md) (compose, migrations, endpoint, idempotency, audit) · ✅ [02 Policy and hard controls](briefs/02-policy-and-hard-controls-brief.md) |
 | **Day 2** | Fri 2026-11-13 | ✅ Lint rules ([D-043](docs/DECISIONS.md#d-043-code-style-rules-enforced-by-linters)) · ✅ [03 Velocity, budget and lifecycle](briefs/03-velocity-budget-lifecycle-brief.md) |
-| **Day 3** | Sat 2026-11-14 | ✅ [04 Anomaly scoring](briefs/04-anomaly-scoring-brief.md) · ✅ [05 Deadline and fallback](briefs/05-deadline-and-fallback-brief.md) |
-| **Day 4** | Sun 2026-11-15 | ✅ [06 Simulator and report](briefs/06-simulator-and-report-brief.md) · ✅ [07 Mocked LLM explainer](briefs/07-mock-llm-explainer-brief.md) · `WRITEUP.md` |
-| **Delivery** | Mon 2026-11-16 | Video, final README pass, submission |
+| **Day 3** | Sat 2026-11-14 | ✅ [04 Anomaly scoring](briefs/04-anomaly-scoring-brief.md) · ✅ [05 Deadline and fallback](briefs/05-deadline-and-fallback-brief.md) · ✅ [06 Simulator and report](briefs/06-simulator-and-report-brief.md) · ✅ [07 Mocked LLM explainer](briefs/07-mock-llm-explainer-brief.md) · ✅ `WRITEUP.md` · ✅ Dashboard |
+| **Day 4** | Sun 2026-11-15 | ✅ Demo rehearsal on a fresh clone ([I-044](docs/ISSUES.md#i-044-a-rehearsal-of-the-demo-found-results-off-screen-and-a-misleading-why)) · ✅ Docs checked against the build ([I-045](docs/ISSUES.md#i-045-the-docs-had-drifted-from-the-build)) |
+| **Delivery** | Mon 2026-11-16 | Video, submission |
 
 Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-brief.md).
 
@@ -830,13 +827,12 @@ Parent brief: [briefs/00-card-auth-engine-brief.md](briefs/00-card-auth-engine-b
 
 1. **Problem (30 s):** every swipe is a sub-second decision; too permissive = fraud, too strict = lost trust, too slow = someone else decides.
 2. **Architecture (60 s):** the big-picture diagram, why the stages are ordered cheap-to-expensive, why the LLM is out of the hot path (and mocked).
-3. **Live demo (2 min):**
-   - Normal purchase → approved in a few ms (runbook 4a).
-   - Card testing → first attempts pass, then flagged, then declined with `CARD_TESTING_PATTERN` (4e).
-   - Split purchase → flagged with a clear reason, then the mocked LLM explanation appears on the audit record (4h).
-   - Send the same request twice → same decision, counted once (4a–4b).
-   - Stop Redis → fallback applied and logged, still within the deadline (4f).
-   - Show the scenario report and latency percentiles (4g).
+3. **Live demo (2 min):** in a terminal, then on the dashboard.
+   - Normal purchase → approved in a few ms. Send it again → the same answer, counted once (runbook §4, rows a and b).
+   - Card testing → the first charges pass, the 4th is flagged, the 6th is declined with `CARD_TESTING_PATTERN` (runbook §4e).
+   - Split purchase → the second purchase just under the limit at one merchant is flagged, and the mocked LLM explanation appears on the audit record.
+   - Stop Redis → the fallback answers inside the deadline and is logged (runbook §4f).
+   - Dashboard (`make dashboard`): **Run all scenarios now** → 12 of 12 fraud cards caught, no normal purchase declined; **Test the risk score** → the 0–100 scale and *Try it* on card testing; **Activity & charts** → the last hour of decisions and latency (runbook §4i).
 4. **Code walkthrough (60 s):** the decision pipeline, the Lua script, a policy document.
 5. **How I worked and next steps (30 s):** the briefs, the decision log, the coverage gate, what I'd build next.
 
