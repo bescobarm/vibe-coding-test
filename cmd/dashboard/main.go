@@ -36,18 +36,19 @@ func main() {
 	engineURL := flag.String("engine", defaultEngineURL, "engine base URL")
 	databaseURL := flag.String("database", getEnv("DATABASE_URL", defaultDatabaseURL), "engine database, to create scenario cards")
 	addr := flag.String("addr", defaultAddr, "address to serve the dashboard on")
+	composeDir := flag.String("compose-dir", ".", "folder of docker-compose.yml, to stop and start Redis from the page")
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	err := run(log, *engineURL, *databaseURL, *addr)
+	err := run(log, *engineURL, *databaseURL, *addr, *composeDir)
 	if err != nil {
 		log.Error("dashboard stopped", "err", err)
 		os.Exit(exitFailure)
 	}
 }
 
-func run(log *slog.Logger, engineURL, databaseURL, addr string) error {
+func run(log *slog.Logger, engineURL, databaseURL, addr, composeDir string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -63,6 +64,7 @@ func run(log *slog.Logger, engineURL, databaseURL, addr string) error {
 	server, err := dashboard.NewServer(dashboard.Config{
 		Engine:    simulator.NewHTTPEngine(engineURL, client),
 		Cards:     simulator.NewPostgresCards(pool),
+		Services:  dashboard.ComposeServices{Dir: composeDir},
 		EngineURL: engineURL,
 		Client:    client,
 		Log:       log,

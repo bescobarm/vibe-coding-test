@@ -130,6 +130,12 @@
   .cta p { margin: 0; color: var(--text-2); font-size: 13px; }
   .cta .actions { margin-top: auto; padding-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
   .cta.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .cta .outage-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .cta .outage-head h2 { margin: 0; }
+  .cta .got:empty { display: none; }
+  button.danger { font: inherit; background: var(--surface); color: var(--critical-text); border: 1px solid var(--critical); border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow); }
+  button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--critical) 10%, transparent); }
+  button.danger:disabled { opacity: .55; cursor: wait; }
   .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .panel-head h2 { margin: 0; font-size: 17px; }
   .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
@@ -296,6 +302,20 @@
           <button class="secondary" type="button" data-open="panel-purchase" data-view="risk" aria-expanded="false" aria-controls="panel-purchase">Test the risk score</button>
           <button class="secondary" type="button" data-open="panel-purchase" data-view="custom" aria-expanded="false" aria-controls="panel-purchase">Build your own</button>
         </div>
+      </section>
+
+      <section class="wide cta" id="cta-outage">
+        <div class="outage-head">
+          <h2>Simulate an outage</h2>
+          <span class="pill" id="redisPill">Checking Redis…</span>
+        </div>
+        <p>Redis holds the spending counters. Stop it and the engine still answers: it can't check velocity or budgets, so the company's fallback decides. The demo company approves up to <strong>200.00 USD</strong> and declines anything above, both with the reason <code>FALLBACK_APPLIED</code>.</p>
+        <div class="actions">
+          <button class="danger" type="button" id="redisToggle" disabled>Stop Redis</button>
+          <button class="secondary" type="button" data-outage="normal">Send 45.00 USD</button>
+          <button class="secondary" type="button" data-outage="outageOverCap">Send 300.00 USD</button>
+        </div>
+        <div class="got" id="outageResult"></div>
       </section>
 
       <section class="wide" id="panel-scenarios" hidden>
@@ -1329,6 +1349,62 @@
       refresh();
     }
   });
+
+  // ---------- outage: stop and start Redis ----------
+  presets.outageOverCap = { ...presets.normal, amount: "300.00" };
+  let redisRunning = null; // null until the first answer
+  function renderRedis(running) {
+    redisRunning = running;
+    $("redisPill").className = "pill " + (running ? "approve" : "decline");
+    $("redisPill").textContent = running ? "Redis running" : "Redis stopped";
+    $("redisToggle").className = running ? "danger" : "primary";
+    $("redisToggle").textContent = running ? "Stop Redis" : "Start Redis";
+    $("redisToggle").disabled = false;
+  }
+  async function checkRedis() {
+    if ($("redisToggle").dataset.busy) return;
+    try {
+      renderRedis((await getJSON("/api/services/redis")).running);
+    } catch (err) {
+      $("redisPill").className = "pill flag";
+      $("redisPill").textContent = "Redis status unknown";
+      $("redisToggle").disabled = true;
+      $("redisToggle").title = err.message;
+    }
+  }
+  $("redisToggle").addEventListener("click", async () => {
+    const button = $("redisToggle");
+    const action = redisRunning ? "stop" : "start";
+    button.dataset.busy = "true";
+    button.disabled = true;
+    button.textContent = redisRunning ? "Stopping…" : "Starting…";
+    try {
+      renderRedis((await getJSON("/api/services/redis/" + action, { method: "POST" })).running);
+      $("outageResult").replaceChildren(el("p", { className: "note", textContent: redisRunning
+        ? "Redis is back. The engine reconnects by itself: the next purchase goes through every check again."
+        : "Redis is stopped. Send a purchase to see the fallback decide." }));
+    } catch (err) {
+      showError($("outageResult"), err);
+    } finally {
+      delete button.dataset.busy;
+      checkRedis();
+    }
+  });
+  document.querySelectorAll("[data-outage]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        $("outageResult").replaceChildren(...summarizeResponses(await sendPurchase(presets[button.dataset.outage])));
+      } catch (err) {
+        showError($("outageResult"), err);
+      } finally {
+        button.disabled = false;
+        refresh();
+      }
+    });
+  });
+  checkRedis();
+  setInterval(checkRedis, 5000);
 
   $("window").addEventListener("change", refresh);
   window.addEventListener("resize", drawCharts);
