@@ -101,6 +101,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 | [D-075](#d-075-reason-messages-show-readable-amounts) | Reason messages show readable amounts | 🟢 Accepted | API | — |
 | [D-076](#d-076-charts-read-a-metrics-series-from-the-engine) | Charts read a metrics series from the engine | 🟢 Accepted | API | [06](../briefs/06-simulator-and-report-brief.md) |
 | [D-077](#d-077-the-dashboard-embeds-its-font-and-offers-a-fixed-merchant-list) | The dashboard embeds its font, offers a fixed merchant list and shows Colombian time | 🟢 Accepted | Dashboard | [06](../briefs/06-simulator-and-report-brief.md) |
+| [D-078](#d-078-the-dashboard-can-stop-and-start-redis) | The dashboard can stop and start Redis | 🟢 Accepted | Dashboard | [05](../briefs/05-deadline-and-fallback-brief.md) |
 
 ---
 
@@ -110,7 +111,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted · **Brief:** [00](../briefs/00-card-auth-engine-brief.md)
 - **Context:** The challenge lets me pick any problem. It rewards a real problem, a good reason for picking it, and a sensible scope.
 - **Options:** 📝 *the other problem ideas I considered.*
-- **AI input and concerns:** 📝 *what the AI contributed during research (processor deadlines, fraud patterns, references).*
+- **AI input and concerns:** Research on how issuing processors call the platform: their response deadlines (Stripe 2 s, Marqeta 3 s, Lithic 6 s with ≤ 3 s recommended), Lithic sending the same request more than once, the life of a hold (reversal, expiry, increment, capture), and the fraud patterns that hit corporate cards (card testing, split purchases, a stolen card used online). Sources are in the README references (§19).
 - **Decision:** A real-time authorization engine for corporate cards: controls, velocity, explainable score, idempotent and fail-safe.
 - **Why:** It is a core problem for a corporate card platform like Jeeves, and it maps directly to my 7+ years building real-time fraud signals at Truora. It has clear, demo-able correctness properties (deadline, idempotency, no double-spend).
 - **Consequences:** The domain is broad, so scope control is critical (see D-011).
@@ -118,7 +119,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 ### D-002: Language: Go
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted
 - **Options:** Go · Python · Node.
-- **AI input and concerns:** 📝
+- **AI input and concerns:** Go fits a latency-bound, concurrent service: goroutines make the 100-parallel-request test simple, and the race detector and coverage tools are built in. Python would be quicker to prototype but harder to keep at a low p99; Node handles I/O well but is weaker for the concurrency tests.
 - **Decision:** Go.
 - **Why:** Low and predictable latency, simple concurrency for the 100-parallel-request test, and it is my strongest language.
 - **Consequences:** Go 1.22+ routing patterns are available (see D-021). Coverage tooling is built in (`go test -coverprofile`), which `/check-tests` uses directly.
@@ -127,7 +128,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
 - **Context:** Two simultaneous swipes on one card must not both pass a limit that only allows one.
 - **Options:** Postgres `SELECT ... FOR UPDATE` (strong but adds latency and lock contention) · Redis Lua check-and-reserve (atomic, sub-ms, Redis becomes critical) · eventually consistent counters (fastest, limits can be exceeded).
-- **AI input and concerns:** 📝 *plus:* Redis is now a dependency the hot path can't decide without, so the fallback (D-006) must cover "Redis down", and counters must be rebuildable from the Postgres audit log.
+- **AI input and concerns:** Recommended the Lua script, the only option that is both atomic and sub-millisecond: `FOR UPDATE` puts every swipe of a card behind a row lock inside the latency budget, and eventually consistent counters can approve over a limit. Plus: Redis is now a dependency the hot path can't decide without, so the fallback (D-006) must cover "Redis down", and counters must be rebuildable from the Postgres audit log.
 - **Decision:** Redis Lua script for check-and-reserve; Postgres audit log as the source of truth.
 - **Why:** Atomic in under 1 ms, which leaves most of the latency budget for everything else.
 - **Consequences:** Needs a rebuild path for counters. Creates D-023 (releasing a reservation when a later stage declines).
@@ -135,7 +136,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 ### D-004: Rules as versioned JSON policies
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted · **Brief:** [02](../briefs/02-policy-and-hard-controls-brief.md)
 - **Options:** Code per client · versioned JSON · a DSL such as CEL.
-- **AI input and concerns:** 📝
+- **AI input and concerns:** Recommended versioned JSON. Code per client means a deploy for every customer change; a DSL like CEL is more expressive but adds a dependency and a language to learn in 3 days. Concern: a version must never change in place, or a past decision can't be replayed.
 - **Decision:** Versioned JSON documents, never updated in place; every decision stores the policy version it used.
 - **Why:** No deploy per customer, auditable, easy to validate. CEL is a natural next step.
 - **Consequences:** A decision can be replayed exactly from its stored input and policy version.
@@ -143,7 +144,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 ### D-005: Explainable weighted score instead of ML
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
 - **Options:** Weighted explainable features · a trained ML model.
-- **AI input and concerns:** 📝
+- **AI input and concerns:** Recommended the weighted score: a model needs labeled fraud data that doesn't exist here, and its output is hard to explain to a finance team. Each feature should map to one reason code, and the scorer should sit behind an interface so a model can replace it or use the features later.
 - **Decision:** Weighted sum of 7 explainable features, capped at 100, behind a `Scorer` interface. *(Now 6: "outside allowed hours" became a hard control in [D-038](#d-038-is-outside-allowed-hours-a-hard-control-or-a-score-signal).)*
 - **Why:** Finance teams and auditors need reasons; there is no labeled data in 3 days; the interface allows a model later.
 - **Consequences:** Weights are hand-tuned and need to be justified against the simulator's detection and false-decline rates.
@@ -151,7 +152,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 ### D-006: Per-company limited fail-open
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
 - **Options:** Global fail-closed · global fail-open · per-company with a maximum fail-open amount.
-- **AI input and concerns:** 📝
+- **AI input and concerns:** Recommended per company with a cap. Global fail-closed blocks every employee during an outage; global fail-open gives fraudsters the outage window. Concern: the fallback itself must not need Redis, since "Redis down" is the main case it covers.
 - **Decision:** Per company, with `fallback.mode` and `fallback.max_amount_minor`.
 - **Why:** Balances blocked legitimate spend against fraud exposure for each customer.
 - **Consequences:** The fallback path itself must not depend on Redis, and must be audited with `FALLBACK_APPLIED`.
@@ -185,14 +186,14 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options (AI-proposed cut order):** 1. real LLM call → 2. shadow mode → 3. metrics dashboard → 4. partial approval → 5. capture/refund/incremental auth.
 - **AI input and concerns:** Keep idempotency, the atomic reserve, the fallback and the simulator, because the demo depends on them.
 - **Decision:** Cut **shadow mode (FR7)**, the **metrics dashboard UI** (keep the CLI report and `GET /v1/metrics`) and **partial approval** (`APPROVE_PARTIAL`). Replace the real LLM call with a mock (D-013). **Keep** capture, refund and incremental auth (D-012).
-- **Why:** 📝 *your reasoning, e.g. none of the three cuts is needed to demonstrate correctness, safety or explainability.*
+- **Why:** None of the three cuts is needed to show what the engine is about: decisions that are correct, safe and explainable. Shadow mode and partial approval are features on top of a decision engine that already works, and the dashboard is presentation; the CLI report and `/v1/metrics` show the same numbers. I'd rather ship fewer things, tested and measured, than more things half done.
 - **Consequences:** FR1 now returns only `APPROVE` / `DECLINE`. The cut items move to "What I'd do next".
 
 ### D-012: Keep the full lifecycle in the MVP
 - **Date:** 2026-11-12 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
 - **Context:** The AI offered capture, refund and incremental auth as a possible cut.
 - **Decision:** Keep them.
-- **Why:** 📝
+- **Why:** Holds are where card limits break in real life: a hotel increment, a tip captured above the hold, a refund that should give budget back. Without the lifecycle the budget would only count approvals, which is not how a real card works, and the atomic reserve would be half the story. It is also the part that shows the most domain knowledge, so it was worth the heavier day.
 - **Consequences:** Day 2 is the heaviest day. The brief flags it as the main schedule risk. Requires D-027.
 
 ### D-013: Mock the LLM explainer
@@ -375,7 +376,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: hard control (declines) · B: score signal only · C: configurable per company.
 - **AI recommendation:** B. A hard decline at 7 pm blocks legitimate travel spend; as a low-weight signal it adds to the risk score.
 - **Decision:** A. Hard control: outside the company's allowed hours, the request is declined with `OUTSIDE_ALLOWED_HOURS`.
-- **Why:** 📝 *my reasoning for choosing a hard control over the AI recommendation (score signal).*
+- **Why:** Allowed hours is a company rule, not a probability. When a finance team says "no card spend between 23:00 and 06:00", they expect it enforced and explained in one line, not mixed into a score where other signals can outweigh or hide it. Legitimate night spend, like travel, is handled the way companies already handle exceptions: a wider window or a card override. It also keeps the score about fraud signals only.
 - **Consequences:** The anomaly score no longer has an "odd hour" feature: a request outside allowed hours is declined before scoring, so the feature could never fire. The score has 6 features. Companies that want travel spend at night widen their allowed hours or set a card override.
 
 ### D-039: Should a decline report every failing control, or only the first?
@@ -383,7 +384,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: stop at the first failing control · B: evaluate all hard controls, then decline once with every failing reason.
 - **AI recommendation:** B. It costs microseconds, doesn't change the decision, and gives better explanations ("blocked MCC and a country that isn't allowed").
 - **Decision:** A. Stop at the first failing control; the decline carries one reason.
-- **Why:** 📝 *my reasoning for choosing the simpler shape over the AI recommendation.*
+- **Why:** A decline needs one clear reason that the employee and the support team can act on. More reasons make the message longer and the explanation harder to validate, without changing the decision. The fixed order also makes the answer predictable: a frozen card always says "frozen", even if the merchant is blocked too. Reporting every reason is easy to add later if customers ask for it.
 - **Consequences:** Hard controls run in a fixed order (card status, entry mode, MCC, country, per-transaction limit, allowed hours), so the reason shown is the first one in that order. The existing pipeline already stops at the first decline, so no change is needed there.
 
 ### D-043: Code style rules enforced by linters
@@ -432,7 +433,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - A money limit in the default would decline every request in another currency (D-041).
   - Companies without a policy query Postgres on every request, because the cache doesn't remember a miss. This is a separate fix, not part of this decision.
 - **Decision:** C. When the company has no policy, the engine applies the embedded default and adds the reason `DEFAULT_POLICY_APPLIED`; the audit keeps `policy_version: 0`.
-- **Why:** 📝
+- **Why:** C is the smallest option that is still safe. "No policy, no restrictions" (A) leaves a new company unprotected, and declining everything (B) punishes a customer for a setup mistake. Embedded, the default is checked by tests at build time and still works when Postgres is down, which is exactly when the fallback needs it. D replays better, but it cost about three times as much for a case that should be rare.
 - **Consequences:**
   - SP05 always has a `fallback.mode` to read, even with Postgres down.
   - A bad default fails `go test`, not production.
@@ -445,7 +446,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: card only · B: card and company.
 - **AI input and concerns:** A. Each Lua call then touches only one card's keys. A company-wide key makes every card of the company wait on the same keys (correct, but serialized), and in Redis Cluster all those keys must share one hash slot.
 - **Decision:** A. `scope` accepts only `card`; company-wide limits go to next steps.
-- **Why:** 📝
+- **Why:** Per-card limits cover the threats in scope (card testing, split purchases, a stolen card) and keep each Lua call on one card's keys, so cards never wait on each other. Company-wide budgets are a real need, but they bring contention and Redis Cluster slot design that deserve their own design, not a rush in the last days.
 
 ### D-045: Rolling windows use the engine clock
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -453,28 +454,28 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: the request's `created_at` (consistent with D-040) · B: the engine clock.
 - **AI input and concerns:** B. A wrong or old `created_at` could move a request out of a window and bypass a money limit. Allowed hours don't count money, so they can keep `created_at`. The engine clock is injected, so tests still use a fake clock (D-036).
 - **Decision:** B. Velocity and budget windows use the engine clock; the audit keeps both times.
-- **Why:** 📝
+- **Why:** A money limit can't trust a timestamp someone else sends. If windows followed `created_at`, an old or wrong timestamp could move a purchase out of today's window and around the budget. Allowed hours counts no money, so it can use the processor's time and stay reproducible (D-040).
 
 ### D-046: Redis client: go-redis
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
 - **Options:** A: `redis/go-redis/v9` · B: `rueidis`.
 - **AI input and concerns:** A. The most widely used client; `redis.Script` runs EVALSHA and falls back to EVAL. rueidis is faster, which doesn't matter at this scale.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** It is the standard client, well documented, and `redis.Script` handles EVALSHA with the EVAL fallback for free. At this volume rueidis's extra speed gives nothing, and a reviewer is more likely to know go-redis.
 
 ### D-047: Lua tests run against the Compose Redis
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
 - **Options:** A: miniredis · B: the real Redis from Compose, tests skipped when it isn't running.
 - **AI input and concerns:** B. miniredis's Lua support is partial, so a passing test could hide a script bug. The store tests already use the real Postgres the same way.
 - **Decision:** B.
-- **Why:** 📝
+- **Why:** The Lua script is where the money rules live, so its tests must run against a real Redis. A fake with partial Lua support could pass a test that fails in production. The Postgres tests already work this way, so it is one setup for both. (Since [I-028](ISSUES.md#i-028-skipped-integration-tests-looked-like-a-pass), a missing Redis fails the tests instead of skipping them.)
 
 ### D-048: Redis calls have a fixed timeout
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md) · **Related:** [05](../briefs/05-deadline-and-fallback-brief.md)
 - **Options:** A: no special handling until SP05 · B: a fixed timeout on every Redis call now.
 - **AI input and concerns:** B, small. A 50 ms timeout means a slow or dead Redis returns an error quickly, and SP05 only has to map that error to the fallback.
 - **Decision:** B. 50 ms (`REDIS_TIMEOUT_MS`).
-- **Why:** 📝
+- **Why:** A slow Redis is worse than a dead one: requests hang until the deadline and the processor waits. With 50 ms, a Redis problem shows up quickly as an error, and the fallback answers with most of the latency budget still left.
 
 ### D-049: Amount rules have a currency
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -482,7 +483,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: the rule has a currency and a request in another currency is declined with the rule's reason · B: the rule has a currency and other currencies are not counted · C: no currency, raw minor units are summed.
 - **AI input and concerns:** A, consistent with D-041. B lets any foreign-currency purchase bypass the budget; C counts 1000 MXN the same as 1000 USD.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** Same rule as D-041: a limit in one currency must never be bypassed by paying in another. Until FX exists, declining is the only safe answer. Summing raw minor units would compare pesos with dollars, and skipping other currencies would leave the budget open.
 
 ### D-050: Lifecycle calls carry an `event_id`
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -490,7 +491,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: every lifecycle call carries an `event_id`, stored in a `lifecycle_events` table; a repeat returns the stored result · B: only full reversal, expiry and capture are idempotent (by state); a repeated partial is applied twice.
 - **AI input and concerns:** A. Processors send an id per event, and it covers partials. About 1 hour more than B.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** Processors retry, and a partial reversal or refund applied twice moves the budget the wrong way. An `event_id` makes every lifecycle call safe to retry, partials included: the same guarantee the authorization already has. One more hour for that was worth it.
 
 ### D-051: Reversal releases the amount but keeps the count
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -498,7 +499,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: release the amount, keep the count · B: remove it from both.
 - **AI input and concerns:** A. Card testers' small charges are often reversed quickly; removing them from the count would let them evade the card-testing rule.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** Reversing small charges quickly is part of how card testing works, so taking reversed charges out of the count would give attackers a way around the rule. Money is different: a reversed purchase was not spent, so its amount goes back to the budget.
 
 ### D-052: Shape of a velocity rule
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -510,7 +511,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - Reasons: an amount rule on `calendar_day` → `OVER_DAILY_LIMIT`, on `calendar_month` → `OVER_MONTHLY_LIMIT`; everything else → `VELOCITY_EXCEEDED`.
   - Card overrides can't change velocity rules (next steps).
 - **AI input and concerns:** Matches the README policy example, with `max_amount` gaining a currency.
-- **Why:** 📝
+- **Why:** One rule shape covers every limit in scope: count or amount, rolling or calendar windows, and filters for card testing. Following the README example kept the design and the code in sync, and naming the daily and monthly reasons makes declines readable without new fields.
 
 ### D-053: A capture counts the captured amount
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -518,7 +519,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: budgets count the captured amount · B: budgets keep counting the held amount.
 - **AI input and concerns:** A. It is the money actually spent. A capture above the hold can push a card over its budget after the fact; later requests are declined, the capture itself is not.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** The budget should reflect the money actually spent. A tip or a fuel purchase can end above or below the hold, and the capture is the final number. Declining a capture makes no sense because the purchase already happened, so an overspend is handled where it can be: on the next purchases.
 
 ### D-056: New cardholders skip the novelty features
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
@@ -526,14 +527,14 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: always score them · B: skip `NEW_COUNTRY`, `NEW_MERCHANT_CNP` and `AMOUNT_ANOMALY` until the cardholder has N approved purchases.
 - **AI input and concerns:** B with N = 5. Otherwise every new card is flagged, and the simulator's false-decline rate measures onboarding instead of fraud.
 - **Decision:** B, N = 5.
-- **Why:** 📝
+- **Why:** A first purchase is always new: new country, new merchant, no history. Scoring that would flag every new card and teach finance teams to ignore flags. Five approved purchases is a small history, but enough to compare against, and card testing and split purchases still apply from the first swipe.
 
 ### D-057: Score weights are defaults in code
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
 - **Options:** A: defaults in code (high 40, medium 25, low 10) · B: each company can override them in its policy.
 - **AI input and concerns:** A, tuned against the SP06 simulator. Per-company weights are a next step.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** The weights need tuning against data before any customer touches them. Defaults in code are simple, versioned with the code and covered by tests. Per-company weights make sense only once there is evidence that customers need different ones.
 
 ### D-058: Split purchases are read from Postgres before the claim
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
@@ -541,14 +542,14 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: a new Redis counter updated in the reserve script · B: a Postgres query loaded before the claim (D-029).
 - **AI input and concerns:** B. It is a score signal, not a hard limit: two parallel requests may miss each other, which costs one slightly low score, never money. The SP03 scripts stay untouched.
 - **Decision:** B.
-- **Why:** 📝
+- **Why:** The split signal adds points to a score; it doesn't protect a hard limit. Missing a parallel request costs at most a slightly lower score, never money, so it doesn't need Redis's atomicity. Reading it from Postgres before the claim keeps the Lua scripts about limits only.
 
 ### D-059: The cardholder history is one query over 90 days
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
 - **Options:** A: a `cardholder_profiles` table updated in the background after each approval · B: one SQL query over the cardholder's last 90 days of approvals, before the claim.
 - **AI input and concerns:** B. Always fresh and no background job (the worker arrives in SP07). A is a performance step for later.
 - **Decision:** B.
-- **Why:** 📝
+- **Why:** One query is always correct and adds no moving parts. A profile table updated in the background is faster, but it can be stale and needs a job to keep it right. I measure first: the load test passed with the query (after the index from [I-029](ISSUES.md#i-029-the-cardholder-history-scanned-every-card)), so the profile table waits until the query shows up in the latency.
 
 ### D-040: Shape of "allowed hours" and which clock it uses
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
@@ -558,7 +559,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - Clock: A: the request's `created_at` (the processor's timestamp), falling back to the engine clock if it is missing · B: always the engine clock.
 - **AI input and concerns:** A and A. One window covers the threats in scope. The processor's timestamp makes decisions reproducible from the audit log and makes the demo deterministic. A card can override the window.
 - **Decision:** A and A: one daily window `{start, end}` (end exclusive, may cross midnight), timed by the request's `created_at`, falling back to the engine clock.
-- **Why:** 📝
+- **Why:** One daily window is how companies state this rule, and it covers the threat in scope; weekday windows can come when a customer asks. The processor's timestamp makes a decision reproducible from the audit log, and the demo gives the same answer every time.
 
 ### D-041: A request in a different currency than the transaction limit
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Blocks:** SP02
@@ -566,7 +567,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN") · B: skip the limit for that request.
 - **AI input and concerns:** A. Skipping would let any purchase in another currency bypass the limit.
 - **Decision:** A: decline with `OVER_TRANSACTION_LIMIT` ("Limit is in USD, request is in MXN").
-- **Why:** 📝
+- **Why:** Without FX the engine can't compare amounts in two currencies, so the only safe answer is to decline. Skipping the limit would make "pay in another currency" a way around every limit. The message says why, so the company knows to add a limit in that currency.
 
 ### D-054: Lifecycle details for increment, capture and refund
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -578,7 +579,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - Every lifecycle answer shows the full state (`held_minor`, `captured_minor`, `refunded_minor`); only an increment has a `decision`.
 - **Alternatives not built:** multiple partial captures; increments that skip the hard controls; refunds without a capture.
 - **Decision:** As built: increments re-run card status and the per-transaction limit on the new total, then the amount windows; a declined increment is stored and keeps the hold; one capture per authorization, never declined; refunds only after a capture, partial allowed; answers show the full state.
-- **Why:** 📝
+- **Why:** Each choice follows how a real card behaves, kept to the cases in scope. An increment is new spend on the same purchase, so it passes the same limits on the new total. A declined increment keeps the original hold, because the first purchase is still valid. One capture, and refunds only after a capture, match the common card flow. Showing the full state in every answer makes the lifecycle easy to follow and to test.
 
 ### D-055: Rebuild the Redis counters at startup when they are lost
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [03](../briefs/03-velocity-budget-lifecycle-brief.md)
@@ -593,7 +594,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - Windows use the authorization's `created_at` (claim time) instead of the engine clock at reserve time: a few milliseconds apart.
 - **Alternatives not built:** a separate `cmd/rebuild` command; Redis persistence (AOF) as the only protection.
 - **Decision:** As built: rebuild at startup, before serving, when the marker key is missing; failures are logged and retried on the next start.
-- **Why:** 📝
+- **Why:** Postgres is the record; Redis is only fast. If Redis loses its data, the limits are gone and the next purchases could go over budget. Rebuilding before serving closes that gap without a manual step, and no purchase can race the rebuild. Data lost while the engine runs is a known gap, logged as a next step ([I-020](ISSUES.md#i-020-redis-data-lost-while-the-engine-runs-is-not-detected)).
 
 ### D-060: Scoring details
 - **Date:** 2026-11-13 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
@@ -604,7 +605,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - **Card-testing rule reason (D-025):** a velocity rule may set `"reason": "CARD_TESTING_PATTERN"` (only that or `VELOCITY_EXCEEDED`); the demo seed does.
   - **D-023 as built:** when the score declines, the velocity reservation is cancelled entirely, count included: the authorization was never approved, and this matches what a rebuild restores.
 - **Decision:** As built.
-- **Why:** 📝
+- **Why:** Every parameter is something a risk analyst can read and question: "three small attempts in ten minutes", "over 80% of the limit", "three deviations above normal". Cancelling the whole reservation when the score declines, count included, keeps the counters equal to what a rebuild produces, so the two never disagree.
 
 ### D-061: Fail-open is capped by amount only
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
@@ -612,7 +613,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: amount cap only · B: cap plus an in-memory cache of known merchants.
 - **AI input and concerns:** A. The fallback must not depend on what failed. The cap becomes `fallback.max_amount {amount_minor, currency}` like every other limit; a request in another currency is declined (D-041, D-049).
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** The fallback runs because something failed, so it can't depend on what failed. An amount cap is a pure rule on the request; a known-merchant list needs Postgres or another cache to keep fresh. In an outage, simple and predictable is what you want.
 
 ### D-062: With Postgres down, the default fallback applies and is logged
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
@@ -620,7 +621,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: an unknown card means an unknown company, so the default policy's fallback (fail-closed) applies; the decision is logged, not stored · B: cache cards in memory so known cards get their company's fallback.
 - **AI input and concerns:** A. The fallback is a pure function of the request and the policy, so a retry gets the same answer even though nothing was stored. B approves more during an outage but adds another cache to keep fresh.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** With Postgres down the engine doesn't know the card, so it can't know the company's fallback, and fail-closed is the safe answer for an unknown card. Because the fallback is a pure function of the request and the policy, a retry gets the same answer even though nothing was stored. A card cache would approve more during an outage, but it is one more cache to keep correct for a rare case.
 
 ### D-063: Contents of the default policy
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
@@ -628,7 +629,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: no money limit; block 7995 (gambling), 6051 (quasi-cash), 4829 (money transfer); risk 40/70; fallback fail-closed · B: the same plus a USD per-transaction limit.
 - **AI input and concerns:** A. A USD limit would decline every other currency (D-041). Every decision under the default carries `DEFAULT_POLICY_APPLIED`.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** The default must be safe for any company without guessing its currency. Gambling, quasi-cash and money transfers are almost never legitimate corporate spend, so blocking them is safe everywhere; a USD limit would decline every non-USD company. Fail-closed matches "we don't know this company yet", and `DEFAULT_POLICY_APPLIED` makes it visible.
 
 ### D-064: The engine answers at the deadline, even if a stage does not
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md)
@@ -636,7 +637,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Options:** A: run the decision in a goroutine and answer the fallback when the deadline fires; store it in the background once the slow transaction ends (D-031), tracked so shutdown waits (D-033) · B: only check the context between stages.
 - **AI input and concerns:** A. The processor always gets an answer on time, and SP05 AC3 (a 2 s stage answered within the deadline + 20 ms) can pass.
 - **Decision:** A.
-- **Why:** 📝
+- **Why:** Missing the processor's deadline means someone else decides for us (README §6.3). Checking the context between stages isn't enough, because a stage that ignores it never gives control back. Answering from a separate path guarantees an answer on time, and storing it afterwards keeps the retry consistent (D-031).
 
 ### D-065: Score weights can be overridden with env vars
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (asked in the review of PR #10; analysis by AI) · **Brief:** [04](../briefs/04-anomaly-scoring-brief.md)
@@ -648,28 +649,28 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - **Feature parameters (≥ 3 small attempts, 80% split share, z ≥ 3, cold start 5): not now.** They define what a feature means; six more variables add surface for little tuning gain.
   - A weight outside 0–100, or not a number, stops the engine at startup instead of scoring wrong. `scoring.Stage` gets a constructor, because a zero-value stage would score everything 0 silently.
 - **Decision:** `SCORE_WEIGHT_CARD_TESTING`, `SCORE_WEIGHT_SPLIT_PURCHASE`, `SCORE_WEIGHT_NEW_COUNTRY`, `SCORE_WEIGHT_NEW_MERCHANT_CNP`, `SCORE_WEIGHT_AMOUNT_ANOMALY`, `SCORE_WEIGHT_ROUND_AMOUNT`.
-- **Why:** 📝
+- **Why:** I wanted to tune the score in minutes, not with a rebuild each time. One env var per feature lets me change one weight, rerun the simulator and compare. Thresholds stay in the policy because they are a business choice per company, and feature parameters stay in code because they define what a feature means.
 
 ### D-068: The report has no target rates
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
 - **Context:** SP06 brief Q1: is there a target detection or false-decline rate, or is the report enough?
 - **AI input and concerns:** report only. Without real traffic, a target would be set against data I generated myself; the write-up explains what the numbers mean instead.
 - **Decision:** The report shows detection per scenario and the false-decline rate; no pass/fail target.
-- **Why:** 📝
+- **Why:** A target set against traffic I generated myself would be a number I chose, not a result. The report shows what was caught and what was blocked by mistake, and the write-up explains what that means. Real targets need real traffic.
 
 ### D-069: Load is tested by the Go simulator
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
 - **Options:** A: a k6 script (as the README first said) · B: the Go simulator's load mode, as designed in D-035.
 - **AI input and concerns:** B. Reviewers install nothing extra, and the report and the load test share one tool and one set of scenarios.
 - **Decision:** B. `make load` runs `cmd/simulator -mode load` and fails when the engine's p99 is 100 ms or more.
-- **Why:** 📝
+- **Why:** Reviewers already have Go; asking them to install k6 adds a step that can fail. With the simulator, load and correctness run on the same scenarios, so the numbers mean the same thing.
 
 ### D-070: Metrics are read from the audit log
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
 - **Options:** A: SQL over the `authorizations` table · B: in-memory counters and histograms in the engine.
 - **AI input and concerns:** A. The audit log already stores the decision, reasons, `fallback_used` and `latency_ms`; it survives restarts and needs no new state. It costs a scan of the window; fine for an operator endpoint, not for the hot path.
 - **Decision:** A. `GET /v1/metrics?since=` (default: the last 24 hours).
-- **Why:** 📝
+- **Why:** The audit log already has every field the metrics need, and it survives a restart. In-memory counters would be new state that resets with the engine. A scan of the window is fine for an operator endpoint, and it never touches the hot path.
 
 ### D-066: The simulator creates its own cards in Postgres
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built; with my change: random cases each run) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
@@ -677,21 +678,21 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **AI input and concerns (as built):** the simulator, a development tool, connects to Postgres to insert a fresh company's cards, and publishes that company's policy through the real API. IDs carry a random run ID; the traffic itself depends only on the seed. No admin endpoint, so no new attack surface.
 - **Alternatives not built:** a `POST /v1/cards` admin endpoint; fixed seed cards cleaned between runs.
 - **Decision:** Fresh company and cards per run, created in Postgres at execution; **each run draws new random cases** from a random seed (my change), printed in the report so any run can be replayed with `-seed`. Every scenario draws from a range that keeps its expected outcome.
-- **Why:** 📝
+- **Why:** Each run must start clean, or one run's counters change the next run's results. Creating cards straight in Postgres keeps that inside a development tool, without an admin endpoint in the engine. I asked for new random cases each run so the results can't come from a fixed set tuned to pass, and the printed seed means any surprising run can be replayed.
 
 ### D-067: The simulator runs in real time
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
 - **Context:** SP06 brief Q2 suggested a `DEMO_MODE` where the request's `created_at` drives the windows, to run "a day" in seconds.
 - **AI input and concerns (as built):** no fake clock. It would reverse D-045 (windows use the engine clock). Every scenario fits in real time: card testing is 8 requests in a second, split purchase and the daily limit happen on the same day.
 - **Decision:** As built: no fake clock.
-- **Why:** 📝
+- **Why:** A fake clock would undo D-045 just for the demo, and every scenario already fits in real time. Testing the engine the way it runs in production is worth more than a faster simulation.
 
 ### D-071: The engine keeps 32 Postgres connections
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md)
 - **Context:** An A/B load test at 1,000 req/s showed p99 spikes (up to 165 ms) with and without the explainer ([I-035](ISSUES.md#i-035-the-default-connection-pool-queued-requests-under-load)). The pgx default pool is `max(4, CPUs)`, 12 here, shared by 64 concurrent requests.
 - **AI input and concerns (as built):** `DATABASE_MAX_CONNS`, default 32: three runs passed at p99 4.1, 3.8 and 9.9 ms with it, and stays well under Postgres's `max_connections` (100), leaving room for the simulator and tests.
 - **Decision:** As built: 32 connections, `DATABASE_MAX_CONNS`.
-- **Why:** 📝
+- **Why:** The A/B test showed the p99 spikes came from requests waiting for a connection, not from the explainer. 32 passed the load test with room left under Postgres's limit, and it is an env var, so each environment can tune it without a rebuild.
 
 ### D-072: How the explainer worker drains the outbox
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (reviewed after it was built) · **Brief:** [07](../briefs/07-mock-llm-explainer-brief.md)
@@ -702,14 +703,14 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - Passes are at least **200 ms apart**; a ring during the gap is kept, so an explanation still arrives in well under a second (AC2).
   - Each job runs detached from the worker's context with a 3 s timeout, so shutdown lets it finish (D-033); a panic becomes a failed explanation (D-032).
 - **Decision:** As built.
-- **Why:** 📝
+- **Why:** Explanations matter, but never more than decisions. Publishing approvals in bulk removes most of the work, a small parallel batch keeps one slow call from blocking the rest, and the gap between passes stops the worker from competing with the hot path for connections. Result: 0 pending one second after the load test, and explanations still in under a second.
 
 ### D-073: A dashboard is a future task
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after reviewing the metrics) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Revisits:** [D-011](#d-011-mvp-scope-cuts)
 - **Context:** D-011 cut the dashboard UI and kept a CLI report and `GET /v1/metrics`. With the metrics and the simulator built, a dashboard is the natural next step.
 - **Decision:** A simple frontend, as a future task in this implementation: send random or specific transactions (one or a batch) and watch the metrics in real time. Built on 2026-11-14, when I asked for it ([D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)).
 - **AI input and concerns:** it can reuse what exists: the simulator's scenarios and seeded random cases for "random", the authorization API for "specific", and `GET /v1/metrics` for the numbers. "Real time" can start as polling `/v1/metrics` every second; a push channel (server-sent events) is only needed beyond that.
-- **Why:** 📝
+- **Why:** Once the core was built and measured, a dashboard was the best way for someone who isn't an engineer to try the engine: send a purchase, see why it was declined, watch the numbers move. I kept it out of the MVP so it couldn't take time from the safety work, and built it only after that work was done.
 
 ### D-074: The dashboard is a separate process that reuses the simulator
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, as built) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Implements:** [D-073](#d-073-a-dashboard-is-a-future-task)
@@ -721,13 +722,13 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - One HTML page embedded in the binary, no external libraries (works offline), light and dark themes; every value is inserted as text, never HTML.
 - **Alternatives not built:** pages served by the engine; a frontend framework; push updates.
 - **Decision:** As built.
-- **Why:** 📝
+- **Why:** The engine should only authorize. A UI or simulation endpoints inside it would add code and attack surface to a service whose job is to answer in milliseconds. A separate process reuses what already exists (scenarios, API, metrics), and one embedded page with no external libraries runs offline on a reviewer's machine.
 ### D-075: Reason messages show readable amounts
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after seeing the dashboard) · **Fixes:** [I-040](ISSUES.md#i-040-reason-messages-showed-amounts-in-cents)
 - **Context:** reason messages printed minor units: "Amount 151500 is over the per-transaction limit of 50000 USD" reads as a 50,000 USD limit. A PM testing the risk system reads these messages on the dashboard, and they reach the API response and the explanations.
 - **Decision:** every message with an amount shows it as "1,515.00 USD" through one formatter, `domain.FormatMoney` (moved from the explainer). Velocity windows read as words ("per calendar day"). Reason codes and every `*_minor` field stay as they are, so nothing a machine parses changes.
 - **AI input and concerns:** all currencies print with 2 decimals. That is right for USD, MXN and COP; a 0-decimal currency (JPY, CLP) would print wrong, but the engine already treats every amount as cents of a 2-decimal currency (D-007). Messages are free text, so a client that matched on the old text would break; none does in this repo.
-- **Why:** 📝
+- **Why:** These messages are read by people, and "50000 USD" reads as fifty thousand dollars. "500.00 USD" removes the confusion for a PM or a finance team. Reason codes and `*_minor` fields stay the same, so nothing a machine reads changes.
 
 ### D-076: Charts read a metrics series from the engine
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after seeing the dashboard) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Fixes:** [I-042](ISSUES.md#i-042-the-charts-could-only-show-the-last-minute-and-latency-was-a-flat-line)
@@ -735,7 +736,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** `GET /v1/metrics/series?since=&bucket_seconds=` groups the audit log into buckets (outcomes and p50/p95/p99 per bucket; empty buckets are left out). The dashboard asks for about 60 buckets: 1 s for live, 15 s for 15 minutes, 1 min for an hour, 30 min for 24 hours, and fills the empty ones itself.
 - **AI input and concerns:** it stays a scan of the window like D-070, now polled every second in live mode (every 5 seconds for the longer periods, and only while the charts tab is open). Fine for an operator page at this size; with real volume `created_at` needs an index or the series a rollup table. The handler caps a request at 1500 buckets. Buckets are aligned to the epoch in UTC, so 30-minute bars line up with the clock in whole-hour and half-hour time zones only.
 - **Alternatives not built:** keeping history in the browser (lost on reload, no past periods); in-memory counters in the engine (new state, lost on restart).
-- **Why:** 📝
+- **Why:** A chart that only knows the seconds since the page opened can't answer "what happened in the last hour". The audit log already has the history, so the engine groups it into buckets, and a reload or a past period shows the same data. It is the same trade-off as D-070: a scan that is fine for an operator page.
 
 ### D-077: The dashboard embeds its font and offers a fixed merchant list
 - **Date:** 2026-11-14 · **Status:** 🟢 Accepted (my decision, after seeing the dashboard) · **Brief:** [06](../briefs/06-simulator-and-report-brief.md) · **Amends:** [D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)
@@ -746,7 +747,7 @@ Entries marked 📝 need my own words before the interview (for example, what th
   - **Time:** every time on the page (status, feed, chart axes and tooltips) is shown in Colombian time (`America/Bogota`), whatever the browser's time zone is; the header says so. The demo company's policy and the simulator's policy use the same time zone, so allowed hours and the daily limit follow the Colombian clock too.
 - **AI input and concerns:** the font files are the Latin subset (24 KB in total), so a few symbols (✓, ≥) fall back to the system font. Poppins has no fixed-width digits, so number columns in tables use the system font to stay aligned; the license is in `internal/dashboard/fonts/OFL.txt`. A fixed merchant list means an ID outside it can only be sent through the API; "never seen before" covers the new-merchant signal. A fixed time zone is wrong for a viewer elsewhere who expects local time; the header label makes it explicit. The API and the audit log stay in UTC.
 - **Alternatives not built:** loading the font from a CDN (breaks offline use); the system font or Inter; a free-text merchant with suggestions; the browser's local time.
-- **Why:** 📝
+- **Why:** The dashboard is the first thing a reviewer sees, so it should look like a product, not a debug page. Embedding the font keeps it working offline. A fixed merchant list avoids typos and sets the right MCC, so each test does what you meant. Colombian time is the clock I run the demo on, so the times on screen, the allowed hours and the daily limit all match what the video shows.
 
 ### D-078: The dashboard can stop and start Redis
 - **Date:** 2026-11-16 · **Status:** 🟢 Accepted (my decision, for the demo) · **Brief:** [05](../briefs/05-deadline-and-fallback-brief.md) · **Amends:** [D-074](#d-074-the-dashboard-is-a-separate-process-that-reuses-the-simulator)
@@ -754,6 +755,6 @@ Entries marked 📝 need my own words before the interview (for example, what th
 - **Decision:** the dashboard process runs `docker compose stop redis` and `docker compose up -d --wait redis` behind `POST /api/services/redis/{stop|start}`, and reports the state with `GET /api/services/redis`. The **Simulate an outage** card shows the state, the button, and two purchases (45.00 and 300.00 USD) to see the fallback approve and decline. The engine is not touched: it has no endpoint to break itself.
 - **AI input and concerns:** the page has no login, so the service name is checked against a fixed list with Redis only; Postgres is left out because the dashboard needs it to create scenario cards. It only works where the dashboard runs next to `docker-compose.yml` (`-compose-dir`, default the current folder); elsewhere the card says the status is unknown and the button stays off. The state is polled every 5 seconds, one `docker compose ps` each.
 - **Alternatives not built:** a "pretend Redis is down" switch inside the engine (not a real outage, and test code in the decision path); stopping Postgres too.
-- **Why:** 📝
+- **Why:** Showing the fallback is one of the key moments of the demo, and switching to a terminal in the middle breaks the flow. The button stops the real Redis, so the fallback on screen is the real one, not a simulation. The engine stays untouched: a service should never have an endpoint to break itself.
 
 ## Proposed (waiting for my decision)

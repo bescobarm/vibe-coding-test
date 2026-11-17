@@ -9,14 +9,14 @@
 | Code + run instructions | This repo, starting with [How to run](#1-how-to-run) |
 | Design and research | This README, sections 4–15 |
 | Decision log (for the interview) | [docs/DECISIONS.md](docs/DECISIONS.md) |
-| One-page write-up | [WRITEUP.md](WRITEUP.md) |
+| One-page write-up | [WRITEUP.md](WRITEUP.md) · [PDF](WRITEUP.pdf) |
 | Trade-offs in short (for the interview) | [docs/TRADEOFFS.md](docs/TRADEOFFS.md) |
 | Issues found while building | [docs/ISSUES.md](docs/ISSUES.md) |
 | Glossary (CNP, MCC, hold, outbox…) | [docs/CONCEPTS.md](docs/CONCEPTS.md) |
 | SQL review | [docs/SQL_REVIEW.md](docs/SQL_REVIEW.md) |
 | Problem briefs (one per sub-project) | [briefs/](briefs/) |
 | Step-by-step test of every feature | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
-| 5-minute video | Link added on submission 🚧 |
+| 5-minute video | [Watch on Google Drive](https://drive.google.com/open?id=1VECu86npQ7c964p2a0YdTFPy3Y9K6X4n&usp=drive_copy) |
 
 ---
 
@@ -161,7 +161,7 @@ The deadline is short (due Mon 2026-11-16). The brief says *"a focused problem s
 | 11 | ✅ Traffic simulator + scenario report + `GET /v1/metrics` | [06](briefs/06-simulator-and-report-brief.md) |
 | 12 | ✅ Mocked LLM explainer fed by the outbox, with template fallback | [07](briefs/07-mock-llm-explainer-brief.md) |
 | 13 | ✅ Web dashboard (`make dashboard`) and `GET /v1/metrics/series` | [06](briefs/06-simulator-and-report-brief.md) |
-| 14 | ✅ `WRITEUP.md` · ✅ final README pass · 🎬 5-minute video | — |
+| 14 | ✅ `WRITEUP.md` · ✅ final README pass · ✅ 5-minute video | — |
 
 ---
 
