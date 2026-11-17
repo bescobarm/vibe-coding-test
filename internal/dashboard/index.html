@@ -209,7 +209,7 @@
   .pill.approve { color: var(--good-text); background: color-mix(in srgb, var(--good) 13%, transparent); } .pill.approve::before { background: var(--good); }
   .pill.flag { color: var(--warning-text); background: color-mix(in srgb, var(--warning) 20%, transparent); } .pill.flag::before { background: var(--warning); }
   .pill.decline { color: var(--critical-text); background: color-mix(in srgb, var(--critical) 12%, transparent); } .pill.decline::before { background: var(--critical); }
-  .result { margin-top: 14px; }
+  .result { margin-top: 14px; scroll-margin-top: 116px; }
   .note { color: var(--text-2); font-size: 12px; margin: 8px 0 0; }
   .error { color: var(--critical-text); margin: 8px 0 0; }
   .scroll { overflow-x: auto; }
@@ -1172,7 +1172,6 @@
     button.textContent = "Running…";
     box.replaceChildren(el("p", { className: "note" }, el("span", { className: "spinner" }),
       "Sending the purchases to the engine. This takes a few seconds; the metrics above update as it runs."));
-    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
     try {
       const result = await getJSON("/api/scenarios", {
         method: "POST",
@@ -1210,6 +1209,7 @@
           return el("tr", {}, cell(r.scenario), el("td", {}, verdict(r, row.ok)), cell(row.text, "wrap"), cell(r.requests, "num"));
         })));
       box.replaceChildren(stats, el("div", { className: "scroll" }, table), seed, el("p", { className: "note" }, seeAll));
+      box.scrollIntoView({ behavior: "smooth", block: "start" }); // the result is the point of the click: bring it under the header
     } catch (err) {
       showError(box, err);
     } finally {
@@ -1255,6 +1255,13 @@
   }
 
   // "#1–3 Approved · #4–5 Flagged · #6 Declined", then why the last one was decided.
+  // Reasons explain a decline or a flag. On a clean approval they are only notes
+  // (e.g. a round amount that added a few points), so they get another label.
+  function describeWhy(response) {
+    const text = (response.reasons || []).map((reason) => reason.message).join(" · ");
+    const clean = outcome(response.decision, response.flagged).className === "approve";
+    return (clean ? "Noted, did not change the decision: " : "Why: ") + text;
+  }
   function summarizeResponses(responses) {
     const groups = [];
     responses.forEach((r, i) => {
@@ -1273,7 +1280,7 @@
     edit.addEventListener("click", () => { showView("custom"); $("txForm").scrollIntoView({ behavior: "smooth", block: "center" }); });
     const line = el("div", { className: "line" }, ...parts, edit);
     if (!reasons.length) return [line];
-    return [line, el("div", { className: "why", textContent: "Why: " + reasons.map((reason) => reason.message).join(" · ") })];
+    return [line, el("div", { className: "why", textContent: describeWhy(responses[responses.length - 1]) })];
   }
 
   document.querySelectorAll("[data-preset]").forEach((button) => {
@@ -1309,7 +1316,7 @@
       const responses = await sendPurchase(values);
       const rows = responses.map((r, i) => el("tr", {},
         cell("#" + (i + 1)), el("td", {}, pill(r.decision, r.flagged)), cell(r.risk_score, "num"),
-        cell((r.reasons || []).map((reason) => describeReason(reason.code) + ": " + reason.message).join(" · ") || "Every check passed", "wrap")));
+        cell((r.reasons || []).length ? describeWhy(r).replace(/^Why: /, "") : "Every check passed", "wrap"))); // the column is already titled Why
       const table = el("table", {},
         el("thead", {}, el("tr", {}, el("th", { textContent: "Purchase" }), el("th", { textContent: "Decision" }), el("th", { className: "num", textContent: "Risk" }), el("th", { textContent: "Why" }))),
         el("tbody", {}, ...rows));
